@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin dashboard · Learning Portal</title><link rel="stylesheet" href="/lms.css">
+</head>
+<body class="admin-page">
+  <header class="site-head"><a class="brand" href="/portal/admin/"><span class="brand-icon">⚙</span><span><strong>Learning Portal</strong><small>Administration</small></span></a><nav><span>{{ user.get_full_name|default:user.username }} · Admin</span><a href="/oraclesql/">SQL Workbench</a><form method="post" action="/portal/logout/">{% csrf_token %}<button type="submit">Log out</button></form></nav></header>
+  <main class="admin-dashboard">
+    <div class="admin-welcome"><div><p class="eyebrow">ADMIN MODULE</p><h1>System overview</h1><p>Manage accounts, learning structure, content, and attendance.</p></div><a class="admin-primary" href="/admin/">Open admin workspace <span>↗</span></a></div>
+    <section class="admin-stats" aria-label="System totals">
+      <a href="/admin/workbench/portaluser/"><span>Total users</span><strong>{{ counts.users }}</strong><small>Students and teachers</small></a>
+      <a href="/admin/workbench/portaluser/?role__exact=TEACHER"><span>Teachers</span><strong>{{ counts.teachers }}</strong><small>Teacher accounts</small></a>
+      <a href="/admin/workbench/portaluser/?role__exact=STUDENT"><span>Students</span><strong>{{ counts.students }}</strong><small>Student accounts</small></a>
+      <a href="/admin/workbench/portaluser/?role__exact=STUDENT&amp;registration_status__exact=PENDING_ADMIN"><span>Pending student registrations</span><strong>{{ counts.pending_students }}</strong><small>Awaiting your review</small></a>
+      <a href="/admin/workbench/course/"><span>Courses</span><strong>{{ counts.courses }}</strong><small>Active and archived</small></a>
+      <a href="/admin/workbench/classsection/"><span>Classes</span><strong>{{ counts.classes }}</strong><small>Sections and batches</small></a>
+      <a href="/admin/workbench/attendancesession/?login_at__date={{ today|date:'Y-m-d' }}"><span>Logins today</span><strong>{{ counts.attendance_today }}</strong><small>Recorded sessions</small></a>
+    </section>
+    <section class="admin-section"><div class="admin-section-title"><div><p class="eyebrow">SYSTEM MANAGEMENT</p><h2>Manage the portal</h2></div></div><div class="admin-shortcuts">
+      <a href="/admin/workbench/portaluser/"><span>01</span><div><strong>Users</strong><small>Create and manage admin, teacher, and student accounts</small></div><b>→</b></a>
+      <a href="/admin/workbench/portaluser/?role__exact=STUDENT&amp;registration_status__exact=PENDING_ADMIN"><span>02</span><div><strong>Review student registrations</strong><small>Approve for accountant review or reject</small></div><b>→</b></a>
+      <a href="/portal/accounts/"><span>03</span><div><strong>Student accounts and fees</strong><small>Review activation requests and manage student fees</small></div><b>→</b></a>
+      <a href="/admin/workbench/course/"><span>03</span><div><strong>Courses and subjects</strong><small>Maintain the course catalogue</small></div><b>→</b></a>
+      <a href="/admin/workbench/classsection/"><span>04</span><div><strong>Classes and sections</strong><small>Organize classes by year and section</small></div><b>→</b></a>
+      <a href="/admin/workbench/teacherassignment/"><span>05</span><div><strong>Teacher assignments</strong><small>Assign teachers to classes and subjects</small></div><b>→</b></a>
+      <a href="/admin/workbench/announcement/"><span>06</span><div><strong>Announcements</strong><small>Publish and manage portal announcements</small></div><b>→</b></a>
+      <a href="/admin/workbench/attendancesession/"><span>07</span><div><strong>Attendance reports</strong><small>Review sign-in, activity, and sign-out sessions</small></div><b>→</b></a>
+      <a href="/admin/workbench/auditevent/"><span>08</span><div><strong>Activity log</strong><small>Review account and system activity</small></div><b>→</b></a>
+      <a href="/admin/"><span>09</span><div><strong>Questions, tests, and assignments</strong><small>Manage the full LMS record set</small></div><b>→</b></a>
+    </div></section>
+    <div class="admin-columns"><section class="admin-panel"><div class="admin-panel-heading"><h2>Active sessions</h2><a href="/admin/workbench/attendancesession/">View all</a></div>{% for session in active_sessions %}<div class="admin-row"><span class="admin-status-dot"></span><div><strong>{{ session.user.get_full_name|default:session.user.username }}</strong><small>{{ session.user.get_role_display }} · signed in {{ session.login_at|date:"M j, H:i" }}</small></div></div>{% empty %}<p class="admin-empty">There are no active sessions.</p>{% endfor %}</section>
+      <section class="admin-panel"><div class="admin-panel-heading"><h2>Recent activity</h2><a href="/admin/workbench/auditevent/">View all</a></div>{% for event in recent_activity %}<div class="admin-row"><span class="admin-activity-mark">↗</span><div><strong>{{ event.action|title }}{% if event.target %} · {{ event.target }}{% endif %}</strong><small>{{ event.actor|default:"System" }} · {{ event.created_at|date:"M j, H:i" }}</small></div></div>{% empty %}<p class="admin-empty">Activity will appear here as users sign in and use the portal.</p>{% endfor %}</section></div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Student sign in · Learning Portal</title><link rel="stylesheet" href="/lms.css">
+</head>
+<body>
+  <main class="portal-auth">
+    <a href="/lms.html">← Learning Portal</a>
+    <p class="eyebrow">STUDENT MODULE</p>
+    <h1>Student sign in</h1>
+    <p>Sign in to open your classes, assignments, and SQL workbench.</p>
+    {% if error %}<p role="alert" class="auth-error">{{ error }}</p>{% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <label>Username<input name="username" autocomplete="username" required autofocus></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+      <fieldset class="human-check">
+        <legend>Human verification</legend>
+        <label for="human-answer">Solve this: <strong>{{ human_question }}</strong></label>
+        <input id="human-answer" name="human_answer" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-describedby="human-help" required>
+        <small id="human-help">Enter the answer to confirm you are a person.</small>
+      </fieldset>
+      <button type="submit">Sign in as student</button>
+    </form>
+    <p class="student-auth-switch">New student? <a href="/students/register/">Register here</a></p>
+    <p class="student-auth-switch"><a href="/portal/login/">Admin or teacher sign in</a></p>
+  </main>
+</body>
+</html>

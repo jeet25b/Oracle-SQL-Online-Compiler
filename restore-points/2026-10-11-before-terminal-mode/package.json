@@ -1,0 +1,12 @@
+{
+  "name": "oraplay-oracle-sql-workbench",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A local web SQL workbench connected to Oracle Database.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "oracledb": "^6.9.0"
+  }
+}
