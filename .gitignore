@@ -7,5 +7,6 @@ __pycache__/
 *.py[cod]
 *.sqlite3
 static-collected/
+local-history/
 .venv/
 venv/

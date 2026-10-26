@@ -1,0 +1,28 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Your profile{% endblock %}
+{% block page_heading %}Your profile{% endblock %}
+{% block page_intro %}View the personal details connected to your portal account.{% endblock %}
+{% block dashboard_content %}
+<section class="content-card profile-view-card" aria-labelledby="profileDetailsHeading">
+  <div class="profile-view-header">
+    {% if user.avatar_image %}
+      <img class="profile-view-photo" src="/api/portal/avatar?v={{ user.avatar_image.name|urlencode }}" alt="Profile photo">
+    {% else %}
+      <span class="profile-view-initial" aria-hidden="true">{{ user.first_name|default:user.username|slice:":1"|upper }}</span>
+    {% endif %}
+    <div><p class="section-kicker">ACCOUNT DETAILS</p><h2 id="profileDetailsHeading">{{ user.get_full_name|default:user.username }}</h2><p>{{ profile_role }} · Account ID {{ user.username }}</p></div>
+    <button class="submit-button profile-update-button" type="button" data-open-profile-edit>Update profile</button>
+  </div>
+  <dl class="profile-view-grid">
+    <div><dt>Account ID</dt><dd>{{ user.username }}</dd></div>
+    <div><dt>Role</dt><dd>{{ profile_role }}</dd></div>
+    <div><dt>First name</dt><dd>{{ user.first_name|default:"—" }}</dd></div>
+    <div><dt>Middle name</dt><dd>{{ user.middle_name|default:"—" }}</dd></div>
+    <div><dt>Last name</dt><dd>{{ user.last_name|default:"—" }}</dd></div>
+    <div><dt>Email address</dt><dd>{{ user.email|default:"—" }}</dd></div>
+    <div><dt>Mobile number</dt><dd>{{ user.mobile_number|default:"—" }}</dd></div>
+  </dl>
+{% include "contact-verification-options.html" %}
+  <p class="profile-view-note">Your details are read-only on this page. Choose <strong>Update profile</strong> to make changes.</p>
+</section>
+{% endblock %}

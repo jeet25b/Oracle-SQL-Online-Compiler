@@ -1,0 +1,73 @@
+.global-controls-help{height:32px;padding:6px 9px;border:1px solid #2a3549;border-radius:7px;color:#dce5ef;background:#142236;cursor:pointer;font:600 11px/1.2 "DM Sans",system-ui,sans-serif;white-space:nowrap}.global-controls-help kbd{margin-left:4px}.global-controls-help:hover,.global-controls-help:focus-visible{border-color:var(--accent);color:#fff;background:rgba(var(--accent-rgb),.22);box-shadow:0 0 0 3px rgba(var(--accent-rgb),.18)}.topbar .palette-picker{color:#dce5ef;font-family:"DM Sans",system-ui,sans-serif}.topbar .palette-picker>summary{min-height:30px;padding:5px 9px;border-color:#2a3549;color:#dce5ef;background:#142236;font-size:11px}.topbar .palette-picker>summary:hover,.topbar .palette-picker[open]>summary{border-color:var(--accent);color:#fff;background:rgba(var(--accent-rgb),.2)}.topbar .palette-options{border-color:#344158;background:#142236;box-shadow:0 14px 34px #0008}.topbar .palette-options button{color:#dce5ef}.topbar .palette-options button:hover,.topbar .palette-options button:focus-visible{border-color:rgba(var(--accent-rgb),.7);color:#fff;background:rgba(var(--accent-rgb),.24)}.topbar .palette-options button[aria-checked="true"]{color:#fff;background:rgba(var(--accent-rgb),.28)}.profile-menu{position:relative}.avatar-button{width:34px;height:34px;display:grid;place-items:center;overflow:hidden;padding:0;border:0;border-radius:50%;color:#146448;background:#b5f0dc;font:700 14px "DM Sans",sans-serif;cursor:pointer}.avatar-image{width:100%;height:100%;display:block;border-radius:50%;object-fit:cover}.avatar-button [hidden]{display:none!important}.avatar-button:hover,.avatar-button:focus-visible,.avatar-button[aria-expanded="true"]{outline:2px solid var(--accent);outline-offset:3px}.profile-menu-list{position:absolute;z-index:40;top:calc(100% + 9px);right:0;width:184px;display:grid;gap:3px;padding:7px;border:1px solid #344158;border-radius:11px;background:#142236;box-shadow:0 14px 34px #0008}.profile-menu-list[hidden]{display:none!important}.profile-menu-list button,.profile-menu-list a{min-height:36px;display:flex;align-items:center;padding:0 10px;border:0;border-radius:7px;color:#dce5ef;background:transparent;cursor:pointer;font:500 12px "DM Sans",system-ui,sans-serif;text-align:left;text-decoration:none}.profile-menu-list button:hover,.profile-menu-list button:focus-visible,.profile-menu-list a:hover,.profile-menu-list a:focus-visible{color:#fff;background:rgba(var(--accent-rgb),.24)}.profile-menu-list button:last-child{margin-top:3px;border-top:1px solid #344158;border-radius:0 0 7px 7px;color:#ff9a9a}.topbar .theme-toggle{height:30px;min-height:30px;padding:0 9px;border-color:#2a3549;color:#dce5ef;background:#142236;font:600 11px "DM Sans",sans-serif;cursor:pointer}.topbar .theme-toggle:hover,.topbar .theme-toggle:focus-visible{border-color:var(--accent);color:#fff;background:rgba(var(--accent-rgb),.22);box-shadow:0 0 0 3px rgba(var(--accent-rgb),.16)}.topbar-actions{gap:8px}.topbar .theme-toggle{cursor:pointer}.topbar .profile-menu-list[hidden]{display:none!important}body[data-theme="light"] .topbar .profile-menu-list{border-color:#d6e0e9;background:#fff;box-shadow:0 14px 34px #172b3a24}body[data-theme="light"] .topbar .profile-menu-list button,body[data-theme="light"] .topbar .profile-menu-list a{color:#344a5e}body[data-theme="light"] .topbar .profile-menu-list button:hover,body[data-theme="light"] .topbar .profile-menu-list a:hover{color:var(--accent-strong);background:var(--accent-soft)}body[data-theme="light"] .topbar .palette-options{border-color:#dce4eb;background:#fff;box-shadow:0 16px 38px #172b3a24}body[data-theme="light"] .topbar .palette-options button{color:#40546a}body[data-theme="light"] .global-controls-help{border-color:#dce4eb;color:#32465b;background:#fff}body[data-theme="light"] .topbar .palette-picker>summary{border-color:#dce4eb;color:#32465b;background:#fff}@media(max-width:900px){.global-controls-help{font-size:10px;padding-inline:7px}.topbar-actions{gap:6px}}@media(max-width:650px){.global-controls-help{width:32px;padding:4px;font-size:0}.global-controls-help kbd{margin:0;font-size:10px}.topbar .palette-picker>summary{padding-inline:7px;font-size:10px}}
+
+.invisible-character-overlay {
+  position:absolute; z-index:4; overflow:hidden; pointer-events:none;
+  color:transparent; background:transparent;
+}
+.invisible-character-overlay[hidden] { display:none !important; }
+.invisible-character-overlay pre {
+  box-sizing:border-box; margin:0; border:0; min-height:100%;
+  color:transparent !important; -webkit-text-fill-color:transparent;
+  background:transparent; transform-origin:top left;
+}
+.invisible-character-box {
+  position:relative; outline:1px solid #e6cb36; outline-offset:-1px;
+  background:rgba(230,203,54,.07);
+}
+.invisible-character-zero { outline:0; background:none; }
+.invisible-character-zero::after {
+  content:""; position:absolute; left:0; top:0; width:.55em; height:1em;
+  border:1px solid #e6cb36; box-sizing:border-box;
+}
+
+/* Top-layer menus escape editor overflow and remain attached to their controls. */
+.anchored-workspace-popup[popover] {
+  position:fixed !important; inset:auto !important; margin:0 !important;
+  box-sizing:border-box; z-index:20000 !important;
+  overflow:auto !important; overscroll-behavior:contain;
+}
+.anchored-workspace-popup[popover]::backdrop { background:transparent; pointer-events:none; }
+.anchored-workspace-popup[hidden] { display:none !important; }
+
+.anchored-workspace-popup[popover]:not(:popover-open){display:none !important}
+
+.compiler-completions[hidden],.compiler-completions:not(:popover-open){display:none!important}
+.compiler-completions{position:fixed;inset:auto;margin:0;padding:5px;overflow:auto;box-sizing:border-box;border:1px solid #516580;border-radius:8px;background:#142236;color:#edf3ff;font:13px/1.5 Consolas,monospace;box-shadow:0 10px 30px #0008}
+.compiler-completions [role=option]{padding:6px 8px;cursor:pointer;white-space:pre}
+.compiler-completions [aria-selected=true]{background:#315181}
+.compiler-live-check{font:11px/1.4 system-ui;color:#e9c45d;white-space:normal;margin-left:10px}
+html[data-theme=light] .compiler-completions{background:#fff;color:#20314b}
+html[data-theme=light] .compiler-completions [aria-selected=true]{background:#d7e8fb}
+html[data-theme=light] .compiler-live-check{color:#8a5c00}
+
+.avatar-upload-input{display:none!important}
+/* Prompts are terminal decoration, not part of copied SQL. */
+.cli-command-prompt,.terminal-prompt>label,.cli-prompt>span,.cli-prompt-label{user-select:none;-webkit-user-select:none}
+.compiler-output-link{color:#80b7ff;text-decoration:underline;cursor:pointer;overflow-wrap:anywhere}
+.terminal-entry.terminal-comment{margin:0}
+.terminal-entry.terminal-comment .terminal-command{margin:0;min-height:1lh}
+.cli-command.cli-comment-command{display:block}
+.cli-comment-command .cli-comment-line{display:block}
+
+/* Paste activity uses the same palette and controls as its workspace. */
+.paste-activity-dialog {
+  width:min(900px,90vw);max-height:80vh;overflow:auto;padding:20px;
+  border:1px solid var(--ide-border,var(--border,#263850));border-radius:12px;
+  background:var(--ide-panel,var(--surface,#142236));color:var(--ide-text,var(--text,#edf3ff));
+  font:13px/1.6 Inter,"Segoe UI",Arial,sans-serif;
+  box-shadow:var(--ide-shadow,0 18px 60px #02071180);
+  scrollbar-color:var(--ide-muted,#8fa2bd) var(--ide-panel,#142236);
+}
+.paste-activity-dialog::backdrop {background:#020711b8;backdrop-filter:blur(3px)}
+.paste-activity-dialog .paste-activity-close {
+  border:1px solid var(--ide-border,var(--border,#263850));border-radius:9px;
+  background:var(--ide-panel-2,var(--surface,#0d1727));color:var(--ide-text,var(--text,#edf3ff));
+  padding:8px 12px;font:inherit;cursor:pointer;
+}
+.paste-activity-close:hover {border-color:var(--ide-accent,var(--accent,#9b83ff))}
+.paste-activity-close:focus-visible {outline:2px solid var(--ide-accent,var(--accent,#9b83ff));outline-offset:3px}
+.paste-activity-dialog p {color:var(--ide-muted,var(--muted,#8fa2bd))}
+.paste-activity-dialog details {padding:9px 0;border-bottom:1px solid var(--ide-border,var(--border,#263850))}
+.paste-activity-dialog summary {cursor:pointer;overflow-wrap:anywhere}
+.paste-activity-dialog summary:focus-visible {outline:2px solid var(--ide-accent,var(--accent,#9b83ff));outline-offset:2px}
+.paste-activity-dialog pre {padding:12px;border-radius:8px;background:var(--ide-panel-2,var(--surface,#0d1727));font:12px/1.6 Consolas,monospace}

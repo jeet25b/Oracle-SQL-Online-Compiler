@@ -1,0 +1,33 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Update profile{% endblock %}
+{% block page_heading %}Update profile{% endblock %}
+{% block page_intro %}Edit your details below. Contact verification will be requested if enabled by the administrator.{% endblock %}
+{% block dashboard_content %}
+<section class="content-card profile-edit-card" aria-labelledby="profileEditHeading">
+  <div class="section-heading"><div><p class="section-kicker">ACCOUNT SETTINGS</p><h2 id="profileEditHeading">Personal information</h2></div></div>
+  <form class="profile-form profile-edit-form" data-profile-form enctype="multipart/form-data">
+    <div class="profile-avatar-editor profile-form-wide">
+      <img class="profile-photo-preview" data-profile-avatar-preview alt="Profile photo preview" {% if user.avatar_image %}src="/api/portal/avatar?v={{ user.avatar_image.name|urlencode }}"{% else %}hidden{% endif %}>
+      <div><label class="field-label profile-photo-label">Profile photo<input class="avatar-file-input" name="avatar" type="file" accept="image/jpeg,image/png,image/webp"><span class="avatar-file-control"><span data-avatar-file-name>No photo selected</span><span class="avatar-file-button">Choose photo</span></span></label><small>JPG, PNG, or WebP. Maximum 2 MB.</small></div>
+    </div>
+    <div class="profile-form-grid">
+      <label class="field-label">First name<div class="input-wrap"><input name="firstName" maxlength="150" value="{{ user.first_name }}" required></div></label>
+      <label class="field-label">Middle name<div class="input-wrap"><input name="middleName" maxlength="150" value="{{ user.middle_name }}"></div></label>
+      <label class="field-label">Last name<div class="input-wrap"><input name="lastName" maxlength="150" value="{{ user.last_name }}"></div></label>
+      <label class="field-label">Email address<div class="input-wrap"><input name="email" type="email" maxlength="254" value="{{ user.email }}"></div></label>
+      <label class="field-label profile-form-wide">Mobile number<div class="input-wrap"><input name="mobileNumber" type="tel" inputmode="tel" maxlength="24" value="{{ user.mobile_number }}"></div></label>
+    </div>
+{% include "contact-verification-options.html" %}
+    <p class="profile-form-note">If email or mobile verification is enabled, changing that contact detail requires a new OTP before it is updated.</p>
+    <p class="form-status" data-profile-status role="status" aria-live="polite" hidden></p>
+    <div class="profile-form-actions"><a class="register-cancel" href="/portal/profile/">Cancel</a><button class="submit-button" type="submit">Save profile</button></div>
+  </form>
+  <form class="profile-verification" data-profile-verification-form hidden>
+    <p class="profile-form-note" data-profile-verification-message></p>
+    <label class="field-label" data-email-otp-field hidden>Email verification code<div class="input-wrap"><input name="emailOtp" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" disabled></div></label>
+    <label class="field-label" data-mobile-otp-field hidden>WhatsApp verification code<div class="input-wrap"><input name="mobileOtp" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" disabled></div></label>
+    <p class="form-status" data-profile-verification-status role="status" aria-live="polite" hidden></p>
+    <div class="profile-form-actions"><button class="register-cancel" type="button" data-cancel-profile-edit>Cancel</button><button class="submit-button" type="submit">Verify and save</button></div>
+  </form>
+</section>
+{% endblock %}

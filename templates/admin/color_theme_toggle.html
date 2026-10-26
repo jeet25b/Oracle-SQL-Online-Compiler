@@ -1,0 +1,23 @@
+<style>
+  .theme-toggle.admin-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    margin: 0 0 0 8px;
+    padding: 4px 9px;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    color: var(--header-link-color, var(--body-fg));
+    font: inherit;
+    font-size: 12px;
+  }
+  .admin-theme-toggle .theme-option { display: none; white-space: nowrap; }
+  html[data-theme="auto"] .admin-theme-toggle .theme-option-auto,
+  html[data-theme="dark"] .admin-theme-toggle .theme-option-dark,
+  html[data-theme="light"] .admin-theme-toggle .theme-option-light { display: inline; }
+</style>
+<button type="button" class="theme-toggle admin-theme-toggle" aria-label="Change admin color theme">
+  <span class="theme-option theme-option-auto">Theme: Auto</span>
+  <span class="theme-option theme-option-dark">Theme: Dark</span>
+  <span class="theme-option theme-option-light">Theme: Light</span>
+</button>

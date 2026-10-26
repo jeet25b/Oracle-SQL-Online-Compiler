@@ -1,0 +1,5 @@
+SELECT  * from STUDENT;
+
+SELECT  * from STUDENT;
+
+select * FROM EMPLOYEE;

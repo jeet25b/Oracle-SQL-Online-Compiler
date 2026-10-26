@@ -1,0 +1,34 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Remote code{% endblock %}
+{% block page_heading %}Remote code{% endblock %}
+{% block page_intro %}View or update a student’s shared SQLCL terminal and SQL WorkSheet editor.{% endblock %}
+{% block dashboard_content %}
+<section class="activity-toolbar content-card remote-code-toolbar" aria-label="Remote code controls">
+  <label>Student<select id="remoteCodeStudent"><option value="">Choose a student</option>{% for student in remote_code_students %}<option value="{{ student.id }}">{{ student.get_full_name|default:student.username }}{% if student.student_number %} · {{ student.student_number }}{% endif %}</option>{% endfor %}</select></label>
+  <button class="dashboard-help-button" id="remoteCodeRefresh" type="button" disabled>↻ Refresh</button>
+</section>
+<section class="content-card remote-code-card">
+  <div class="section-heading"><div><p class="section-kicker">REMOTE CODE</p><h2 id="remoteCodeStudentHeading">Student editor</h2><p class="activity-footnote" id="remoteCodeAccess">Select a student. Students must allow teacher editor access in compiler Settings.</p></div><span class="count-pill" id="remoteCodeRevision"></span></div>
+  <div class="remote-code-tabs" role="tablist" aria-label="Student editors"><button class="active" type="button" role="tab" aria-selected="true" data-remote-editor="sqlplus">SQLCL Terminal</button><button type="button" role="tab" aria-selected="false" data-remote-editor="plsql">SQL WorkSheet Editor</button></div>
+  <label class="remote-code-label" for="remoteCodeText" id="remoteCodeLabel">SQLCL Terminal code</label>
+  <textarea id="remoteCodeText" spellcheck="false" aria-label="Student SQLCL terminal code" placeholder="Choose a student who has enabled editor sharing." readonly disabled></textarea>
+  <div class="remote-code-footer"><p id="remoteCodeStatus" role="status" aria-live="polite">Student sharing permission is required to view or edit code.</p><button class="submit-button" id="remoteCodeSave" type="button" disabled>Save to student editor</button></div>
+</section>
+<style>
+  .remote-code-toolbar{display:flex;align-items:flex-end;gap:10px;margin-bottom:14px;padding:14px 16px}
+  .remote-code-toolbar label{display:grid;gap:5px;color:#6f8191;font-size:10px;font-weight:600;min-width:min(360px,100%)}
+  .remote-code-toolbar select{height:36px;padding:0 10px;border:1px solid #dce5eb;border-radius:8px;color:#33495e;background:#fff;font:11px "DM Sans",sans-serif}
+  .remote-code-toolbar button{height:36px;padding:0 11px;font-size:10px}
+  .remote-code-card{padding:16px}.remote-code-card .section-heading{margin-bottom:14px}
+  .remote-code-tabs{display:flex;gap:8px;border-bottom:1px solid var(--border,#2a3d56);margin-bottom:12px}
+  .remote-code-tabs button{border:0;border-bottom:2px solid transparent;padding:10px 12px;background:transparent;color:var(--muted,#91a3bd);cursor:pointer;font:600 11px "DM Sans",sans-serif}
+  .remote-code-tabs button.active{border-color:var(--accent,#7c5cff);color:var(--text,#edf3ff)}
+  .remote-code-label{display:block;margin:0 0 7px;color:var(--muted,#91a3bd);font-size:10px}
+  #remoteCodeText{display:block;width:100%;min-height:min(58vh,640px);resize:vertical;padding:14px;border:1px solid var(--border,#2a3d56);border-radius:9px;background:#081321;color:var(--text,#dce6f4);font:12px/1.65 "Cascadia Code",Consolas,monospace;tab-size:2;white-space:pre;overflow:auto}
+  #remoteCodeText:read-only{opacity:.82}#remoteCodeText:disabled{cursor:not-allowed}
+  .remote-code-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}
+  .remote-code-footer p{margin:0;color:var(--muted,#91a3bd);font-size:10px}.remote-code-footer .submit-button:disabled,.remote-code-toolbar button:disabled{opacity:.55;cursor:not-allowed}
+  @media(max-width:650px){.remote-code-footer{align-items:flex-start;flex-direction:column}.remote-code-toolbar label{flex:1}}
+</style>
+<script src="/portal/assets/teacher-remote-code.js?v=20261024-remote-code" defer></script>
+{% endblock %}

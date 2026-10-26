@@ -1,0 +1,19 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Choose a compiler{% endblock %}
+{% block page_heading %}Choose your compiler{% endblock %}
+{% block page_intro %}Select a SQL environment for your practice. Your administrator can manage which compiler options appear here.{% endblock %}
+{% block dashboard_content %}
+<section class="compiler-selection-grid" aria-label="Available compilers">
+  {% for compiler in compiler_options %}
+    <button class="compiler-selection-card{% if not compiler.execution_ready %} compiler-selection-unavailable{% endif %}" type="button" data-engine="{{ compiler.engine }}" data-compiler-name="{{ compiler.name }}" data-ready="{{ compiler.execution_ready|yesno:'true,false' }}"{% if compiler.execution_ready %}{% if compiler.engine == "ORACLE" or compiler.engine == "PLSQL" %} data-href="/oracle-sql/?engine={{ compiler.engine|urlencode }}"{% else %} data-href="/oraclesql/workspace/?engine={{ compiler.engine|urlencode }}"{% endif %}{% else %} aria-describedby="compilerSelectionStatus"{% endif %}>
+      <span class="compiler-selection-icon" aria-hidden="true">{{ compiler.icon }}</span>
+      <span class="compiler-selection-copy"><strong>{{ compiler.name }}</strong><small>{{ compiler.description|default:"SQL practice workspace" }}</small></span>
+      <span class="compiler-selection-arrow" aria-hidden="true">{% if compiler.execution_ready %}→{% else %}⋯{% endif %}</span>
+      <span class="compiler-selection-status{% if not compiler.execution_ready %} needs-backend{% endif %}">{% if compiler.execution_ready %}READY{% else %}BACKEND NEEDED{% endif %}</span>
+    </button>
+  {% empty %}
+    <div class="compiler-selection-empty"><strong>No compilers are available yet</strong><p>Ask an administrator to add a compiler option.</p></div>
+  {% endfor %}
+</section>
+<p class="compiler-selection-message" id="compilerSelectionStatus" role="status" aria-live="polite" hidden></p>
+{% endblock %}

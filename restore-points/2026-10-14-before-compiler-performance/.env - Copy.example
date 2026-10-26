@@ -1,0 +1,9 @@
+# Oracle Free / Database Free typical local connection.
+# Adjust the service name if your installation uses a different PDB/service.
+ORACLE_USER=your_oracle_username
+ORACLE_PASSWORD=your_oracle_password
+ORACLE_CONNECT_STRING=localhost:1521/FREE
+
+# The web server listens on localhost by default.
+HOST=127.0.0.1
+PORT=3000

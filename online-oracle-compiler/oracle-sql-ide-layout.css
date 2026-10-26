@@ -1,0 +1,427 @@
+/* Layout for the dedicated Oracle SQL workspace. */
+.ide-workspace{grid-template-columns:minmax(0,1fr);min-height:calc(100vh - 122px)}
+.ide-nav{display:none}
+.ide-main{min-height:0;overflow:hidden}
+.ide-viewbar{flex:none}
+.ide-content{display:grid;grid-template-columns:278px minmax(0,1fr);min-height:0;flex:1;overflow:hidden}
+.database-navigator{min-width:0;min-height:0;display:flex;flex-direction:column;padding:13px 12px 10px;border-right:1px solid var(--ide-border);background:#0c1727;overflow:hidden}
+.navigator-heading{height:35px;display:flex;align-items:center;justify-content:space-between;color:#e4ebf5;font-size:13px;font-weight:650}
+.navigator-heading>span{display:flex;align-items:center;gap:9px}.database-icon{color:var(--ide-accent);font-size:17px}
+.navigator-heading button{width:27px;height:27px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--ide-muted);font-size:19px;cursor:pointer}.navigator-heading button:hover{border-color:var(--ide-border);color:#fff;background:#1b2940}
+.navigator-connection{min-height:37px;display:flex;align-items:center;gap:8px;padding:0 10px;margin:4px 0 13px;border:1px solid var(--ide-border);border-radius:8px;background:#111f32;color:#d5e0ee;font-size:11px}.navigator-connection small{margin-left:auto;color:var(--ide-muted);font-size:9px}.navigator-connection .connection-dot{width:7px;height:7px}
+.navigator-schema-label{margin:0 0 5px 2px;color:#8396b0;font-size:9px;letter-spacing:1.2px}.navigator-select,.navigator-search input{width:100%;min-width:0;height:36px;border:1px solid #2a3d57;border-radius:8px;background:#101d2f;color:#dce6f4;font-size:11px}.navigator-select{padding:0 9px;margin-bottom:11px}.navigator-search{height:36px;display:flex;align-items:center;gap:7px;padding:0 9px;border:1px solid #2a3d57;border-radius:8px;background:#101d2f;color:#96a8c1}.navigator-search span{font-size:20px;line-height:1}.navigator-search input{height:32px;padding:0;border:0;outline:0;background:transparent}.navigator-search input::placeholder{color:#8092ac}
+.object-tree{min-height:0;flex:1;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#40536d transparent;margin:9px -3px 7px;padding-right:3px}.object-tree::-webkit-scrollbar{width:8px}.object-tree::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:8px;background:#40536d;background-clip:padding-box}.navigator-empty{padding:18px 9px;color:#8395ad;font-size:11px;line-height:1.5}.object-group{margin:0 0 2px}.object-group-toggle{width:100%;height:34px;display:flex;align-items:center;gap:8px;padding:0 7px;border:0;border-radius:7px;background:transparent;color:#b8c6d9;text-align:left;font-size:11px;cursor:pointer}.object-group-toggle:hover{background:#14243a;color:#fff}.object-group-toggle .group-chevron{width:12px;color:#879ab4;font-size:12px}.object-group-toggle .group-icon{width:16px;color:#8da9d5;font-size:14px}.object-group-toggle .group-count{color:#7f91a9}.object-group-items{padding:0 0 3px 24px}.object-tree-item{width:100%;height:31px;display:flex;align-items:center;gap:9px;padding:0 9px;border:1px solid transparent;border-radius:6px;background:transparent;color:#cad5e4;text-align:left;font-size:10px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.object-tree-item:hover,.object-tree-item.selected{background:#162b45;color:#f5f8fc}.object-tree-item.selected{border-color:#2b4668}.object-tree-item .object-symbol{flex:none;color:#67b8ee}.object-tree-item small{margin-left:auto;color:#71849e;font-size:9px}.navigator-footer{min-height:27px;display:flex;align-items:center;justify-content:space-between;padding:4px 3px 0;border-top:1px solid #1c2c40;color:#8598b0;font-size:9px}.navigator-footer>span{display:flex;align-items:center;gap:7px}.navigator-footer button{width:25px;height:25px;border:0;border-radius:6px;background:transparent;color:#9bacc2;font-size:16px;cursor:pointer}.navigator-footer button:hover{background:#1c2c40;color:#fff}.navigator-footer .status-led{width:6px;height:6px}
+.ide-panels{min-width:0;min-height:0;display:flex;overflow:hidden}.ide-view{min-width:0;min-height:0;width:100%;height:100%;overflow:auto}.sqlplus-view{padding:13px;overflow:hidden}.sqlplus-view .terminal-frame{min-height:0;height:100%}.terminal-output{max-height:none}.compiler-view{padding:13px;overflow:hidden}.compiler-layout{min-height:0;height:100%;grid-template-rows:minmax(180px,1.12fr) minmax(150px,.88fr)}.history-view,.settings-view{padding:22px;overflow:auto}.ide-main[data-view="history"] .database-navigator,.ide-main[data-view="settings"] .database-navigator{display:none}.ide-main[data-view="history"] .ide-content,.ide-main[data-view="settings"] .ide-content{grid-template-columns:minmax(0,1fr)}
+.result-tabs button[data-result="history"]{margin-left:4px}.editor-card-head{min-height:46px}.editor-file-meta>span:first-child{font-size:11px}.terminal-titlebar .tool-button{white-space:nowrap}.terminal-titlebar .terminal-lights{margin-right:2px}.terminal-titlebar>span:nth-child(2){white-space:nowrap}
+.ide-shell.icon-nav-left .ide-workspace{grid-template-columns:68px minmax(0,1fr)}.ide-shell.icon-nav-left .ide-nav{display:flex}.ide-shell.fullscreen-mode .ide-workspace{grid-template-columns:68px minmax(0,1fr)}.ide-shell.fullscreen-mode .ide-nav{display:flex}.ide-shell.fullscreen-mode .ide-main[data-view="history"] .ide-content,.ide-shell.fullscreen-mode .ide-main[data-view="settings"] .ide-content{grid-template-columns:minmax(0,1fr)}.ide-shell.fullscreen-mode .ide-viewbar{display:none}
+.ide-brand strong{font-size:13px;letter-spacing:1px}.ide-brand small{white-space:nowrap}.ide-connection{display:grid;grid-template-columns:8px auto auto;grid-template-rows:auto auto;align-items:center;column-gap:9px;row-gap:2px;white-space:nowrap}.ide-connection>.connection-dot{grid-column:1;grid-row:1 / span 2}.ide-connection>#connectionLabel{grid-column:2;grid-row:1}.ide-connection>.connection-service{grid-column:2 / 4;grid-row:2;padding:0;border:0;color:#aab9cd;font-size:10px}.ide-connection>.ide-connect-button{grid-column:3;grid-row:1}
+.ide-main.navigator-collapsed:is([data-view="sqlplus"],[data-view="compiler"]) .ide-content{grid-template-columns:52px minmax(0,1fr)}.ide-main.navigator-collapsed .database-navigator{padding:10px 5px}.ide-main.navigator-collapsed .navigator-heading{justify-content:center}.ide-main.navigator-collapsed .navigator-heading>span,.ide-main.navigator-collapsed .database-navigator>:not(.navigator-heading){display:none}.ide-main.navigator-collapsed .navigator-heading button{width:35px;border-color:var(--ide-border);background:#132136}
+.terminal-titlebar .terminal-font-value{min-width:14px;text-align:center;color:#8498b2;font-size:9px;font-family:ui-monospace,monospace}.terminal-titlebar [data-terminal-action="copy"],.terminal-titlebar [data-terminal-action="open"]{display:inline-flex}
+.result-data-toolbar{min-height:40px;display:flex;align-items:center;gap:9px;padding:5px 12px;border-bottom:1px solid var(--ide-border);color:#9aabc1;font-size:10px}.result-count{display:flex;align-items:center;gap:7px;margin-right:auto}.result-count i{display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#123a32;color:#43dba5;font-size:11px;font-style:normal}.result-limit,.result-filter{height:29px;border:1px solid var(--ide-border);border-radius:7px;background:#0e1a2a;color:#cad6e6;padding:0 8px;font-size:10px}.result-filter{width:min(190px,22vw)}.result-export{padding:6px 9px;font-size:10px}.ide-shell.icon-nav-left .ide-main[data-view="history"] .database-navigator,.ide-shell.icon-nav-left .ide-main[data-view="settings"] .database-navigator{display:none}
+.code-editor{position:relative}.code-editor .code-highlight{position:absolute;z-index:1;left:43px;right:0;top:0;bottom:0;margin:0;padding:15px 16px;overflow:hidden;border:0;color:#d8e2f0;text-align:left;font:13px/1.65 "Cascadia Code",Consolas,monospace;white-space:pre;pointer-events:none}.code-editor textarea{position:relative;z-index:2;grid-column:2;grid-row:1;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#edf3ff}.code-editor textarea::placeholder{color:#7b8ea8;-webkit-text-fill-color:#7b8ea8;opacity:1}.sql-keyword{color:#43b5ff;font-weight:650}.sql-string{color:#83d39a}.sql-number{color:#ffb85c}.sql-comment{color:#8191a7;font-style:italic}html[data-theme="light"] .code-editor .code-highlight{color:#26374f}html[data-theme="light"] .code-editor textarea{caret-color:#20314b}
+html[data-theme="light"] .database-navigator{background:#f5f8fc}html[data-theme="light"] .navigator-connection,html[data-theme="light"] .navigator-select,html[data-theme="light"] .navigator-search{background:#fff;color:#34445b}html[data-theme="light"] .navigator-heading{color:#28374d}html[data-theme="light"] .object-group-toggle,html[data-theme="light"] .object-tree-item{color:#475870}html[data-theme="light"] .object-group-toggle:hover,html[data-theme="light"] .object-tree-item:hover,html[data-theme="light"] .object-tree-item.selected{background:#e5edf7;color:#1d3048}html[data-theme="light"] .navigator-footer{border-color:#d8e0eb}
+.navigator-refresh-option{min-height:30px;display:flex;align-items:center;gap:8px;padding:2px 6px 5px;color:#cbd7e7;font-size:9px;font-weight:650;letter-spacing:.25px;text-transform:uppercase;cursor:pointer}
+.navigator-refresh-option input{width:15px;height:15px;margin:0;accent-color:#43dba5;cursor:pointer}
+html[data-theme="light"] .navigator-refresh-option{color:#42536b}
+
+.sqlplus-toolbar{min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 12px;border-bottom:1px solid #263950;background:#0d1828}
+.sqlplus-toolbar-group{display:flex;align-items:center;gap:8px;min-width:0}
+.sqlplus-editor-preferences{flex-wrap:wrap}
+.sqlplus-toolbar .tool-button{white-space:nowrap;padding:6px 8px;font-size:10px}
+.sqlplus-toolbar .terminal-font-value{min-width:18px;text-align:center;color:#c8d5e7;font-size:10px;font-variant-numeric:tabular-nums}
+.sqlplus-toolbar-check{display:inline-flex;align-items:center;gap:5px;color:#d5dfed;font-size:9px;font-weight:650;text-transform:uppercase;white-space:nowrap;cursor:pointer}
+.sqlplus-toolbar-check input{width:14px;height:14px;margin:0;accent-color:#43dba5;cursor:pointer}
+.sqlplus-toolbar-actions{margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+.terminal-prompt{position:relative}
+.sqlplus-starter-menu{position:absolute;z-index:8;left:42px;bottom:calc(100% + 7px);width:min(280px,calc(100vw - 100px));display:grid;gap:3px;padding:8px;border:1px solid #2a3c55;border-radius:9px;background:#142236;box-shadow:0 12px 30px #0008}
+.sqlplus-starter-menu[hidden]{display:none!important}
+.sqlplus-starter-menu strong{padding:4px 7px;color:#94a7c0;font-size:9px;text-transform:uppercase;letter-spacing:.7px}
+.sqlplus-starter-menu button{padding:7px;border:0;border-radius:5px;background:transparent;color:#dce6f4;text-align:left;font-size:10px;cursor:pointer}
+.sqlplus-starter-menu button:hover,.sqlplus-starter-menu button:focus-visible{background:#1c3049;color:#fff}
+html[data-theme="light"] .sqlplus-toolbar{border-color:#d8e0eb;background:#f2f6fb}
+html[data-theme="light"] .sqlplus-toolbar-check,html[data-theme="light"] .sqlplus-toolbar .terminal-font-value{color:#34445c}
+html[data-theme="light"] .sqlplus-starter-menu{border-color:#d2dce8;background:#fff;box-shadow:0 12px 30px #172b3a24}
+html[data-theme="light"] .sqlplus-starter-menu button{color:#34445c}
+@media(max-width:760px){.sqlplus-toolbar{align-items:flex-start;flex-direction:column;gap:6px;padding:7px}.sqlplus-toolbar-group{width:100%}.sqlplus-toolbar-actions{margin-left:0;justify-content:flex-start}.sqlplus-toolbar .tool-button{padding:5px 6px;font-size:9px}}
+
+.plsql-toolbar{min-width:0;width:100%;margin-left:0;display:flex;align-items:center}
+.plsql-toolbar-group{display:flex;align-items:center;justify-content:flex-start;gap:7px;flex-wrap:wrap}
+.plsql-toolbar-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-left:auto}
+.result-tabs{gap:10px}
+.result-tabs .result-runtime{margin-left:auto}
+.result-tab-actions{display:flex;align-items:center;gap:12px;margin-left:12px}
+.result-tab-action{padding:5px 2px;border:0;background:transparent;color:#d5dfed;font-size:10px;font-weight:650;text-transform:uppercase;white-space:nowrap;cursor:pointer}
+.result-tab-action:hover,.result-tab-action:focus-visible{color:#55ddb0;outline:none}
+.oracle-ide-page button:not(:disabled){transition:color .14s ease,background-color .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease}
+:root[data-theme="dark"] .oracle-ide-page button:not(:disabled):hover,
+:root[data-theme="dark"] .oracle-ide-page button:not(:disabled):focus-visible{
+  border-color:var(--ide-accent);
+  color:#fff;
+  background-color:color-mix(in srgb,var(--ide-accent) 17%,#121e30);
+  box-shadow:0 7px 15px #05091488;
+  transform:translateY(-1px);
+}
+:root[data-theme="light"] .oracle-ide-page button:not(:disabled):hover,
+:root[data-theme="light"] .oracle-ide-page button:not(:disabled):focus-visible{
+  border-color:var(--ide-accent);
+  color:#17243a;
+  background-color:color-mix(in srgb,var(--ide-accent) 12%,#fff);
+  box-shadow:0 6px 14px #17243a20;
+  transform:translateY(-1px);
+}
+.plsql-toolbar .tool-button{padding:6px 8px;font-size:10px;white-space:nowrap}
+.plsql-toolbar-check{display:inline-flex;align-items:center;gap:5px;color:#d5dfed;font-size:9px;font-weight:650;text-transform:uppercase;white-space:nowrap;cursor:pointer}
+.plsql-toolbar-check input{width:14px;height:14px;margin:0;accent-color:#43dba5;cursor:pointer}
+.plsql-font-value{min-width:18px;text-align:center;color:#c8d5e7;font-size:10px;font-variant-numeric:tabular-nums}
+.plsql-case-anchor{position:relative;display:inline-flex}
+.plsql-case-menu{position:absolute;z-index:12;top:calc(100% + 6px);left:0;min-width:155px;display:grid;gap:3px;padding:6px;border:1px solid #2a3c55;border-radius:8px;background:#142236;box-shadow:0 12px 30px #0008}
+.plsql-case-menu[hidden]{display:none!important}
+.plsql-case-menu button,.plsql-starter-menu button{padding:7px;border:0;border-radius:5px;background:transparent;color:#dce6f4;text-align:left;font-size:10px;cursor:pointer}
+.plsql-case-menu button:hover,.plsql-case-menu button:focus-visible,.plsql-starter-menu button:hover,.plsql-starter-menu button:focus-visible{background:#1c3049;color:#fff}
+.plsql-starter-menu{position:absolute;z-index:5;top:8px;right:10px;width:min(260px,calc(100% - 66px));display:grid;gap:3px;padding:8px;border:1px solid #2a3c55;border-radius:9px;background:#142236;box-shadow:0 12px 30px #0008}
+.plsql-starter-menu[hidden]{display:none!important}
+.plsql-starter-menu strong{padding:4px 7px;color:#94a7c0;font-size:9px;text-transform:uppercase;letter-spacing:.7px}
+html[data-theme="light"] .plsql-toolbar-check,html[data-theme="light"] .plsql-font-value{color:#34445c}
+html[data-theme="light"] .plsql-case-menu,html[data-theme="light"] .plsql-starter-menu{border-color:#d2dce8;background:#fff;box-shadow:0 12px 30px #172b3a24}
+html[data-theme="light"] .plsql-case-menu button,html[data-theme="light"] .plsql-starter-menu button{color:#34445c}
+@media(max-width:760px){.editor-card-head{align-items:flex-start;flex-direction:column}.plsql-toolbar{width:100%;margin-left:0;align-items:flex-start;flex-direction:column;gap:7px}.plsql-toolbar-group{justify-content:flex-start;gap:5px}.plsql-toolbar-actions{margin-left:0;justify-content:flex-start;flex-wrap:wrap}.plsql-toolbar .tool-button{padding:5px 6px;font-size:9px}}
+@media(max-width:650px){.result-tabs{height:auto;min-height:43px;flex-wrap:wrap;gap:5px;padding:4px 9px}.result-tabs .result-runtime{margin-left:auto}.result-tab-actions{gap:8px;margin-left:0}.result-tab-action{font-size:9px}}
+@media(max-width:1050px){.ide-brand{min-width:205px}.ide-connection{column-gap:6px}.ide-header-controls{gap:6px}.ide-content{grid-template-columns:235px minmax(0,1fr)}.database-navigator{padding-inline:9px}}
+@media(min-width:761px){.ide-shell{height:100vh;min-height:0;overflow:hidden}.ide-workspace{height:calc(100vh - 126px);min-height:0}.ide-shell.fullscreen-mode .ide-workspace{height:100%}}
+@media(max-width:760px){.ide-shell{padding:0 8px}.ide-topbar{height:auto;min-height:66px;flex-wrap:wrap;padding:8px 0;gap:7px}.ide-brand{min-width:0;flex:1}.ide-brand strong{font-size:10px}.ide-brand small{font-size:8px}.ide-connection{order:3;width:100%;padding-left:5px;font-size:10px}.ide-header-controls{margin-left:auto}.ide-header-controls .global-controls-help{display:none}.ide-header-controls .fullscreen-toggle{display:inline-flex!important;padding:6px 7px;font-size:9px}.ide-header-controls .ide-back-link{display:inline-flex!important;padding:6px 7px;font-size:9px}.ide-workspace{min-height:calc(100vh - 82px);margin:8px 0 10px}.ide-viewbar{height:45px;padding:0 6px}.ide-tabs{width:100%;justify-content:space-around}.ide-tabs button{padding:0 7px;font-size:10px}.engine-pill{display:none}.ide-content{display:flex;flex-direction:column;overflow:hidden}.database-navigator{height:44%;min-height:190px;max-height:310px;border-right:0;border-bottom:1px solid var(--ide-border)}.ide-panels{flex:1;min-height:270px}.ide-main[data-view="history"] .database-navigator,.ide-main[data-view="settings"] .database-navigator{display:none}.ide-main[data-view="history"] .ide-content,.ide-main[data-view="settings"] .ide-content{display:flex}.sqlplus-view,.compiler-view{padding:8px}.terminal-frame{min-height:240px!important}.terminal-output{min-height:140px;padding:10px}.terminal-titlebar{gap:6px;padding:0 8px;flex-wrap:wrap;height:auto;min-height:43px}.terminal-titlebar .tool-button{padding:4px 6px;font-size:9px}.compiler-layout{grid-template-rows:minmax(155px,1.1fr) minmax(125px,.9fr)}.editor-card-head{gap:6px;padding:7px}.editor-file-meta{gap:8px}.compiler-actions{gap:4px}.compiler-actions .tool-button,.compiler-actions .run-button{font-size:9px;padding:5px}.result-tabs{gap:7px;padding:0 7px}.result-tabs button{font-size:9px;padding:0 5px}.history-view,.settings-view{padding:13px}.result-data-toolbar{flex-wrap:wrap}.result-count{width:100%;margin-right:0}.result-filter{width:100%}.fullscreen-mode .ide-workspace{grid-template-columns:50px minmax(0,1fr)}.fullscreen-mode .ide-nav,.icon-nav-left .ide-nav{padding-inline:5px}.fullscreen-mode .ide-nav-item,.icon-nav-left .ide-nav-item{width:38px;height:40px}}
+/* Keep module navigation in a left rail; the control collapses labels to icons. */
+.ide-workspace{grid-template-columns:220px minmax(0,1fr)}
+.ide-nav{display:flex;min-width:0}
+.ide-shell.icon-nav-left .ide-workspace{grid-template-columns:68px minmax(0,1fr)}
+.ide-shell.icon-nav-left .ide-nav-item{justify-content:center;padding-inline:0}
+.ide-shell.icon-nav-left .ide-nav-item b{display:none}
+.ide-shell.icon-nav-left .ide-nav-collapse{align-self:center}
+.ide-shell.fullscreen-mode .ide-workspace{grid-template-columns:68px minmax(0,1fr)}
+.ide-shell.fullscreen-mode .ide-nav{display:flex;align-items:center;padding-inline:7px}
+.ide-shell.fullscreen-mode .ide-nav-item{justify-content:center;padding-inline:0}
+.ide-shell.fullscreen-mode .ide-nav-item b,.ide-shell.fullscreen-mode .ide-nav-collapse{display:none}
+.ide-shell.fullscreen-mode .ide-nav-brand{margin-inline:0}
+.ide-viewbar{display:none!important}
+.terminal-titlebar .tool-button{margin-left:0}
+.terminal-titlebar .tool-button[data-terminal-action="copy"]{margin-left:auto}
+/* Keep the editor viewport inside its card so line numbers and code cannot
+   paint over the shortcut footer when the available height is constrained. */
+.compiler-layout .editor-card{min-height:0}
+.compiler-layout .code-editor{min-height:0;overflow:hidden}
+.compiler-layout .code-editor>pre:not(.code-highlight){min-height:0;height:100%;overflow:hidden}
+.compiler-layout .code-editor textarea{min-height:0;height:100%;overflow-x:auto;overflow-y:auto;scrollbar-gutter:stable;scrollbar-width:auto;scrollbar-color:#7186a3 #101e30}
+.compiler-layout .code-editor textarea::-webkit-scrollbar{width:14px;height:14px}
+.compiler-layout .code-editor textarea::-webkit-scrollbar-track{background:#101e30}
+.compiler-layout .code-editor textarea::-webkit-scrollbar-thumb{background:#7186a3;border:3px solid #101e30;border-radius:8px}
+.compiler-layout .code-editor textarea::-webkit-scrollbar-thumb:hover{background:#9bafc9}
+.compiler-layout .code-editor textarea::-webkit-scrollbar-corner{background:#101e30}
+html[data-theme="light"] .compiler-layout .code-editor textarea{scrollbar-color:#718096 #e8eef5}
+html[data-theme="light"] .compiler-layout .code-editor textarea::-webkit-scrollbar-track,
+html[data-theme="light"] .compiler-layout .code-editor textarea::-webkit-scrollbar-corner{background:#e8eef5}
+html[data-theme="light"] .compiler-layout .code-editor textarea::-webkit-scrollbar-thumb{background:#718096;border-color:#e8eef5}
+.compiler-layout .editor-status{position:relative;z-index:3;flex:none;min-height:34px;background:#0b1523}
+.compiler-layout{gap:0;grid-template-rows:minmax(140px,1.12fr) 10px minmax(120px,.88fr)}
+.editor-resizer{position:relative;z-index:4;display:grid;place-items:center;height:10px;min-height:10px;cursor:ns-resize;touch-action:none;outline:none}
+.editor-resizer::after{content:"";width:44px;height:3px;border-radius:3px;background:#344862;transition:background .15s, width .15s}
+.editor-resizer:hover::after,.editor-resizer:focus-visible::after{width:64px;background:var(--ide-accent,#9b83ff)}
+.compiler-layout .compiler-actions{display:flex;justify-content:flex-end;align-items:center;margin-left:auto}
+.compiler-layout .compiler-actions{margin-top:0}
+.compiler-layout .editor-status{justify-content:flex-start}
+.editor-run-actions{display:flex;align-items:center;gap:8px}
+.editor-file-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.editor-file-actions .tool-button{padding:6px 9px;font-size:10px}
+.editor-cursor-position{margin-left:12px;color:#91a3bd;font:10px "Cascadia Code",Consolas,monospace;white-space:nowrap}
+@media(max-width:760px){
+  .ide-workspace{display:grid;grid-template-columns:180px minmax(0,1fr);min-height:calc(100vh - 82px)}
+  .ide-shell.icon-nav-left .ide-workspace{grid-template-columns:52px minmax(0,1fr)}
+  .ide-nav{display:flex!important;gap:4px;padding:9px 6px}
+  .ide-nav-brand{width:34px;height:34px;margin:0 auto 12px}
+  .ide-nav-item{width:100%;height:42px;gap:8px;padding:0 8px}
+  .ide-nav-item span{flex:none}
+  .ide-nav-item b{font-size:10px}
+  .ide-shell.icon-nav-left .ide-nav-item{width:38px;height:40px}
+  .ide-nav-fullscreen{display:none}
+  .ide-main{min-height:0}
+  .ide-viewbar{display:none!important}
+}
+@media(max-width:720px){.compiler-layout .compiler-actions{width:auto;margin-left:auto;justify-content:flex-end}.editor-run-actions{gap:6px}.editor-run-actions .run-button{padding:6px 9px;font-size:10px}}
+.history-view{gap:14px;padding:20px;overflow:hidden}
+.history-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.history-export-actions{display:flex;align-items:center;gap:14px;margin-left:auto}
+.history-export-button{padding:5px 2px;border:0;background:transparent;color:#d5dfed;font-size:10px;font-weight:650;text-transform:uppercase;white-space:nowrap;cursor:pointer}
+.history-export-button:hover,.history-export-button:focus-visible{color:#55ddb0;outline:none}
+.history-heading h1{margin:5px 0;font-size:22px}.history-heading p{margin:0;color:var(--ide-muted);font-size:11px}
+.history-filters{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:9px;padding:10px;border:1px solid var(--ide-border);border-radius:10px;background:#0c1726}
+.history-filters label{display:flex;flex:1 0 110px;min-width:0;flex-direction:column;gap:5px;color:#b9c7d9;font-size:9px;font-weight:600}
+.history-filters select,.history-filters input{width:100%;height:32px;min-width:0;padding:0 9px;border:1px solid #2a3d57;border-radius:7px;background:#101d2f;color:#dce6f4;font-size:10px}
+.history-filters .history-search{flex:2 0 180px}
+.history-table-wrap{flex:1;min-height:0;overflow:auto;border:1px solid var(--ide-border);border-radius:10px;background:#0c1726}
+.history-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:10px}
+.history-table th,.history-table td{padding:8px 9px;border-bottom:1px solid #1d2b3e;text-align:left;vertical-align:middle}
+.history-table th{position:sticky;top:0;z-index:1;background:#142136;color:#aebed2;font-size:9px;font-weight:650}
+.history-table th[data-history-sort]{cursor:pointer;user-select:none}
+.history-table th[data-history-sort]:hover,.history-table th[data-history-sort]:focus-visible{color:#fff;background:#1a2c45;outline:none}
+.history-table th[data-history-sort]::after{padding-left:4px;color:var(--ide-accent)}
+.history-table th[data-history-sort][aria-sort="ascending"]::after{content:"↑"}
+.history-table th[data-history-sort][aria-sort="descending"]::after{content:"↓"}
+.history-table th[data-history-sort][aria-sort="none"]::after{content:"↕";color:#71849e}
+.history-table tbody tr:hover{background:#111f32}.history-table tbody tr:last-child td{border-bottom:0}
+.history-table th:first-child{width:94px}.history-table th:nth-child(2){width:118px}.history-table th:nth-child(3){width:76px}.history-table th:nth-child(5){width:78px}.history-table th:nth-child(6){width:72px}.history-table th:nth-child(7),.history-table th:nth-child(8){width:58px}.history-table th:last-child{width:104px}
+.history-table td time{display:block;color:#cbd6e5;white-space:nowrap}.history-table td time small{display:block;margin-top:2px;color:#8295ad;font-size:9px}
+.history-source-badge,.history-status-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 6px;border-radius:5px;font-size:9px;white-space:nowrap}
+.history-source-badge.compiler{background:#742b3c;color:#ffdce2}.history-source-badge.sqlplus{background:#174c83;color:#d4edff}
+.history-status-badge::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.history-status-badge.success{color:#48d7a3}.history-status-badge.failed{color:#ff647d}
+.history-access-badge{display:inline-block;padding:3px 6px;border-radius:5px;font-size:9px}.history-access-badge.active{background:#123a32;color:#48d7a3}.history-access-badge.inactive{background:#382331;color:#ff9aaa}
+.history-student-name,.history-table td>small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-table td>small{margin-top:2px;color:#8295ad;font-size:8px}
+.history-query-preview{max-width:0;overflow:hidden;color:#c4d1e2;font:9px/1.35 "Cascadia Code",Consolas,monospace;text-overflow:ellipsis;white-space:nowrap}
+.history-table-actions{display:flex;align-items:center;gap:4px}.history-icon-action{display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:5px;background:transparent;color:#b9c9dd;font-size:13px;cursor:pointer}.history-icon-action:hover{background:#1b2d45;color:#fff}
+.history-table-empty{height:100px;text-align:center!important;color:var(--ide-muted)!important}
+.history-pagination{display:flex;align-items:center;justify-content:space-between;color:#879ab3;font-size:9px}.history-pagination>div{display:flex;align-items:center;gap:7px}.history-pagination .tool-button{min-width:28px;padding:5px 8px}.history-pagination .tool-button:disabled{opacity:.4;cursor:default}
+@media(max-width:900px){.history-table{min-width:720px}}
+@media(max-width:560px){.history-view{padding:12px}.history-heading{align-items:flex-start}.history-heading h1{font-size:19px}.history-heading p{max-width:250px}.history-heading>.tool-button{padding:6px 8px;font-size:10px}}
+
+
+/* Teacher student-history and consented editor sharing */
+.history-heading-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.teacher-history-tab.active{border-color:var(--accent,#7c5cff);color:var(--text-primary,#f4f7ff)}
+.teacher-editor-panel{min-height:0;display:flex;flex-direction:column;gap:12px;border:1px solid var(--border,#26384f);border-radius:14px;background:var(--surface,#0c1728);padding:18px;flex:1}
+.teacher-editor-panel[hidden]{display:none}
+.teacher-editor-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.teacher-editor-heading h2{margin:0 0 5px;font-size:18px}
+.teacher-editor-heading p,.teacher-editor-revision{margin:0;color:var(--text-muted,#90a4c1);font-size:13px}
+#teacherStudentEditor{width:100%;min-height:320px;flex:1;resize:vertical;border:1px solid var(--border,#26384f);border-radius:10px;background:var(--surface-raised,#081221);color:var(--text-primary,#e8eef9);padding:16px;font:14px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;tab-size:2}
+#teacherStudentEditor:read-only{opacity:.75}
+.teacher-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--text-muted,#90a4c1);font-size:13px}
+.student-editor-sharing select{min-width:210px;max-width:100%;border:1px solid var(--border,#26384f);border-radius:9px;padding:9px 12px;background:var(--surface-raised,#081221);color:inherit}
+.share-status{font-size:13px;color:var(--text-muted,#90a4c1)}
+@media(max-width:700px){.history-heading-actions{justify-content:flex-start}.teacher-editor-actions{align-items:flex-start;flex-direction:column}}
+
+
+/* SQL*Plus behaves as a scrolling command prompt: the live prompt follows each result. */
+.terminal-output{display:flex;flex-direction:column;align-items:stretch;scroll-behavior:auto}
+.terminal-prompt{order:999;flex:none;margin-top:0;padding:4px 0 2px;border-top:0;background:transparent}
+.terminal-prompt textarea{min-width:0;overflow-y:hidden;overflow-wrap:anywhere}
+.terminal-prompt .run-button{display:none}
+.terminal-frame>.terminal-prompt{display:none}
+.terminal-output>.terminal-prompt{display:flex}
+
+.ide-connection .compiler-lab-context{display:flex;align-items:center;gap:6px;color:var(--ide-muted);font-size:10px;white-space:nowrap}
+.ide-connection .compiler-lab-context select{max-width:195px;padding:6px 8px;border:1px solid var(--ide-border);border-radius:8px;color:var(--ide-text);background:var(--ide-panel-2);font-size:10px}
+
+.object-tree-row{position:relative;display:flex;align-items:center;gap:3px}
+.object-tree-row .object-tree-item{width:auto;min-width:0;flex:1}
+.object-actions-toggle{width:29px;height:27px;flex:none;border:1px solid transparent;border-radius:6px;background:transparent;color:#8fa4bf;font-size:11px;letter-spacing:1px;opacity:0;cursor:pointer}
+.object-tree-row:hover .object-actions-toggle,.object-tree-row:focus-within .object-actions-toggle,.object-actions-toggle[aria-expanded="true"]{opacity:1}
+.object-actions-toggle:hover,.object-actions-toggle[aria-expanded="true"]{border-color:#2b6f5c;background:#123c34;color:#55ddb0}
+.object-action-menu{position:absolute;z-index:15;top:calc(100% + 3px);right:0;min-width:142px;padding:5px;border:1px solid #2a3d57;border-radius:8px;background:#101d2f;box-shadow:0 12px 28px #020711b8}
+.object-tree-row.menu-up .object-action-menu{top:auto;bottom:calc(100% + 3px)}
+.object-action-menu[hidden]{display:none!important}
+.object-action-menu button{width:100%;height:32px;padding:0 9px;border:0;border-radius:5px;background:transparent;color:#d5dfed;text-align:left;font-size:10px;text-transform:uppercase;cursor:pointer}
+.object-action-menu button:disabled{color:#65758b;opacity:.55;cursor:not-allowed}
+.object-details-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 13px;border-bottom:1px solid var(--ide-border);color:#dce6f4;font-size:11px}
+.object-details-heading small{color:#91a3bd;font-size:9px}
+html[data-theme="light"] .object-action-menu{border-color:#d5deea;background:#fff;box-shadow:0 12px 28px #172b3a26}
+html[data-theme="light"] .object-action-menu button{color:#34445b}
+html[data-theme="light"] .object-action-menu button:disabled{color:#9aa6b5}
+html[data-theme="light"] .object-details-heading{color:#34445b}
+html[data-theme="light"] .object-details-heading small{color:#718096}
+@media(hover:none){.object-actions-toggle{opacity:1}}
+
+/* Run controls follow the active accent palette, including the shared hover treatment. */
+.oracle-ide-page .run-button:not(:disabled){
+  border:1px solid var(--accent-strong,var(--ide-accent));
+  background:linear-gradient(135deg,var(--accent,var(--ide-accent)),var(--accent-strong,var(--ide-accent)));
+  box-shadow:0 7px 18px rgba(var(--accent-rgb,155,131,255),.22);
+}
+:root[data-theme] .oracle-ide-page .run-button:not(:disabled):hover,
+:root[data-theme] .oracle-ide-page .run-button:not(:disabled):focus-visible{
+  border-color:var(--accent-strong,var(--ide-accent));
+  background:linear-gradient(135deg,var(--accent,var(--ide-accent)),var(--accent-strong,var(--ide-accent)));
+  color:#fff;
+  filter:brightness(1.1);
+  box-shadow:0 11px 24px rgba(var(--accent-rgb,155,131,255),.38);
+}
+
+.editor-line-count{margin-left:12px;padding-left:12px;border-left:1px solid var(--ide-border);color:#91a3bd;font:10px "Cascadia Code",Consolas,monospace;white-space:nowrap}
+
+/* Keep the editor action bar and navigation controls consistent with light surfaces. */
+html[data-theme="light"] .compiler-layout .editor-status {
+  background: #edf2f8;
+  border-top: 1px solid var(--ide-border);
+  color: #40536e;
+}
+html[data-theme="light"] .editor-cursor-position,
+html[data-theme="light"] .editor-line-count {
+  color: #52647c;
+}
+html[data-theme="light"] .ide-nav-fullscreen,
+html[data-theme="light"] .ide-exit-fullscreen,
+html[data-theme="light"] .ide-main.navigator-collapsed .navigator-heading button {
+  background: #eaf0f7;
+  border-color: var(--ide-border);
+  color: #40536e;
+  box-shadow: none;
+}
+html[data-theme="light"] .ide-nav-fullscreen:is(:hover, :focus-visible),
+html[data-theme="light"] .ide-exit-fullscreen:is(:hover, :focus-visible),
+html[data-theme="light"] .ide-main.navigator-collapsed .navigator-heading button:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--ide-accent) 10%, #fff);
+  border-color: var(--ide-accent);
+  color: #24334a;
+  box-shadow: 0 3px 10px #52647c18;
+}
+
+/* Keep the SQL*Plus panels beside the navigator in fullscreen mode. */
+.ide-shell.fullscreen-mode .ide-main.navigator-collapsed:is([data-view="sqlplus"],[data-view="compiler"]) .ide-content{grid-template-columns:52px minmax(0,1fr)}
+.ide-shell.fullscreen-mode .ide-panels{min-width:0}
+
+/* Long pasted SQL is scrolled by the terminal, never clipped at 150px. */
+.sqlplus-view .terminal-output{min-height:0;overflow-y:auto;flex:1 1 0}
+.sqlplus-view .terminal-output>.terminal-prompt{flex:0 0 auto}
+.sqlplus-view .terminal-prompt textarea{max-height:none;overflow-y:hidden;box-sizing:border-box}
+
+/* Keep navigation expansion available in normal and fullscreen layouts. */
+.ide-shell .ide-nav-collapse{display:inline-flex!important;align-items:center;justify-content:center;align-self:center;flex:none;width:38px;height:32px;margin:6px 0 0;padding:4px}
+.ide-shell.fullscreen-mode.fullscreen-nav-expanded .ide-workspace{grid-template-columns:224px minmax(0,1fr)}
+.ide-shell.fullscreen-mode.fullscreen-nav-expanded .ide-nav-item{width:100%;justify-content:flex-start;gap:12px}
+.ide-shell.fullscreen-mode.fullscreen-nav-expanded .ide-nav-item b{display:inline}
+
+/* History/settings have no database navigator: always span their whole content area. */
+.ide-main[data-view="history"] .ide-panels,
+.ide-main[data-view="settings"] .ide-panels{grid-column:1 / -1;width:100%;min-width:0}
+.ide-main[data-view="history"] .history-view,
+.ide-main[data-view="settings"] .settings-view{flex:1 1 auto;min-width:0;max-width:100%}
+
+#terminalOutput .terminal-entry pre,#terminalOutput .terminal-entry table{font-family:var(--compiler-terminal-font,"Cascadia Code",Consolas,monospace)}
+
+.object-details-dialog{width:min(1100px,94vw);height:min(720px,85vh);max-width:94vw;max-height:85vh;padding:0;border:1px solid var(--ide-border);border-radius:12px;background:var(--ide-panel,#111c2d);color:var(--ide-text,#edf3ff);overflow:hidden;box-sizing:border-box}
+.object-details-dialog[open]{display:flex;flex-direction:column}
+.object-details-dialog::backdrop{background:#02071199}
+.object-details-dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex:none;padding:16px;border-bottom:1px solid var(--ide-border)}
+.object-details-dialog-heading h2{min-width:0;margin:0;font-size:16px;overflow-wrap:anywhere}
+.object-details-dialog-heading button{flex:none}
+.object-details-dialog-status{flex:none;margin:0;padding:10px 16px;font-size:12px;color:var(--ide-muted)}
+.object-details-dialog-body{flex:1;min-height:0;min-width:0;overflow:auto;padding:0 16px 16px;scrollbar-width:auto;scrollbar-color:#7186a3 #101e30}
+.object-details-dialog-body .result-table{width:max-content;min-width:100%;table-layout:auto}
+.object-details-dialog-body .result-table th,.object-details-dialog-body .result-table td{white-space:nowrap;max-width:none;overflow:visible;text-overflow:clip}
+.object-details-dialog-body::-webkit-scrollbar{width:14px;height:14px}
+.object-details-dialog-body::-webkit-scrollbar-thumb{background:#7186a3;border:3px solid #101e30;border-radius:8px}
+.object-details-dialog-body::-webkit-scrollbar-track,.object-details-dialog-body::-webkit-scrollbar-corner{background:#101e30}
+
+.object-details-dialog-heading .object-details-close{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;font:26px/1 Arial,sans-serif;cursor:pointer}
+
+/* Readable object-details popup typography for structure, data and constraints. */
+.object-details-dialog-heading h2{font-size:20px;line-height:1.4}
+.object-details-dialog-status{font-size:14px;line-height:1.5}
+.object-details-dialog-body{font-size:16px;line-height:1.6}
+.object-details-dialog-body .result-table{font-size:16px;line-height:1.6}
+.object-details-dialog-body .result-table th,.object-details-dialog-body .result-table td{font-size:16px;padding:9px 14px}
+.object-details-dialog-body .result-output{font-size:16px;line-height:1.6}
+
+.compiler-monitor-notice{margin-left:auto;text-align:center}.terminal-foot{flex-wrap:wrap}@media(max-width:760px){.compiler-monitor-notice{order:3;width:100%;margin:0;text-align:left}}
+
+.syntax-color-legend{display:inline-flex;align-items:center;gap:4px;color:var(--ide-muted);font-size:9px;white-space:nowrap}.syntax-color-legend b{font-weight:650}.today-statement-counts{margin-left:auto;display:inline-flex;align-items:center;gap:10px;color:var(--ide-muted);font-size:11px;font-variant-numeric:tabular-nums}.today-statement-counts b{font-weight:700}.today-statement-counts .today-success{color:var(--ide-green)}.today-statement-counts .today-failed{color:var(--ide-red)}@media(max-width:600px){.today-statement-counts{gap:6px;font-size:9px}.syntax-color-legend{white-space:normal;font-size:8px}}
+
+.terminal-input-wrap{position:relative;flex:1;min-width:0}.terminal-input-wrap>pre{position:absolute;z-index:1;inset:0;margin:0;padding:2px 0;overflow:hidden;border:0;color:var(--ide-text);font:inherit;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:none}.terminal-input-wrap>textarea{position:relative;z-index:2;display:block;width:100%;padding:2px 0;background:transparent!important;color:transparent!important;-webkit-text-fill-color:transparent;caret-color:var(--ide-text);line-height:1.6}.terminal-input-wrap>textarea::placeholder{color:#7b8ea8!important;-webkit-text-fill-color:#7b8ea8;opacity:1}
+
+/* Outline the object refresh control in both themes. */
+.navigator-footer #refreshObjects {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--ide-muted);
+  border-radius: 7px;
+  color: var(--ide-text);
+}
+.navigator-footer #refreshObjects:is(:hover, :focus-visible) {
+  border-color: var(--ide-accent);
+  background: color-mix(in srgb, var(--ide-accent) 12%, var(--ide-panel));
+  color: var(--ide-text);
+}
+.navigator-footer #refreshObjects:focus-visible {
+  outline: 2px solid var(--ide-accent);
+  outline-offset: 2px;
+}
+.terminal-output,.terminal-prompt,.code-editor,.terminal-input-wrap{font-variant-ligatures:none;font-feature-settings:"liga" 0,"clig" 0,"calt" 0}.terminal-output .terminal-command{color:var(--ide-text)}html[data-theme="light"] .terminal-output .terminal-command{color:var(--ide-text)}.terminal-output .terminal-command .sql-keyword{color:#43b5ff;font-weight:650}.terminal-output .terminal-command .sql-string{color:#83d39a}.terminal-output .terminal-command .sql-number{color:#ffb85c}.terminal-output .terminal-command .sql-comment{color:#8191a7;font-style:italic}
+
+/* SQL*Plus plain-text output must use the light theme foreground. */
+html[data-theme="light"] .terminal-output .terminal-output-text,
+html[data-theme="light"] .terminal-output .terminal-command::before {
+  color: var(--ide-text);
+}
+html[data-theme="light"] .terminal-output .terminal-output-text.error {
+  color: #b42335;
+}
+html[data-theme="light"] .terminal-output .terminal-output-text a {
+  color: #175cd3;
+}
+html[data-theme="light"] .terminal-output .terminal-success {
+  color: #16734b;
+}
+
+.terminal-foot #terminalLed{margin-inline-end:6px}
+
+.terminal-foot #terminalLed:not(.online){background:#dc3545}
+
+.ide-connection #connectionDot:not(.connected){background:#dc3545;box-shadow:none}
+
+.navigator-footer #navigatorStatusLed:not(.online){background:#dc3545;box-shadow:none}
+
+/* Match disconnected status text to its red indicator in both themes. */
+.ide-connection:has(#connectionDot:not(.connected)) #connectionLabel,
+.terminal-foot:has(#terminalLed:not(.online)) #terminalStatus,
+.navigator-footer:has(#navigatorStatusLed:not(.online)) #navigatorStatus {
+  color: #ff647d;
+}
+html[data-theme="light"] .ide-connection:has(#connectionDot:not(.connected)) #connectionLabel,
+html[data-theme="light"] .terminal-foot:has(#terminalLed:not(.online)) #terminalStatus,
+html[data-theme="light"] .navigator-footer:has(#navigatorStatusLed:not(.online)) #navigatorStatus {
+  color: #b42335;
+}
+
+/* Connected labels match the green connection indicators. */
+.ide-connection:has(#connectionDot.connected) #connectionLabel,
+.terminal-foot:has(#terminalLed.online) #terminalStatus {
+  color: #43dba5;
+}
+html[data-theme="light"] .ide-connection:has(#connectionDot.connected) #connectionLabel,
+html[data-theme="light"] .terminal-foot:has(#terminalLed.online) #terminalStatus {
+  color: #16734b;
+}
+
+.connection-diagnostic{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:12px;padding:12px 16px;border:1px solid var(--ide-red);border-radius:10px;background:var(--ide-panel);color:var(--ide-text);font-size:12px;line-height:1.6}
+.connection-diagnostic[hidden]{display:none}.connection-diagnostic button{flex:none}
+@media(max-width:680px){.connection-diagnostic{align-items:flex-start;flex-direction:column}}
+
+.export-scope-menu{position:fixed;inset:auto;margin:0;padding:5px;width:140px;border:1px solid var(--ide-border);border-radius:9px;background:var(--ide-panel);color:var(--ide-text);box-shadow:var(--ide-shadow)}
+.export-scope-menu button{display:block;width:100%;padding:9px 12px;border:0;border-radius:6px;background:transparent;color:inherit;text-align:left;font:inherit;font-size:12px;cursor:pointer}
+.export-scope-menu button:is(:hover,:focus-visible){background:color-mix(in srgb,var(--ide-accent) 15%,var(--ide-panel));outline:1px solid var(--ide-accent)}
+
+/* Stronger string and number contrast on light editor surfaces. */
+html[data-theme="light"] .code-editor .sql-string,
+html[data-theme="light"] .terminal-input-wrap .sql-string,
+html[data-theme="light"] .terminal-output .terminal-command .sql-string {
+  color: #16703c;
+}
+html[data-theme="light"] .code-editor .sql-number,
+html[data-theme="light"] .terminal-input-wrap .sql-number,
+html[data-theme="light"] .terminal-output .terminal-command .sql-number {
+  color: #a54800;
+}
+
+html[data-theme="light"] .syntax-color-legend .sql-string{color:#16703c}
+html[data-theme="light"] .syntax-color-legend .sql-number{color:#a54800}
+
+/* History scope selectors share the workspace filter styling. */
+.history-heading-actions select {
+  max-width:100%;min-height:32px;padding:6px 10px;
+  border:1px solid var(--ide-border);border-radius:9px;
+  background:var(--ide-panel-2);color:var(--ide-text);
+  font:inherit;font-size:11px;cursor:pointer;
+}
+.history-heading-actions select:hover {border-color:var(--ide-accent)}
+.history-heading-actions select:focus-visible {outline:2px solid var(--ide-accent);outline-offset:2px}
+.history-heading-actions select option {background:var(--ide-panel);color:var(--ide-text)}

@@ -27,6 +27,9 @@ if tls_enabled:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
     server.socket = context.wrap_socket(server.socket, server_side=True)
+    # wsgiref derives wsgi.url_scheme from HTTPS when handling each request.
+    # Setting only wsgi.url_scheme here is overwritten with "http".
+    server.base_environ["HTTPS"] = "on"
     server.base_environ["wsgi.url_scheme"] = "https"
 print(f"Django Oracle Learning Workbench listening on {'https' if tls_enabled else 'http'}://{host}:{port}", flush=True)
 try:

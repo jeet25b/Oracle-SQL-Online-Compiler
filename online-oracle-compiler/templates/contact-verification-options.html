@@ -1,0 +1,5 @@
+<div class="contact-verification-options" aria-label="Contact verification">
+  <div data-contact-row="email"><span>Email: <strong data-contact-status>{% if user.email_verified %}Verified{% else %}Not verified{% endif %}</strong></span> <button class="register-cancel" type="button" data-verify-contact="email" data-saved-contact="{{ user.email }}" {% if user.email_verified or not user.email %}hidden{% endif %}>Verify email</button></div>
+  <div data-contact-row="mobile"><span>Mobile: <strong data-contact-status>{% if user.mobile_verified %}Verified{% else %}Not verified{% endif %}</strong></span> <button class="register-cancel" type="button" data-verify-contact="mobile" data-saved-contact="{{ user.mobile_number }}" {% if user.mobile_verified or not user.mobile_number %}hidden{% endif %}>Verify mobile (WhatsApp)</button></div>
+  <small>Add or change a contact in Update profile, save it, then verify.</small>
+</div>

@@ -1,0 +1,58 @@
+/* Shared compact icon controls for current and future compiler workspaces.
+   Add .compiler-icon-controls to the header action group on a compiler page. */
+.compiler-icon-controls .palette-picker > summary {
+  width: 38px;
+  height: 38px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0;
+}
+.compiler-icon-controls .palette-picker > summary::after { content: none; }
+.compiler-icon-controls .palette-preview { width: 16px; height: 16px; }
+.compiler-icon-controls .theme-toggle,
+.compiler-icon-controls .global-controls-help,
+.compiler-icon-controls .fullscreen-toggle,
+.compiler-icon-controls #headerFullscreenBtn {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0 !important;
+  line-height: 1;
+}
+.compiler-icon-controls .theme-toggle::before {
+  content: "☀";
+  font-size: 17px;
+}
+html[data-theme="light"] .compiler-icon-controls .theme-toggle::before { content: "☾"; }
+.compiler-icon-controls .global-controls-help kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+.compiler-icon-controls .fullscreen-toggle::before,
+.compiler-icon-controls #headerFullscreenBtn::before {
+  content: "⛶";
+  font-size: 17px;
+}
+.compiler-icon-controls .palette-picker > summary:focus-visible,
+.compiler-icon-controls .theme-toggle:focus-visible,
+.compiler-icon-controls .global-controls-help:focus-visible,
+.compiler-icon-controls .fullscreen-toggle:focus-visible,
+.compiler-icon-controls #headerFullscreenBtn:focus-visible {
+  outline: 2px solid var(--ide-accent, #9b83ff);
+  outline-offset: 2px;
+}
+@media (max-width: 760px) {
+  .compiler-icon-controls .global-controls-help { display: inline-grid !important; }
+}

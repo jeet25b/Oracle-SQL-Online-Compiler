@@ -1,0 +1,26 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Student dashboard{% endblock %}
+{% block page_heading %}Good to see you, {{ user.first_name|default:user.username }}{% endblock %}
+{% block page_intro %}Pick up where you left off and keep building your SQL skills.{% endblock %}
+{% block dashboard_content %}
+<section class="metric-grid" aria-label="Learning overview">
+  <article class="metric-card"><span class="metric-icon mint">▦</span><div><p>My courses</p><strong>{{ course_count }}</strong></div><small>active courses</small></article>
+  <article class="metric-card"><span class="metric-icon blue">⌘</span><div><p>Assignments</p><strong>{{ assignment_count }}</strong></div><small>published tasks</small></article>
+  <article class="metric-card"><span class="metric-icon violet">◉</span><div><p>Test</p><strong>{{ test_count }}</strong></div><small>available to take</small></article>
+  <article class="metric-card"><span class="metric-icon amber">↗</span><div><p>Practice streak</p><strong>—</strong></div><small>keep practicing</small></article>
+</section>
+<div class="dashboard-columns">
+  <section class="content-card" id="courses"><div class="section-heading"><div><p class="section-kicker">YOUR LEARNING</p><h2>Courses and assignments</h2></div><span class="count-pill">{{ course_count }} courses</span></div>
+    {% if enrollments %}<div class="course-list">{% for enrollment in enrollments %}<article class="course-card"><div class="course-card-top"><span class="course-avatar">{{ enrollment.class_section.course.code|slice:":1" }}</span><span class="course-code">{{ enrollment.class_section.course.code }}</span></div><strong>{{ enrollment.class_section.course.name }}</strong><span class="course-section">{{ enrollment.class_section.name }}{% if enrollment.class_section.section %} · Section {{ enrollment.class_section.section }}{% endif %}</span><div class="course-footer"><span>Ready to practice</span><span class="course-arrow">→</span></div></article>{% endfor %}</div>
+    {% else %}<div class="empty-state"><span>▦</span><strong>No courses assigned yet</strong><p>Once you are enrolled, your courses will appear here.</p></div>{% endif %}
+    <div class="subsection-heading" id="work"><h3>Upcoming assignments</h3><span>{{ assignment_count }} available</span></div>
+    {% if assignments %}<div class="assignment-list">{% for assignment in assignments %}<article class="assignment-row"><span class="assignment-icon">⌘</span><div><strong>{{ assignment.title }}</strong><span>{{ assignment.class_section.course.name }}{% if assignment.due_at %} · Due {{ assignment.due_at|date:"M j, Y" }}{% else %} · No due date{% endif %}</span></div><span class="assignment-arrow">→</span></article>{% endfor %}</div>
+    {% else %}<p class="muted-note">No published assignments right now. Check back soon.</p>{% endif %}
+  </section>
+  <section class="content-card" id="announcements"><div class="section-heading"><div><p class="section-kicker">FROM YOUR TEACHERS</p><h2>Announcements</h2></div><span class="count-pill">Latest</span></div>
+    {% if announcements %}<div class="announcement-list">{% for announcement in announcements %}<article class="announcement"><span class="announcement-dot"></span><div><strong>{{ announcement.title }}</strong><p>{{ announcement.message|truncatechars:150 }}</p><span class="announcement-meta">{{ announcement.created_by.get_full_name|default:announcement.created_by.username }} · {{ announcement.created_at|date:"M j" }}</span></div></article>{% endfor %}</div>
+    {% else %}<div class="empty-state"><span>✦</span><strong>You’re all caught up</strong><p>New class announcements will appear here.</p></div>{% endif %}
+    <div class="practice-card"><div class="practice-top"><span>SQL PRACTICE</span><span class="practice-status"><i></i> Workspace ready</span></div><h3>Small queries, big progress.</h3><p>Use your Oracle workspace to put new concepts into practice.</p><div class="practice-code"><span>01</span><code><b>SELECT</b> learning_progress</code></div><div class="practice-code"><span>02</span><code><b>FROM</b> your_next_step;</code></div><span class="practice-soon">Workspace access can be enabled by your administrator.</span></div>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,21 @@
+RESTORE POINT: 2026-10-17-before-redesign
+
+This is a copy of the project source and saved SQL files as they stand on 2026-10-17, before the planned webpage redesign. It includes the current working files and reflects source deletions.
+
+Excluded machine-specific or generated state: .git, node_modules, restore-points, __pycache__, temporary UI/upload folders, .env, TLS .key/.crt files, SQLite databases, and *.log files. The live copies of these excluded files in the project root were not changed.
+
+HOW TO RESTORE (PowerShell)
+1. Stop the Oracle SQL Workbench service and close project editors.
+2. Make a separate copy of the current project folder if you may need to return to its post-snapshot state.
+3. Open PowerShell in the project root and run:
+
+$root = (Get-Location).Path
+$backup = Join-Path $root 'restore-points\2026-10-17-before-redesign'
+$excludeDirs = @((Join-Path $root '.git'), (Join-Path $root 'node_modules'), (Join-Path $root 'restore-points'), (Join-Path $root '__pycache__'), (Join-Path $root '.tmp-ui-test'), (Join-Path $root '.tmp.driveupload'), (Join-Path $root '.tmp.drivedownload'))
+$copyArgs = @($backup, $root, '/MIR', '/COPY:DAT', '/DCOPY:DAT', '/R:1', '/W:1', '/XF', '.env', '*.log', '*.crt', '*.key', '*.sqlite3', '*.sqlite')
+foreach ($dir in $excludeDirs) { $copyArgs += @('/XD', $dir) }
+robocopy.exe @copyArgs
+
+This mirrors the saved source back to the project root, including removing project files created after the restore point. Excluded local configuration, TLS credentials, SQLite data, logs, dependencies, Git history, and restore points are preserved. Robocopy exit codes 0 through 7 indicate success; 8 or higher indicates a failure.
+
+To restore only one file, copy that file from this folder over its matching project-root file. No .env file or TLS key is stored here.

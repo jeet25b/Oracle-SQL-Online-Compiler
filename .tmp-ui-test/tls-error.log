@@ -1,0 +1,4 @@
+127.0.0.1 - - [16/Oct/2026 13:46:42] "GET / HTTP/1.1" 304 -
+127.0.0.1 - - [16/Oct/2026 13:46:42] "GET /styles.css?v=second-toolbar-rebuild-20261016 HTTP/1.1" 200 -
+127.0.0.1 - - [16/Oct/2026 13:46:42] "GET /output.css?v=sqlplus-editor-click-20261016 HTTP/1.1" 200 -
+127.0.0.1 - - [16/Oct/2026 13:46:42] "GET /app.js?v=dark-mode-default-20261016 HTTP/1.1" 200 -

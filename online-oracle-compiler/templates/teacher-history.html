@@ -1,0 +1,32 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Student SQL history{% endblock %}
+{% block page_heading %}Student SQL history{% endblock %}
+{% block page_intro %}Review compiler statements and results recorded for students in your authorized teaching scope.{% endblock %}
+{% block dashboard_content %}
+<section class="activity-toolbar content-card" aria-label="Student SQL history filters">
+  <label>Student<select id="teacherHistoryStudent"><option value="">All students</option></select></label>
+  <label>Source<select id="teacherHistorySource"><option value="all">All sources</option><option value="PL/SQL">SQL WorkSheet editor</option><option value="SQL*Plus">SQLCL terminal</option></select></label>
+  <label>Result<select id="teacherHistoryStatus"><option value="all">All results</option><option value="success">Successful</option><option value="error">Failed</option></select></label>
+  <label>From<input id="teacherHistoryFrom" type="date"></label>
+  <label>To<input id="teacherHistoryTo" type="date"></label>
+  <label class="activity-roster-search">Search<input id="teacherHistorySearch" type="search" list="teacherHistoryStudentSuggestions" placeholder="Student or SQL text…" autocomplete="off"><datalist id="teacherHistoryStudentSuggestions"></datalist></label>
+  <button class="dashboard-help-button" type="button" id="teacherHistoryRefresh">↻ Refresh</button>
+  <button class="dashboard-help-button" type="button" id="teacherHistoryExport">↓ Export CSV</button>
+</section>
+<section class="content-card attendance-report-card teacher-history-card">
+  <div class="section-heading"><div><p class="section-kicker">COMPILER HISTORY</p><h2>Student statements</h2><p class="activity-footnote" id="teacherHistoryScope">History is limited to students in your teaching scope.</p><p class="activity-footnote">Paste indicators show when text was pasted into the compiler. The browser cannot identify which tab or app it came from.</p></div><span class="count-pill" id="teacherHistoryCount">Loading…</span></div>
+  <div class="activity-table-wrap"><table class="activity-table teacher-history-table"><thead><tr>
+    <th><button class="activity-sort-button" data-history-sort="studentName" type="button">Student ↕</button></th>
+    <th><button class="activity-sort-button" data-history-sort="executedAt" type="button">Time ↕</button></th>
+    <th><button class="activity-sort-button" data-history-sort="source" type="button">Compiler ↕</button></th>
+    <th>Statement</th><th>Input</th><th><button class="activity-sort-button" data-history-sort="status" type="button">Result ↕</button></th>
+    <th><button class="activity-sort-button" data-history-sort="durationMs" type="button">Duration ↕</button></th><th>Rows</th><th>Action</th>
+  </tr></thead><tbody id="teacherHistoryRows"><tr><td colspan="9" class="activity-empty">Loading student history…</td></tr></tbody></table></div>
+  <div class="teacher-history-footer"><span id="teacherHistorySummary">Loading…</span><div><button class="dashboard-help-button" id="teacherHistoryPrev" type="button" aria-label="Previous page">← Previous</button><button class="dashboard-help-button" id="teacherHistoryNext" type="button" aria-label="Next page">Next →</button></div></div>
+  <p class="activity-updated" id="teacherHistoryUpdated" role="status" aria-live="polite"></p>
+</section>
+<style>
+  .teacher-history-card{padding:16px}.teacher-history-card:hover{transform:none!important;box-shadow:0 3px 12px #17324a05}.teacher-history-table{min-width:1150px}.teacher-history-table th{white-space:nowrap}.teacher-history-student{font-weight:700}.teacher-history-student small{font-weight:400}.teacher-history-sql{max-width:560px;white-space:pre-wrap!important;word-break:break-word;font:10px/1.5 "DM Mono",monospace;color:var(--text,#dce6f4)}.teacher-history-result{font-weight:700}.teacher-history-result.success{color:#36c998}.teacher-history-result.error{color:#f06d81}.teacher-history-input{white-space:nowrap}.teacher-history-input .paste-badge{display:inline-flex;padding:4px 7px;border:1px solid #806224;border-radius:999px;background:#392d16;color:#ffd178;font-size:9px;font-weight:700}.teacher-history-input .typed-badge{color:#91a3bd;font-size:9px}.teacher-history-copy{border:1px solid var(--border,#2a3d56);border-radius:7px;padding:6px 9px;background:transparent;color:inherit;cursor:pointer}.teacher-history-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0 0;color:var(--muted,#91a3bd);font-size:10px}.teacher-history-footer>div{display:flex;gap:8px}.teacher-history-updated{min-height:14px}@media(max-width:650px){.teacher-history-footer{align-items:flex-start;flex-direction:column}}
+</style>
+<script src="/portal/assets/teacher-history.js?v=20261026-server-history-pages"></script>
+{% endblock %}

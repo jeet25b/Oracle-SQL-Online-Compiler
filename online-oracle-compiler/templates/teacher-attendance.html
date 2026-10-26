@@ -1,0 +1,21 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Student attendance{% endblock %}
+{% block page_heading %}Student attendance{% endblock %}
+{% block page_intro %}Review login and logout history, time present, and attendance percentages for your classes and labs.{% endblock %}
+{% block dashboard_content %}
+<section class="activity-toolbar content-card" aria-label="Attendance filters">
+  <label>Class<select id="attendanceClass"><option value="">{% if can_view_all_compiler_activity %}All classes{% else %}All assigned classes{% endif %}</option>{% for class_section in attendance_classes %}<option value="{{ class_section.id }}">{{ class_section.course.code }} · {{ class_section.name }} {{ class_section.section }}</option>{% endfor %}</select></label>
+  <label>Lab<select id="attendanceLab"><option value="">All labs</option></select></label>
+  <label class="activity-roster-search">Search students<input id="attendanceSearch" type="search" placeholder="Search by name or ID…" autocomplete="off"></label>
+  <button class="dashboard-help-button" type="button" id="attendanceRefresh">↻ Refresh</button>
+  <button class="dashboard-help-button" type="button" id="attendanceExport">↓ Export CSV</button>
+</section>
+<section class="content-card attendance-report-card">
+  <div class="section-heading"><div><p class="section-kicker">ATTENDANCE REGISTER</p><h2>Saved attendance history</h2><p class="activity-footnote">Attendance is based on portal login days. Percentages use weekdays (Monday–Friday) in the selected period. Lab attendance requires opening the lab in the compiler.</p></div><span class="count-pill" id="attendanceCount">0 students</span></div>
+  <div class="attendance-range"><label>From<input id="attendanceDateFrom" type="date"></label><label>To<input id="attendanceDateTo" type="date"></label></div>
+  <div class="attendance-schedule"><strong>Expected start time</strong><label>Applies to<select id="scheduleScope"><option value="class">Selected class</option><option value="lab">Selected lab</option></select></label><input id="attendanceStartTime" type="time" aria-label="Expected class or lab start time"><button class="dashboard-help-button" id="saveAttendanceSchedule" type="button">Save time</button><span id="attendanceScheduleStatus" role="status">Choose a class to configure the arrival time.</span></div>
+  <div class="activity-table-wrap"><table class="activity-table attendance-table"><thead><tr><th aria-sort="ascending"><button class="activity-sort-button" data-attendance-sort="studentName" type="button">Student</button></th><th aria-sort="none"><button class="activity-sort-button" data-attendance-sort="presentDays" type="button">Present days</button></th><th aria-sort="none"><button class="activity-sort-button" data-attendance-sort="absentDays" type="button">Absent weekdays</button></th><th aria-sort="none"><button class="activity-sort-button" data-attendance-sort="attendancePercent" type="button">Attendance %</button></th><th>First login</th><th>Last logout</th><th aria-sort="none"><button class="activity-sort-button" data-attendance-sort="arrivalStatus" type="button">Arrival</button></th><th>On time / late days</th><th aria-sort="none"><button class="activity-sort-button" data-attendance-sort="durationSeconds" type="button">Time present</button></th><th>Last present</th></tr></thead><tbody id="attendanceTable"><tr><td colspan="10" class="activity-empty">Loading attendance…</td></tr></tbody></table></div>
+  <p class="activity-updated" id="attendanceUpdated">Attendance records are stored from student portal sessions.</p>
+</section>
+<script src="/portal/assets/teacher-attendance.js?v=20261024-attendance-register"></script>
+{% endblock %}

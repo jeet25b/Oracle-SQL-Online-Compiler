@@ -1,0 +1,632 @@
+/* One layout system for the workbench: grid for the page, flow for its panels. */
+:root {
+  --surface-canvas: #0b0e14;
+  --surface-panel: #111620;
+  --surface-raised: #182030;
+  --surface-border: rgb(255 255 255 / 9%);
+  --accent-oracle: #c74634;
+  --accent-warm: #c76a43;
+}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body:not([data-theme="light"]) {
+  background: var(--surface-canvas) !important;
+  color: #e7e9ed;
+}
+body:not([data-theme="light"]) .workspace,
+body:not([data-theme="light"]) .sidebar,
+body:not([data-theme="light"]) .main-panel,
+body:not([data-theme="light"]) .editor-top,
+body:not([data-theme="light"]) .runbar,
+body:not([data-theme="light"]) .results-heading {
+  background-color: var(--surface-panel) !important;
+  border-color: var(--surface-border) !important;
+}
+body:not([data-theme="light"]) .editor-wrap,
+body:not([data-theme="light"]) .cli-view,
+body:not([data-theme="light"]) .cli-output {
+  background-color: #0d1118 !important;
+}
+body[data-theme="light"] {
+  background: #f4f3f0 !important;
+  color: #282c2b;
+  --line: #d7d5d0;
+  --panel: #f8f7f4;
+}
+body[data-theme="light"] .workspace,
+body[data-theme="light"] .sidebar,
+body[data-theme="light"] .main-panel,
+body[data-theme="light"] .editor-top,
+body[data-theme="light"] .runbar,
+body[data-theme="light"] .results-heading {
+  background-color: #f8f7f4 !important;
+  border-color: #d7d5d0 !important;
+}
+body[data-theme="light"] .editor-wrap,
+body[data-theme="light"] .cli-view,
+body[data-theme="light"] .cli-output { background-color: #fff !important; }
+
+::selection { background: rgb(199 106 67 / 55%); color: inherit; }
+.workspace-tab[aria-pressed="true"],
+.result-tab.active-tab {
+  color: #d37a53 !important;
+  border-bottom-color: var(--accent-warm) !important;
+}
+@media (prefers-contrast: more) {
+  :root { --surface-border: #929292; }
+  .workspace-tab, .result-tab, button, select, input { outline-offset: 2px; }
+  :focus-visible { outline: 2px solid currentColor !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* Shared tab separators: each neighbor pair has exactly one vertical rule. */
+.main-panel > .editor-top > .workspace-tab {
+  position: relative !important;
+  border: 0 !important;
+  border-right: 1px solid rgb(255 255 255 / 11%) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  margin: 0 !important;
+}
+.main-panel > .editor-top > .workspace-tab:last-of-type { border-right: 0 !important; }
+.main-panel > .editor-top > .workspace-tab:is(.active,[aria-pressed="true"]) {
+  background: var(--surface-raised) !important;
+  color: #d88963 !important;
+  border-top: 0 !important;
+  border-left: 0 !important;
+}
+body[data-theme="light"] .main-panel > .editor-top > .workspace-tab {
+  border-right-color: #d9d6d0 !important;
+}
+body[data-theme="light"] .main-panel > .editor-top > .workspace-tab:is(.active,[aria-pressed="true"]) {
+  background: #efede8 !important;
+  color: #a74b35 !important;
+}
+
+/* Keep the workspace control rows inside their grid cells at every width. */
+.main-panel > .editor-top > .cli-tools:not([hidden]),
+.main-panel > .editor-top > .editor-tools:not([hidden]) {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  flex-flow: row wrap !important;
+  align-content: center !important;
+  overflow: visible !important;
+}
+.workspace:fullscreen .main-panel > .editor-top > .fullscreen-toolbar-actions,
+.focus-mode .workspace .main-panel > .editor-top > .fullscreen-toolbar-actions {
+  position: static !important;
+  inset: auto !important;
+  grid-row: 1;
+  grid-column: 6;
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  align-self: stretch;
+  justify-self: end;
+  z-index: 10;
+}
+.fullscreen-toolbar-actions [data-fullscreen-exit-action] {
+  color: #f0c4ad !important;
+  border-color: rgb(199 106 67 / 55%) !important;
+}
+.fullscreen-toolbar-actions [data-fullscreen-exit-action]:hover {
+  background: rgb(199 106 67 / 18%) !important;
+}
+.cli-prompt {
+  display: flex !important;
+  align-items: flex-start !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  gap: 10px;
+}
+.cli-input-wrap {
+  flex: 1 1 0% !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+.cli-input-wrap > textarea {
+  display: block;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  box-sizing: border-box !important;
+}
+
+.app-shell {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  position: static !important;
+  inset: auto !important;
+  width: 100%;
+  min-height: 70px;
+  height: auto;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(230px, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+
+.topbar-center { justify-self: center; }
+.topbar-actions { justify-self: end; flex-wrap: wrap; justify-content: flex-end; }
+
+main {
+  width: 100%;
+  min-width: 0;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace {
+  position: static !important;
+  inset: auto !important;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  min-height: min(72vh, 760px);
+  height: min(78vh, 900px);
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: var(--navigator-width, 228px) 6px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.sidebar,
+.sidebar-resizer,
+.main-panel {
+  position: static !important;
+  inset: auto !important;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  transform: none !important;
+}
+
+.sidebar {
+  grid-column: 1;
+  grid-row: 1;
+  width: auto;
+  height: auto;
+  overflow: auto;
+}
+
+.sidebar-resizer {
+  grid-column: 2;
+  grid-row: 1;
+  width: 6px;
+  height: auto;
+  z-index: 1;
+}
+
+.main-panel {
+  grid-column: 3;
+  grid-row: 1;
+  width: auto;
+  height: auto;
+  padding: 0 !important;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-top {
+  position: relative !important;
+  inset: auto !important;
+  z-index: 2;
+  width: 100%;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  flex: 0 0 auto;
+  display: grid !important;
+  grid-template-columns: repeat(4, max-content) minmax(0, 1fr) max-content;
+  grid-template-rows: 48px auto;
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 0;
+  padding: 0 !important;
+  overflow: visible;
+  border-bottom: 1px solid var(--line, #273247) !important;
+}
+
+.editor-top::before,
+.editor-top::after { content: none !important; display: none !important; }
+
+.editor-top > .workspace-tab {
+  position: static !important;
+  grid-row: 1;
+  align-self: stretch;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  margin: 0 !important;
+  transform: none !important;
+}
+
+.editor-top > .cli-session-controls {
+  position: static !important;
+  grid-row: 1;
+  grid-column: 5;
+  align-self: stretch;
+  justify-self: center;
+  width: auto;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  transform: none !important;
+}
+
+.editor-top > .fullscreen-toolbar-actions {
+  position: static !important;
+  grid-row: 1;
+  grid-column: 6;
+  align-self: stretch;
+  justify-self: end;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  height: auto;
+  margin: 0 12px;
+  transform: none !important;
+}
+
+.workspace:fullscreen .editor-top > .fullscreen-toolbar-actions,
+.focus-mode .workspace .editor-top > .fullscreen-toolbar-actions { display: flex; }
+.workspace:fullscreen .editor-top > .cli-session-controls,
+.focus-mode .workspace .editor-top > .cli-session-controls { display: flex !important; }
+.editor-top > .cli-tools,
+.editor-top > .editor-tools {
+  position: static !important;
+  inset: auto !important;
+  grid-row: 2;
+  grid-column: 1 / -1;
+  width: 100%;
+  height: auto !important;
+  min-height: 40px;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 4px 12px !important;
+  display: none;
+  align-items: center;
+  justify-content: flex-start;
+  flex-flow: row wrap;
+  gap: 6px 12px;
+  overflow: visible;
+  transform: none !important;
+}
+
+.main-panel.cli-active > .editor-top > .cli-tools:not([hidden]),
+.main-panel.online-active > .editor-top > .editor-tools:not([hidden]) { display: flex !important; }
+
+.main-panel > #editorView,
+.main-panel > #cliView,
+.main-panel > #settingsView,
+.main-panel > .results {
+  position: relative !important;
+  inset: auto !important;
+  width: auto !important;
+  min-width: 0;
+  max-width: none;
+  margin: 0 !important;
+  transform: none !important;
+}
+
+.main-panel > #editorView,
+.main-panel > #cliView,
+.main-panel > #settingsView {
+  flex: 1 1 0;
+  min-height: 180px;
+  overflow: auto;
+}
+
+.main-panel > #editorView {
+  display: flex;
+  flex-direction: column;
+}
+
+.main-panel > #editorView[hidden],
+.main-panel > #cliView[hidden],
+.main-panel > #settingsView[hidden],
+.main-panel > .results[hidden],
+.editor-top > [hidden] { display: none !important; }
+
+.editor-view > .editor-wrap { flex: 1 1 auto; min-height: 0; }
+.editor-view > .editor-bottom,
+.editor-view > .runbar { position: relative !important; inset: auto !important; flex: 0 0 auto; }
+
+.main-panel > .editor-results-resizer {
+  position: relative !important;
+  inset: auto !important;
+  flex: 0 0 8px;
+  width: 100% !important;
+  min-height: 8px;
+  height: 8px !important;
+  margin: 0 !important;
+  transform: none !important;
+  align-self: stretch !important;
+}
+
+.main-panel > .results {
+  position: relative !important;
+  flex: 1 1 0;
+  min-height: 180px;
+  overflow: auto;
+}
+
+/* Keep the navigation tabs and editor controls in separate, intrinsic rows. */
+.main-panel > .editor-top {
+  grid-template-rows: 48px minmax(40px, auto) !important;
+  align-content: start;
+  row-gap: 0 !important;
+  border-bottom: 1px solid var(--line, #273247) !important;
+}
+.main-panel.history-fullscreen > .editor-top,
+.main-panel.settings-active > .editor-top {
+  grid-template-rows: 48px !important;
+}
+.main-panel > .editor-top > .workspace-tab {
+  position: relative !important;
+  grid-row: 1 !important;
+  z-index: 1;
+}
+.main-panel > .editor-top > .workspace-tab::after {
+  bottom: 0 !important;
+  z-index: 1;
+}
+.main-panel > .editor-top > .cli-tools,
+.main-panel > .editor-top > .editor-tools {
+  grid-row: 2 !important;
+  align-self: stretch;
+  min-height: 40px !important;
+  height: auto !important;
+  padding-block: 5px !important;
+  align-content: center;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+}
+
+.main-panel > .editor-top .font-family-select {
+  box-sizing: border-box !important;
+  flex: 0 1 138px;
+  min-width: 98px;
+  max-width: 138px;
+  height: 28px !important;
+  min-height: 28px !important;
+  margin-block: 0 !important;
+  padding-block: 0 !important;
+  line-height: 26px !important;
+  vertical-align: middle;
+  align-self: center;
+}
+
+/* Allow the action bar to wrap instead of pushing into adjacent editor rows. */
+.editor-view > .runbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 6px;
+  height: auto !important;
+  min-height: 44px;
+  padding-block: 6px !important;
+  box-sizing: border-box;
+}
+.editor-view > .runbar > .run-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 8px;
+}
+.editor-view > .runbar > .run-utility-actions {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+.editor-view > .runbar .run-button,
+.editor-view > .runbar .plain-button {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+}
+
+/* One fixed tab track gives every workspace view the same tab baseline. */
+.main-panel > .editor-top {
+  grid-template-rows: 48px minmax(40px, auto) !important;
+  align-content: start !important;
+  row-gap: 0 !important;
+}
+.main-panel.history-fullscreen > .editor-top,
+.main-panel.settings-active > .editor-top {
+  grid-template-rows: 48px !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+}
+.main-panel > .editor-top > .workspace-tab {
+  grid-row: 1 !important;
+  align-self: stretch !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+  margin: 0 !important;
+  padding-block: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transform: none !important;
+}
+.main-panel.history-fullscreen > .editor-top > .workspace-tab {
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+}
+.workspace:fullscreen .main-panel.history-fullscreen > .editor-top > .workspace-tab,
+.focus-mode .workspace .main-panel.history-fullscreen > .editor-top > .workspace-tab,
+.workspace:fullscreen .main-panel.settings-active > .editor-top > .workspace-tab,
+.focus-mode .workspace .main-panel.settings-active > .editor-top > .workspace-tab {
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+}
+.main-panel > .editor-top::before {
+  height: 48px !important;
+}
+.workspace:fullscreen .main-panel > .editor-top::before,
+.focus-mode .workspace .main-panel > .editor-top::before {
+  height: 48px !important;
+}
+.workspace:fullscreen .main-panel.history-fullscreen > .editor-top,
+.focus-mode .workspace .main-panel.history-fullscreen > .editor-top,
+.workspace:fullscreen .main-panel.settings-active > .editor-top,
+.focus-mode .workspace .main-panel.settings-active > .editor-top {
+  grid-template-rows: 48px !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+}
+
+.main-panel.online-active:not(.history-fullscreen):not(.settings-active) > .editor-top,
+.main-panel.cli-active:not(.history-fullscreen):not(.settings-active) > .editor-top,
+.main-panel.online-active:not(.history-fullscreen):not(.settings-active) > .editor-top.has-file-tabs,
+.main-panel.cli-active:not(.history-fullscreen):not(.settings-active) > .editor-top.has-file-tabs {
+  grid-template-rows: 48px 40px !important;
+  height: auto !important;
+  min-height: 88px !important;
+  max-height: none !important;
+}
+.main-panel.online-active:not(.history-fullscreen):not(.settings-active) > .editor-top::before,
+.main-panel.cli-active:not(.history-fullscreen):not(.settings-active) > .editor-top::before {
+  height: 48px !important;
+}
+.workspace:fullscreen .main-panel.online-active:not(.history-fullscreen):not(.settings-active) > .editor-top,
+.workspace:fullscreen .main-panel.cli-active:not(.history-fullscreen):not(.settings-active) > .editor-top,
+.workspace:fullscreen .main-panel.online-active:not(.history-fullscreen):not(.settings-active) > .editor-top.has-file-tabs,
+.workspace:fullscreen .main-panel.cli-active:not(.history-fullscreen):not(.settings-active) > .editor-top.has-file-tabs,
+.focus-mode .workspace .main-panel.online-active:not(.history-fullscreen):not(.settings-active) > .editor-top,
+.focus-mode .workspace .main-panel.cli-active:not(.history-fullscreen):not(.settings-active) > .editor-top,
+.focus-mode .workspace .main-panel.online-active:not(.history-fullscreen):not(.settings-active) > .editor-top.has-file-tabs,
+.focus-mode .workspace .main-panel.cli-active:not(.history-fullscreen):not(.settings-active) > .editor-top.has-file-tabs {
+  grid-template-rows: 48px 40px !important;
+}
+
+/* Match Result Export format to the compact History filter controls. */
+.results-heading .result-export-control {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  margin: 0 !important;
+  color: #9ba8be !important;
+  font: 400 12px/1.2 'DM Sans', sans-serif !important;
+  white-space: nowrap !important;
+}
+.results-heading .result-export-control > .sr-only {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  clip: auto !important;
+  clip-path: none !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  color: inherit !important;
+  font: inherit !important;
+}
+.results-heading .result-export-control select {
+  box-sizing: border-box !important;
+  width: auto !important;
+  min-width: 112px !important;
+  max-width: 148px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  margin: 0 !important;
+  padding: 3px 24px 3px 8px !important;
+  border: 1px solid #344158 !important;
+  border-radius: 5px !important;
+  background-color: #111a2b !important;
+  color: #d6e0ee !important;
+  font: 400 12px/1.2 'DM Sans', sans-serif !important;
+  vertical-align: middle !important;
+}
+body[data-theme="light"] .results-heading .result-export-control {
+  color: #607086 !important;
+}
+body[data-theme="light"] .results-heading .result-export-control select {
+  border-color: #ccd7e3 !important;
+  background-color: #fff !important;
+  color: #243247 !important;
+}
+
+.workspace:fullscreen .main-panel.online-active:not(.history-fullscreen):not(.settings-active) > .editor-top::before,
+.workspace:fullscreen .main-panel.cli-active:not(.history-fullscreen):not(.settings-active) > .editor-top::before,
+.focus-mode .workspace .main-panel.online-active:not(.history-fullscreen):not(.settings-active) > .editor-top::before,
+.focus-mode .workspace .main-panel.cli-active:not(.history-fullscreen):not(.settings-active) > .editor-top::before {
+  height: 48px !important;
+}
+
+/* Offset the SQL toolbars by the visible Navigator only in workspace views. */
+.workspace:fullscreen .main-panel:not(.history-fullscreen):not(.settings-active) > .editor-top,
+.focus-mode .workspace .main-panel:not(.history-fullscreen):not(.settings-active) > .editor-top {
+  left: calc(var(--navigator-width, 228px) + 6px) !important;
+  right: auto !important;
+  width: calc(100% - var(--navigator-width, 228px) - 6px) !important;
+  padding-left: 0 !important;
+  box-sizing: border-box !important;
+}
+.workspace.navigator-collapsed:fullscreen .main-panel > .editor-top,
+.focus-mode .workspace.navigator-collapsed .main-panel > .editor-top {
+  left: 0 !important;
+  width: 100% !important;
+}
+
+/* Keep the connection and workspace actions together with the tabs in fullscreen. */
+body:has(.workspace:fullscreen) .topbar-center,
+body:has(.workspace:fullscreen) .topbar-actions {
+  display: none !important;
+}
+
+/* Use regular weight for elements that browsers bold by default. */
+body :is(strong, b, h1, h2, h3, h4, h5, h6, th) {
+  font-weight: 400 !important;
+}

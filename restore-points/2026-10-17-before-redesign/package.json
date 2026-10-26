@@ -1,0 +1,9 @@
+{
+  "name": "oraplay-oracle-sql-workbench",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Django-powered Oracle SQL Workbench and Learning Portal.",
+  "scripts": {
+    "start": "python run_server.py"
+  }
+}

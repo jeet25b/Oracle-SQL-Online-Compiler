@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Choose workspace · Online Oracle Compiler</title>
+  <link rel="stylesheet" href="/portal/assets/styles.css"><link rel="stylesheet" href="/portal/assets/dashboard.css"><link rel="stylesheet" href="/portal/assets/portal-3d.css">
+  <script src="/portal/assets/dashboard.js" defer></script>
+</head>
+<body class="dashboard-page role-choice-page">
+  <main class="role-choice-card" aria-labelledby="role-choice-title">
+    <a class="brand" href="/portal/"><span class="brand-mark">O<span>+</span></span><span class="brand-name">Online Oracle<br>Compiler</span></a>
+    <p class="section-kicker">ONE ACCOUNT · MULTIPLE WORKSPACES</p>
+    <h1 id="role-choice-title">Choose a workspace</h1>
+    <p>Signed in as <strong>{{ user.get_full_name|default:user.username }}</strong>. Select the role you want to use now.</p>
+    <div class="role-choice-list">
+      {% for role in role_options %}
+      <button type="button" class="role-choice-option" data-role-choice="{{ role.value }}">
+        <span class="role-choice-icon">{% if role.value == "ADMIN" %}A{% elif role.value == "TEACHER" %}T{% else %}S{% endif %}</span>
+        <span><strong>{{ role.label }} workspace</strong><small>Continue as {{ role.label|lower }}</small></span>
+        <span class="role-choice-arrow" aria-hidden="true">→</span>
+      </button>
+      {% endfor %}
+    </div>
+    <p class="role-choice-error" data-role-choice-error role="alert" hidden></p>
+    <button type="button" class="text-button" data-logout>Sign out</button>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

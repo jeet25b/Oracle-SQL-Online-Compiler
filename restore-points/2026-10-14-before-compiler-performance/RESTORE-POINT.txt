@@ -1,0 +1,3 @@
+Restore point created 2026-10-14 before compiler performance changes.
+
+Contains the working project source as it existed when this snapshot was created, including source changes and deletions. It excludes .git, node_modules, restore-points, sql-files, __pycache__, .env, *.log, *.crt, *.key, and *.sqlite3. Those environment secrets, certificates, local database, logs, and saved SQL files remain in the project directory and were not changed.

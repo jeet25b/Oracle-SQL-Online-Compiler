@@ -1,0 +1,21 @@
+RESTORE POINT: 2026-10-16-before-3d-design
+
+This is a copy of the project source and saved SQL files as they stood on 2026-10-16, before the planned 3D front-view changes. It includes the current working files, including uncommitted changes and source deletions.
+
+Excluded to preserve machine-specific or generated state: .git, node_modules, restore-points, __pycache__, temporary UI/upload folders, .env, TLS .key/.crt files, SQLite databases, and *.log files. The live copies of those files in the project root were not changed.
+
+HOW TO RESTORE (PowerShell)
+1. Stop the Oracle SQL Workbench service from its launcher (option 3), and close project editors.
+2. Make a separate copy of the current project folder first if you may need to return to its present state.
+3. Open PowerShell in the project root and run:
+
+$root = (Get-Location).Path
+$backup = Join-Path $root 'restore-points\2026-10-16-before-3d-design'
+$excludeDirs = @((Join-Path $root '.git'), (Join-Path $root 'node_modules'), (Join-Path $root 'restore-points'), (Join-Path $root '__pycache__'), (Join-Path $root '.tmp-ui-test'), (Join-Path $root '.tmp.driveupload'))
+$args = @($backup, $root, '/MIR', '/COPY:DAT', '/DCOPY:DAT', '/R:1', '/W:1', '/XF', '.env', '*.log', '*.crt', '*.key', '*.sqlite3', '*.sqlite')
+foreach ($dir in $excludeDirs) { $args += @('/XD', $dir) }
+robocopy.exe @args
+
+This mirrors the saved project source back into the project root. It removes project files created after the restore point that are not in the snapshot. The excluded local configuration, TLS keys/certificates, SQLite data, logs, dependencies, Git history, and restore points are preserved. Robocopy exit codes 0 through 7 indicate success; 8 or higher indicates a failure.
+
+To restore only a specific file, copy that file from this folder over its matching project-root file instead. Do not copy a .env or TLS key from this restore point; none is stored here.

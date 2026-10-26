@@ -13,10 +13,10 @@ $webUrl = 'https://JEET-PC:3000/oraclesql/'
 function Test-WorkbenchResponding {
   if (-not (Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1)) { return $false }
   try {
-    $response = & curl.exe --insecure --silent --max-time 3 --output - --write-out "`n%{http_code}" 'https://127.0.0.1:3000/portal/login/' 2>$null
+    $response = & curl.exe --insecure --silent --max-time 3 --output - --write-out "`n%{http_code}" 'https://127.0.0.1:3000/' 2>$null
     if ($LASTEXITCODE -ne 0) { return $false }
     $responseText = $response -join "`n"
-    return ($responseText -match 'Use your portal account to continue\.' -and $responseText -match '200\s*$')
+    return ($responseText -match '<title>Your Oracle SQL workbench</title>' -and $responseText -match '200\s*$')
   } catch {
     return $false
   }
