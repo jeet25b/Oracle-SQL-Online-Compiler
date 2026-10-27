@@ -1,0 +1,40 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Announcements{% endblock %}
+{% block page_heading %}Student announcements{% endblock %}
+{% block page_intro %}Write an announcement for an individual student, a class, or a lab.{% endblock %}
+{% block dashboard_content %}
+<section class="content-card teacher-announcement-compose">
+  <div class="section-heading"><div><p class="section-kicker">TEACHING</p><h2>Write an announcement</h2><p class="activity-footnote">Published announcements appear in the selected students’ portal.</p></div></div>
+  {% if announcement_message %}<p class="announcement-form-status success" role="status">{{ announcement_message }}</p>{% endif %}
+  {% if announcement_error %}<p class="announcement-form-status error" role="alert">{{ announcement_error }}</p>{% endif %}
+  {% if not announcement_classes %}<div class="empty-state"><strong>No assigned classes</strong><p>Assign a class to your teacher account before publishing announcements.</p></div>{% else %}
+  <form method="post" class="announcement-compose-form">
+    {% csrf_token %}
+    <label>Send to<select name="audience" id="announcementAudience" required><option value="">Choose audience</option><option value="student">One student</option><option value="class">A class</option><option value="lab">A lab</option></select></label>
+    <label data-audience-field="student" hidden>Student<select name="student_id" disabled><option value="">Choose a student</option>{% for student in announcement_students %}<option value="{{ student.id }}">{{ student.get_full_name|default:student.username }}{% if student.student_number %} · {{ student.student_number }}{% endif %}</option>{% endfor %}</select></label>
+    <label data-audience-field="class" hidden>Class<select name="class_id" disabled><option value="">Choose a class</option>{% for class in announcement_classes %}<option value="{{ class.id }}">{{ class.course.code }} · {{ class.name }}{% if class.section %} · {{ class.section }}{% endif %}</option>{% endfor %}</select></label>
+    <label data-audience-field="lab" hidden>Lab<select name="lab_id" disabled><option value="">Choose a lab</option>{% for lab in announcement_labs %}<option value="{{ lab.id }}">{{ lab.class_section.course.code }} · {{ lab.class_section.name }} · {{ lab.name }}</option>{% endfor %}</select></label>
+    <label class="form-wide">Title<input name="title" maxlength="200" required placeholder="Announcement title"></label>
+    <label class="form-wide">Message<textarea name="message" rows="5" maxlength="10000" required placeholder="Write the information you want students to see."></textarea></label>
+    <div class="form-wide"><button class="dashboard-help-button" type="submit">Publish announcement</button></div>
+  </form>
+  {% endif %}
+</section>
+<section class="content-card teacher-announcement-list">
+  <div class="section-heading"><div><p class="section-kicker">ANNOUNCEMENT HISTORY</p><h2>Recently published</h2></div></div>
+  {% if teacher_announcements %}<div class="announcement-list">{% for announcement in teacher_announcements %}<article class="announcement"><span class="announcement-dot"></span><div><strong>{{ announcement.title }}</strong><p>{{ announcement.message|truncatechars:240 }}</p><span class="announcement-meta">{% if announcement.student_id %}{{ announcement.student.get_full_name|default:announcement.student.username }}{% elif announcement.lab_id %}{{ announcement.lab.class_section.course.code }} · {{ announcement.lab.class_section.name }} · {{ announcement.lab.name }}{% elif announcement.class_section_id %}{{ announcement.class_section.course.code }} · {{ announcement.class_section.name }}{% else %}All students{% endif %} · {{ announcement.created_at|date:"M j, Y g:i A" }}</span></div></article>{% endfor %}</div>
+  {% else %}<div class="empty-state"><strong>No announcements yet</strong><p>Your published announcements will appear here.</p></div>{% endif %}
+</section>
+<style>
+  .teacher-announcement-compose,.teacher-announcement-list{padding:18px;margin-bottom:14px}
+  .announcement-compose-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .announcement-compose-form label{display:grid;gap:6px;color:var(--muted,#91a3bd);font-size:11px;font-weight:600}
+  .announcement-compose-form input,.announcement-compose-form select,.announcement-compose-form textarea{width:100%;border:1px solid var(--border,#2a3d56);border-radius:8px;padding:10px;background:var(--surface,#0e1a2a);color:var(--text,#edf3ff);font:12px "DM Sans",sans-serif}
+  .announcement-compose-form textarea{resize:vertical;line-height:1.5}.announcement-compose-form .form-wide{grid-column:1/-1}
+  .announcement-form-status{padding:10px 12px;border-radius:8px;font-size:12px}.announcement-form-status.success{color:#28c89a;background:rgba(40,200,154,.1)}.announcement-form-status.error{color:#ff7b8b;background:rgba(255,80,100,.1)}
+  @media(max-width:650px){.announcement-compose-form{grid-template-columns:1fr}.announcement-compose-form .form-wide{grid-column:auto}}
+</style>
+<script>
+  (()=>{const audience=document.querySelector('#announcementAudience');if(!audience)return;const sync=()=>document.querySelectorAll('[data-audience-field]').forEach(group=>{const active=group.dataset.audienceField===audience.value;group.hidden=!active;const select=group.querySelector('select');select.disabled=!active;select.required=active;});audience.addEventListener('change',sync);sync();})();
+</script>
+{% endblock %}

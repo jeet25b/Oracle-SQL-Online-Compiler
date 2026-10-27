@@ -13,14 +13,44 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   let sort = { key: 'executedAt', direction: 'desc' };
   const pageSize = 50;
   function inputMethodLabel(item) {
-    const labels = { typed: 'Typed', pasted: 'Pasted', file: 'File', history_recall: 'History recall', mixed: 'Mixed' };
-    if (labels[item.inputMethod]) return labels[item.inputMethod];
+    const labels = { typed: 'Typed', pasted: 'Pasted', file: 'File', history_recall: 'History recall', internal_copy: 'Internal copy', mixed: 'Mixed' };
     const pastedChars = Number(item.pastedChars) || 0;
     const pasteCount = Number(item.pasteCount) || 0;
     const typedChars = Number(item.typedChars) || 0;
-    if (pastedChars > 0 || pasteCount > 0) return typedChars > 0 ? 'Typed + pasted' : 'Pasted';
-    if (typedChars > 0) return 'Typed';
-    return 'Not tracked';
+    const edited = Number(item.editsAfterPaste) > 0;
+    const recalledAndEdited = item.inputMethod === 'mixed' && typedChars > 0 && pastedChars === 0 && pasteCount === 0;
+    if (recalledAndEdited) return 'History recall + Edited';
+    let label = item.inputMethod === 'history_recall' ? 'History recall' : edited && (pastedChars > 0 || pasteCount > 0 || item.inputMethod === 'mixed') ? 'Pasted' : labels[item.inputMethod] || (pastedChars > 0 || pasteCount > 0 ? typedChars > 0 ? 'Typed + pasted' : 'Pasted' : typedChars > 0 ? 'Typed' : 'Not tracked');
+    if (edited && label !== 'Not tracked') label = `${label} + Edited`;
+    return label;
+  }
+  function appendColoredSql(cell, sql, sourceMap, inputLabel) {
+    const text = String(sql || '');
+    const runs = Array.isArray(sourceMap) ? sourceMap : [];
+    if (inputLabel.startsWith('History recall')) {
+      const span = document.createElement('span'); span.className = 'input-history-recall'; span.textContent = text; cell.append(span); return;
+    }
+    if (!runs.length) {
+      const span = document.createElement('span'); span.textContent = text;
+      if (inputLabel.startsWith('Typed')) span.className = 'input-typed';
+      else if (inputLabel.startsWith('Pasted')) span.className = 'input-pasted';
+      else if (inputLabel === 'Typed + pasted' || inputLabel === 'Mixed') span.className = 'input-mixed';
+      cell.append(span); return;
+    }
+    let cursor = 0;
+    runs.forEach((run) => {
+      if (!Array.isArray(run) || run.length !== 3) return;
+      const start = Math.max(cursor, Math.min(text.length, Number(run[0]) || 0));
+      const end = Math.max(start, Math.min(text.length, Number(run[1]) || 0));
+      if (start > cursor) cell.append(document.createTextNode(text.slice(cursor, start)));
+      if (end > start) {
+        const span = document.createElement('span');
+        span.className = run[2] === 'typed' || run[2] === 'pasted' ? `input-${run[2]}` : '';
+        span.textContent = text.slice(start, end); cell.append(span);
+      }
+      cursor = end;
+    });
+    if (cursor < text.length) cell.append(document.createTextNode(text.slice(cursor)));
   }
   function showMessage(message, isError = false) {
     rowsNode.replaceChildren();
@@ -97,20 +127,25 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       const timeMain = document.createElement('span'); timeMain.textContent = new Date(item.executedAt).toLocaleDateString();
       const timeSmall = document.createElement('small'); timeSmall.textContent = new Date(item.executedAt).toLocaleTimeString(); time.append(timeMain, timeSmall);
       const source = document.createElement('td'); source.textContent = compilerSourceLabel(item.source);
-      const sql = document.createElement('td'); sql.className = 'teacher-history-sql'; sql.textContent = item.sql || '';
+      const sql = document.createElement('td'); sql.className = 'teacher-history-sql';
+      const inputLabel = inputMethodLabel(item);
+      appendColoredSql(sql, item.sql || '', item.inputSourceMap, inputLabel);
+      if ((inputLabel === 'Typed + pasted' || inputLabel === 'Mixed') && !item.inputSourceMap?.length) {
+        sql.classList.add('input-mixed');
+        sql.title = 'Mixed typed and pasted input; exact character positions were not recorded.';
+      }
       const input = document.createElement('td'); input.className = 'teacher-history-input';
       const pastedChars = Number(item.pastedChars) || 0;
       const pasteCount = Number(item.pasteCount) || 0;
       const typedChars = Number(item.typedChars) || 0;
-      const inputLabel = inputMethodLabel(item);
-      if (['Pasted', 'Typed + pasted', 'Mixed'].includes(inputLabel)) {
+      if (inputLabel.startsWith('Pasted') || ['Typed + pasted', 'Mixed'].includes(inputLabel)) {
         const badge = document.createElement('span'); badge.className = 'paste-badge';
         badge.textContent = inputLabel;
         badge.title = `${pasteCount} paste event${pasteCount === 1 ? '' : 's'} · ${pastedChars.toLocaleString()} pasted characters${Number(item.editsAfterPaste) ? ` · ${Number(item.editsAfterPaste).toLocaleString()} edits after paste` : ''}. Browser cannot identify the source tab or app.`;
         input.append(badge);
       } else if (inputLabel !== 'Not tracked') {
         const badge = document.createElement('span'); badge.className = 'typed-badge'; badge.textContent = inputLabel;
-        badge.title = inputLabel === 'Typed' ? `${typedChars.toLocaleString()} typed characters` : inputLabel === 'File' ? 'Statement was loaded using Open file.' : 'Statement was recalled from SQL history.';
+        badge.title = inputLabel.startsWith('History recall') ? 'Statement was recalled from SQL history and then edited before execution.' : inputLabel === 'File' ? 'Statement was loaded using Open file.' : `${typedChars.toLocaleString()} typed characters`;
         input.append(badge);
       } else {
         input.textContent = 'Not tracked';

@@ -1,12 +1,12 @@
 /* Shared hover depth for the portal and workbench. Colors remain controlled by each page's theme. */
 @media (hover: hover) and (pointer: fine) {
-  .dashboard-page :is(button, a, [role="button"], .metric-card, .content-card, .course-card, .approval-card, .profile-view-card, .role-choice-card),
+  .dashboard-page :is(button, a, [role="button"]):not(.metric-card):not(.content-card):not(.course-card):not(.approval-card):not(.profile-view-card):not(.role-choice-card),
   body:not(.dashboard-page) :is(button, a, [role="button"], .preview-card, .compiler-selection-card, .icon-button, .workspace-tab, .run-button, .plain-button, .object-list, .mini-action) {
     transition: transform .18s ease, box-shadow .18s ease;
     transform-style: preserve-3d;
   }
 
-  .dashboard-page :is(button, a, [role="button"], .metric-card, .content-card, .course-card, .approval-card, .profile-view-card, .role-choice-card):not(:disabled):hover,
+  .dashboard-page :is(button, a, [role="button"]):not(.metric-card):not(.content-card):not(.course-card):not(.approval-card):not(.profile-view-card):not(.role-choice-card):not(:disabled):hover,
   body:not(.dashboard-page) :is(button, a, [role="button"], .preview-card, .compiler-selection-card, .icon-button, .workspace-tab, .run-button, .plain-button, .object-list, .mini-action):not(:disabled):hover {
     transform: perspective(800px) translateY(-2px) translateZ(3px) rotateX(.7deg);
     box-shadow: 0 9px 20px rgba(0, 0, 0, .22);
@@ -29,7 +29,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dashboard-page :is(button, a, [role="button"], .side-link, .metric-card, .content-card, .course-card, .approval-card, .profile-view-card, .role-choice-card),
+  .dashboard-page :is(button, a, [role="button"], .side-link):not(.metric-card):not(.content-card):not(.course-card):not(.approval-card):not(.profile-view-card):not(.role-choice-card),
   body:not(.dashboard-page) :is(button, a, [role="button"], .preview-card, .compiler-selection-card, .icon-button, .workspace-tab, .run-button, .plain-button, .object-list, .mini-action) {
     transition: none !important;
   }

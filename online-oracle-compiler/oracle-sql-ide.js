@@ -23,42 +23,111 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   const plsqlCleanCode = $('#plsqlCleanCode');
   const plsqlAutoCommit = $('#plsqlAutoCommit');
   const editMetrics = {
-    plsql: { typedChars: 0, pastedChars: 0, pasteCount: 0, editsAfterPaste: 0, hasPaste: false, inputMethods: new Set() },
-    sqlplus: { typedChars: 0, pastedChars: 0, pasteCount: 0, editsAfterPaste: 0, hasPaste: false, inputMethods: new Set() },
+    plsql: { typedChars: 0, pastedChars: 0, pasteCount: 0, editsAfterPaste: 0, hasExternalInput: false, inputMethods: new Set() },
+    sqlplus: { typedChars: 0, pastedChars: 0, pasteCount: 0, editsAfterPaste: 0, hasExternalInput: false, inputMethods: new Set() },
   };
+  let internalClipboard = null;
+  const normalizeClipboardText = value => String(value || '').replace(/\r\n?/g, '\n').trim();
+  function rememberInternalCopy(text) {
+    const normalized = normalizeClipboardText(text);
+    if (normalized) internalClipboard = { text: normalized, copiedAt: Date.now() };
+  }
+  function consumeInternalCopy(text) {
+    if (!internalClipboard || Date.now() - internalClipboard.copiedAt > 120000) {
+      internalClipboard = null;
+      return false;
+    }
+    const matches = normalizeClipboardText(text) === internalClipboard.text;
+    internalClipboard = null;
+    return matches;
+  }
+  const inputProvenance = {
+    plsql: { text: editor?.value || '', sources: Array((editor?.value || '').length).fill(''), pending: '' },
+    sqlplus: { text: '', sources: [], pending: '' },
+  };
+  function trackInputProvenance(source, element, event) {
+    const trace = inputProvenance[source];
+    const next = element.value;
+    if (!event?.isTrusted && !trace.pending) {
+      trace.text = next; trace.sources = Array(next.length).fill(''); return;
+    }
+    const previous = trace.text;
+    let prefix = 0;
+    while (prefix < previous.length && prefix < next.length && previous[prefix] === next[prefix]) prefix += 1;
+    let suffix = 0;
+    while (suffix < previous.length - prefix && suffix < next.length - prefix
+      && previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix += 1;
+    const oldEnd = previous.length - suffix;
+    const newEnd = next.length - suffix;
+    const origin = trace.pending || (event?.inputType === 'insertFromPaste' ? 'pasted'
+      : event?.isTrusted && /^insert/i.test(event?.inputType || '') ? 'typed' : '');
+    trace.sources = [
+      ...trace.sources.slice(0, prefix),
+      ...Array(newEnd - prefix).fill(origin),
+      ...trace.sources.slice(oldEnd),
+    ];
+    trace.text = next; trace.pending = '';
+  }
+  function inputSourceRuns(source, text) {
+    const trace = inputProvenance[source];
+    const offset = trace.text.indexOf(text);
+    if (!text || offset < 0) return [];
+    const runs = [];
+    let active = '';
+    let start = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      const origin = trace.sources[offset + index] || '';
+      if (origin === active) continue;
+      if (active) runs.push([start, index, active]);
+      active = origin; start = index;
+    }
+    if (active) runs.push([start, text.length, active]);
+    return runs;
+  }
+  function sliceInputSourceRuns(runs, start, end) {
+    return (runs || []).flatMap(([from, to, source]) => {
+      const left = Math.max(from, start), right = Math.min(to, end);
+      return right > left ? [[left - start, right - start, source]] : [];
+    });
+  }
   function markInputMethod(source, method) {
     const methods = editMetrics[source].inputMethods;
-    if (method === 'typed') {
-      if (!methods.size) methods.add(method);
-      return;
-    }
-    methods.delete('typed');
+    if (method === 'file' || method === 'history_recall') methods.clear();
+    if (method === 'history_recall') editMetrics[source].hasExternalInput = true;
     methods.add(method);
   }
   function currentInputMethod(source) {
     const methods = [...editMetrics[source].inputMethods];
+    if (methods.includes('history_recall')) return 'history_recall';
+    if (methods.includes('internal_copy')) return 'internal_copy';
     return methods.length > 1 ? 'mixed' : methods[0] || '';
   }
   function recordPaste(source, characterCount) {
     const metrics = editMetrics[source];
     metrics.pasteCount += 1;
     metrics.pastedChars += Math.max(0, Number(characterCount) || 0);
-    metrics.hasPaste = true;
+    metrics.hasExternalInput = true;
     markInputMethod(source, 'pasted');
   }
+  document.addEventListener('copy', () => {
+    const selection = window.getSelection();
+    const selectedNode = selection?.anchorNode;
+    if (selectedNode && $('#terminalOutput')?.contains(selectedNode)) rememberInternalCopy(selection.toString());
+  });
   function trackManualEdit(source, event) {
     if (!event.isTrusted || !event.inputType || /Paste/i.test(event.inputType)) return;
     if (!/^(insert|delete|historyUndo|historyRedo)/i.test(event.inputType)) return;
     const metrics = editMetrics[source];
     if (event.inputType.startsWith('insert') || event.inputType.startsWith('delete')) markInputMethod(source, 'typed');
     if (event.inputType.startsWith('insert')) metrics.typedChars += event.data?.length || (/LineBreak|Paragraph/i.test(event.inputType) ? 1 : 0);
-    if (metrics.hasPaste) metrics.editsAfterPaste += 1;
+    if (metrics.hasExternalInput) metrics.editsAfterPaste += 1;
   }
-  function takeEditMetrics(sqlplus) {
+  function takeEditMetrics(sqlplus, inputSourceMap = null) {
     const metrics = editMetrics[sqlplus ? 'sqlplus' : 'plsql'];
-    const snapshot = { typedChars: metrics.typedChars, pastedChars: metrics.pastedChars, pasteCount: metrics.pasteCount, editsAfterPaste: metrics.editsAfterPaste, inputMethod: currentInputMethod(sqlplus ? 'sqlplus' : 'plsql') };
+    const source = sqlplus ? 'sqlplus' : 'plsql';
+    const snapshot = { typedChars: metrics.typedChars, pastedChars: metrics.pastedChars, pasteCount: metrics.pasteCount, editsAfterPaste: metrics.editsAfterPaste, inputMethod: currentInputMethod(source), inputSourceMap: inputSourceMap || inputSourceRuns(source, sqlplus ? terminalInput.value : editor.value) };
     metrics.typedChars = metrics.pastedChars = metrics.pasteCount = metrics.editsAfterPaste = 0;
-    metrics.hasPaste = false;
+    metrics.hasExternalInput = false;
     metrics.inputMethods.clear();
     return snapshot;
   }
@@ -114,6 +183,8 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     });
   }
   const terminalInput = $('#terminalInput');
+  inputProvenance.sqlplus.text = terminalInput?.value || '';
+  inputProvenance.sqlplus.sources = Array(inputProvenance.sqlplus.text.length).fill('');
   const terminalOutput = $('#terminalOutput');
   const terminalPrompt = $('.terminal-prompt');
   if (terminalOutput && terminalPrompt) terminalOutput.append(terminalPrompt);
@@ -138,6 +209,10 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   let objectRows = [];
   let currentSchema = '';
   let currentView = 'sqlplus';
+  let sharedCompilerTabAppearance = {
+    sqlplus: { label: 'SQLCL', visible: true, order: 1 },
+    compiler: { label: 'SQL WorkSheet', visible: false, order: 2 },
+  };
   const requestedView = new URLSearchParams(window.location.search).get('view');
   let resultData = null;
   let history = [];
@@ -167,6 +242,8 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   let sharePollTimer = 0;
   let lastSharedEditorText = '';
   let lastSharedSqlplusText = '';
+  let lastEditPermissionPrompt = '';
+  let editorShareConflict = false;
 
   try { history = JSON.parse(localStorage.getItem(historyKey) || '[]'); } catch { history = []; }
   if (!Array.isArray(history)) history = [];
@@ -265,7 +342,12 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   document.addEventListener('visibilitychange', sendCompilerHeartbeat);
 
   function setView(view) {
-    if (!['sqlplus', 'compiler', 'history', 'settings'].includes(view)) return;
+    const allowedViews = ['sqlplus', 'compiler', 'history', 'settings'];
+    if (isStudent) allowedViews.push('sharedCode');
+    if (!allowedViews.includes(view)) return;
+    if (['sqlplus', 'compiler'].includes(view) && !sharedCompilerTabAppearance[view]?.visible) {
+      view = sharedCompilerTabAppearance.sqlplus?.visible ? 'sqlplus' : 'compiler';
+    }
     currentView = view;
     main.dataset.view = view;
     $$('.ide-nav-item, .ide-tabs [data-view]').forEach((button) => {
@@ -280,6 +362,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     });
     if (view === 'history') { loadCompilerHistory(); if (isTeacher && $('#historyStudentFilter')?.value) loadTeacherEditor(); }
     if (view === 'settings' && isStudent) loadStudentEditorSharing();
+    if (view === 'sharedCode' && isStudent) loadStudentSharedCode();
     if (view === 'compiler') updateHighlight();
   }
 
@@ -733,7 +816,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     }
     return !terminalBatchCancelled;
   }
-  async function execute(sql, { sqlplus = false, script = false, executionMode } = {}) {
+  async function execute(sql, { sqlplus = false, script = false, executionMode, inputSourceMap = null } = {}) {
     let statement = sql.trim();
     if (sqlplus && statement === '/') {
       if (!terminalSqlBuffer) {
@@ -782,7 +865,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       scrollLeft: editor.scrollLeft
     };
     if (isStudent) await shareBeforeStatement(sqlplus, statement);
-    const editSource = takeEditMetrics(sqlplus);
+    const editSource = takeEditMetrics(sqlplus, inputSourceMap || inputSourceRuns(sqlplus ? 'sqlplus' : 'plsql', originalStatement));
     const started = performance.now();
     if (!sqlplus) $('#resultRuntime').textContent = 'Running…';
     const terminalEntry = substitutionEntry || (sqlplus ? appendTerminalResult(statement, { pending: true }, null) : null);
@@ -1263,15 +1346,20 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   editor.addEventListener('paste', (event) => {
     if (!event.clipboardData) return;
     const pastedText = event.clipboardData.getData('text');
-    reportCompilerPaste('PL/SQL', pastedText);
-    recordPaste('plsql', pastedText.length);
+    const internal = consumeInternalCopy(pastedText);
+    if (!internal) {
+      reportCompilerPaste('PL/SQL', pastedText);
+      recordPaste('plsql', pastedText.length);
+    } else markInputMethod('plsql', 'internal_copy');
+    if (internal) inputProvenance.plsql.pending = 'internal';
     if (!plsqlCleanCode.checked) return;
     event.preventDefault();
     const normalized = normalizePastedSql(pastedText);
     editor.setRangeText(normalized, editor.selectionStart, editor.selectionEnd, 'end');
+    inputProvenance.plsql.pending = internal ? 'internal' : 'pasted';
     editor.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  editor.addEventListener('input', (event) => trackManualEdit('plsql', event));
+  editor.addEventListener('input', (event) => { trackInputProvenance('plsql', editor, event); trackManualEdit('plsql', event); });
   plsqlStarterMenu.querySelectorAll('[data-plsql-starter]').forEach((button) => button.addEventListener('click', () => {
     editor.value = button.dataset.plsqlStarter;
     plsqlStarterMenu.hidden = true;
@@ -1581,7 +1669,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     run.addEventListener('click', () => { editor.value = entry.sql; markInputMethod('plsql', 'history_recall'); updateLineNumbers(); updateHighlight(); setView('compiler'); execute(entry.sql); });
     const copy = document.createElement('button');
     copy.type = 'button'; copy.className = 'tool-button'; copy.textContent = 'Copy';
-    copy.addEventListener('click', async () => { await navigator.clipboard.writeText(entry.sql); showToast('SQL copied.'); });
+    copy.addEventListener('click', async () => { if (entry.source === 'SQL*Plus') rememberInternalCopy(entry.sql); await navigator.clipboard.writeText(entry.sql); showToast('SQL copied.'); });
     actions.append(run, copy);
     row.append(meta, sql, actions);
     return row;
@@ -1659,6 +1747,35 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     await loadCompilerHistory();
   }
   function filteredHistoryRecords() { return historyRecords; }
+  function appendColoredHistorySql(container, sql, sourceMap, inputMethod = '') {
+    const text = String(sql || '');
+    const runs = Array.isArray(sourceMap) ? sourceMap : [];
+    if (!runs.length) {
+      const span = document.createElement('span');
+      span.textContent = text;
+      if (inputMethod === 'typed') span.className = 'input-typed';
+      else if (inputMethod === 'pasted') span.className = 'input-pasted';
+      else if (inputMethod === 'mixed') span.className = 'input-mixed';
+      container.append(span);
+      return;
+    }
+    let cursor = 0;
+    for (const run of runs) {
+      if (!Array.isArray(run) || run.length !== 3) continue;
+      const start = Math.max(cursor, Math.min(text.length, Number(run[0]) || 0));
+      const end = Math.max(start, Math.min(text.length, Number(run[1]) || 0));
+      const source = run[2] === 'typed' || run[2] === 'pasted' ? run[2] : '';
+      if (start > cursor) container.append(document.createTextNode(text.slice(cursor, start)));
+      if (end > start) {
+        const span = document.createElement('span');
+        span.className = source ? `input-${source}` : '';
+        span.textContent = text.slice(start, end);
+        container.append(span);
+      }
+      cursor = end;
+    }
+    if (cursor < text.length) container.append(document.createTextNode(text.slice(cursor)));
+  }
   function renderHistory() {
     const body = $('#historyTableBody');
     if (!body) return;
@@ -1698,7 +1815,19 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       badge.className = `history-source-badge ${entry.source === 'SQL*Plus' ? 'sqlplus' : 'compiler'}`;
       badge.textContent = compilerSourceLabel(entry.source); sourceCell.append(badge);
       const queryCell = document.createElement('td'); queryCell.className = 'history-query-preview';
-      queryCell.textContent = (entry.sql || '').replace(/\s+/g, ' ').trim(); queryCell.title = entry.sql || '';
+      const queryText = document.createElement('span');
+      queryText.className = 'history-query-text';
+      const inputMethod = entry.inputMethod || (Number(entry.pastedChars) > 0 && Number(entry.typedChars) > 0 ? 'mixed' : Number(entry.pastedChars) > 0 ? 'pasted' : Number(entry.typedChars) > 0 ? 'typed' : '');
+      appendColoredHistorySql(queryText, entry.sql || '', entry.inputSourceMap, inputMethod);
+      queryText.title = entry.sql || '';
+      if (inputMethod === 'mixed' && !entry.inputSourceMap?.length) {
+        queryText.title = `${entry.sql || ''}\nMixed typed and pasted input; exact character positions were not recorded.`;
+        const inputLegend = document.createElement('small'); inputLegend.className = 'history-query-input-legend';
+        inputLegend.innerHTML = '<span class="input-typed">Typed</span><span class="input-pasted">Pasted</span>';
+        queryCell.append(inputLegend);
+      }
+      queryCell.append(queryText);
+      if (inputMethod === 'file' || inputMethod === 'history_recall') queryCell.title = `${inputMethod === 'file' ? 'Loaded from file' : 'Recalled from history'} · ${entry.sql || ''}`;
       const resultCell = document.createElement('td'); const resultBadge = document.createElement('span');
       const failed = entry.status === 'error'; resultBadge.className = `history-status-badge ${failed ? 'failed' : 'success'}`;
       resultBadge.textContent = failed ? 'Failed' : 'Success';
@@ -1712,7 +1841,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       const editSourceCell = document.createElement('td');
       if ([entry.typedChars, entry.pastedChars, entry.editsAfterPaste].some((value) => value != null)) {
         editSourceCell.textContent = `T ${Number(entry.typedChars) || 0} · P ${Number(entry.pastedChars) || 0} · E ${Number(entry.editsAfterPaste) || 0}`;
-        editSourceCell.title = `Manually typed characters: ${Number(entry.typedChars) || 0}; pasted characters: ${Number(entry.pastedChars) || 0}; edits after paste: ${Number(entry.editsAfterPaste) || 0}; paste actions: ${Number(entry.pasteCount) || 0}`;
+        editSourceCell.title = `Manually typed characters: ${Number(entry.typedChars) || 0}; pasted characters: ${Number(entry.pastedChars) || 0}; edits after paste or history recall: ${Number(entry.editsAfterPaste) || 0}; paste actions: ${Number(entry.pasteCount) || 0}`;
       } else {
         editSourceCell.textContent = 'Not tracked';
         editSourceCell.title = 'Editing source counts were not collected for this execution.';
@@ -1729,7 +1858,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         if (!sqlplus) { editor.value = entry.sql; updateLineNumbers(); updateHighlight(); updateEditorCursorPosition(); }
         setView(sqlplus ? 'sqlplus' : 'compiler'); await execute(entry.sql, { sqlplus });
       });
-      makeAction('Copy query', '⧉', async () => { await navigator.clipboard.writeText(entry.sql || ''); showToast('SQL copied.'); });
+      makeAction('Copy query', '⧉', async () => { if (entry.source === 'SQL*Plus') rememberInternalCopy(entry.sql || ''); await navigator.clipboard.writeText(entry.sql || ''); showToast('SQL copied.'); });
       if ($('#historyStudentFilter')) {
         makeAction(entry.isActive ? 'Deactivate for student' : 'Activate for student', entry.isActive ? '◉' : '○', () => changeHistoryRecord(entry, { isActive: !entry.isActive }));
         makeAction('Delete query', '×', () => changeHistoryRecord(entry, null));
@@ -1844,6 +1973,37 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     return data;
   }
   function selectedEditorStudent() { return $('#historyStudentFilter')?.value || ''; }
+  function teacherEditorCanEdit(data) {
+    if (!data) return false;
+    if (data.mode === 'always') return true;
+    const fresh = Date.now() - Date.parse(data.updatedAt) <= 120000;
+    return fresh && (data.mode === 'session' || (data.mode === 'statement' && data.statementSnapshotReady));
+  }
+  function ensureTeacherPermissionRequestButton() {
+    const actions = $('.teacher-editor-actions');
+    if (!actions || $('#requestTeacherEditorPermission')) return $('#requestTeacherEditorPermission');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'requestTeacherEditorPermission';
+    button.className = 'tool-button';
+    button.textContent = 'Request edit permission';
+    button.hidden = true;
+    button.addEventListener('click', async () => {
+      const studentId = selectedEditorStudent();
+      if (!studentId || !sharedEditor || teacherEditorCanEdit(sharedEditor)) return;
+      button.disabled = true;
+      try {
+        sharedEditor = await editorShareRequest(`/api/compiler/editor-share/${studentId}`, { method: 'POST', body: JSON.stringify({ action: 'request_edit_permission' }) });
+        $('#teacherEditorStatus').textContent = 'Permission request sent. The student will see a popup in the compiler.';
+        button.textContent = 'Permission request sent';
+      } catch (error) {
+        $('#teacherEditorStatus').textContent = error.message;
+        button.disabled = false;
+      }
+    });
+    $('#saveTeacherEditor')?.before(button);
+    return button;
+  }
   async function loadTeacherEditor() {
     const studentId = selectedEditorStudent();
     if (!isTeacher) return;
@@ -1855,6 +2015,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       $('#teacherStudentEditor').value = '';
       $('#teacherStudentEditor').readOnly = true;
       $('#saveTeacherEditor').disabled = true;
+      const requestButton = ensureTeacherPermissionRequestButton(); if (requestButton) requestButton.hidden = true;
       $('#teacherEditorTitle').textContent = 'Student editor';
       $('#teacherEditorAccess').textContent = 'Choose one student from the filter above.';
       $('#teacherEditorRevision').textContent = '';
@@ -1868,12 +2029,17 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     try {
       sharedEditor = await editorShareRequest(`/api/compiler/editor-share/${studentId}`);
       $('#teacherEditorTitle').textContent = `${sharedEditor.studentName || 'Student'} · ${teacherEditorKind === 'plsql' ? 'SQL WorkSheet Editor' : 'SQLCL Editor'}`;
-      $('#teacherEditorAccess').textContent = `Access: ${sharedEditor.mode === 'statement' ? 'one statement' : sharedEditor.mode === 'session' ? 'this session' : 'always allow'}`;
+      const canEdit = teacherEditorCanEdit(sharedEditor);
+      $('#teacherEditorAccess').textContent = canEdit ? `Access: ${sharedEditor.mode === 'statement' ? 'one statement' : sharedEditor.mode === 'session' ? 'this session' : 'always allow'}` : 'View only · student permission is required to edit';
       $('#teacherEditorRevision').textContent = `Revision ${sharedEditor.revision}`;
       $('#teacherStudentEditor').value = teacherEditorKind === 'plsql' ? sharedEditor.editorText : sharedEditor.sqlplusText;
-      $('#teacherStudentEditor').readOnly = false;
-      $('#saveTeacherEditor').disabled = false;
-      $('#teacherEditorStatus').textContent = 'Changes are saved directly to the selected student editor.';
+      $('#teacherStudentEditor').readOnly = !canEdit;
+      $('#saveTeacherEditor').disabled = !canEdit;
+      const requestButton = ensureTeacherPermissionRequestButton();
+      requestButton.hidden = canEdit;
+      requestButton.disabled = Boolean(sharedEditor.editPermissionRequest);
+      requestButton.textContent = sharedEditor.editPermissionRequest ? 'Permission request sent' : 'Request edit permission';
+      $('#teacherEditorStatus').textContent = canEdit ? 'Changes are saved directly to the selected student editor.' : 'Editor contents are visible. Request permission to edit; the student will receive a popup.';
     } catch (error) {
       sharedEditor = null;
       $('#teacherEditorTitle').textContent = 'Student editor';
@@ -1909,26 +2075,32 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }
   async function loadStudentEditorSharing() {
     if (!isStudent || !$('#teacherEditorAccess')) return;
+    const privateOption = $('#teacherEditorAccess option[value="private"]');
+    if (privateOption) privateOption.textContent = 'View only';
+    const explanation = $('#teacherEditorAccess').closest('.settings-card')?.querySelector('small');
+    if (explanation) explanation.textContent = 'Teachers can always view your current SQL WorkSheet and SQLCL code. Choose whether your assigned teacher may edit it. View only blocks editing; this session expires after two minutes without activity.';
     try {
       const data = await editorShareRequest('/api/compiler/editor-share');
       $('#teacherEditorAccess').value = data.mode;
-      $('#teacherEditorShareStatus').textContent = data.mode === 'private' ? 'Private' : data.mode === 'statement' ? (data.statementSnapshotReady ? 'Statement shared' : 'Waiting for next statement') : data.mode === 'session' ? 'Sharing this session' : 'Always sharing';
+      $('#teacherEditorShareStatus').textContent = data.mode === 'private' ? 'View only · teacher cannot edit' : data.mode === 'statement' ? (data.statementSnapshotReady ? 'Statement shared' : 'Waiting for next statement') : data.mode === 'session' ? 'Sharing this session' : 'Always sharing';
       sharedEditor = data;
+      syncStudentEditorSharing();
     } catch (error) { $('#teacherEditorShareStatus').textContent = error.message; }
   }
   async function setStudentShareMode(mode) {
     const body = { mode, sessionToken: shareSessionToken, editorText: editor.value, sqlplusText: terminalInput.value, revision: sharedEditor?.revision };
     const data = await editorShareRequest('/api/compiler/editor-share', { method: 'POST', body: JSON.stringify(body) });
     sharedEditor = data;
+    editorShareConflict = false;
     lastSharedEditorText = editor.value;
     lastSharedSqlplusText = terminalInput.value;
-    $('#teacherEditorShareStatus').textContent = mode === 'private' ? 'Private' : mode === 'statement' ? 'Waiting for next statement' : mode === 'session' ? 'Sharing this session' : 'Always sharing';
+    $('#teacherEditorShareStatus').textContent = mode === 'private' ? 'View only · teacher cannot edit' : mode === 'statement' ? 'Waiting for next statement' : mode === 'session' ? 'Sharing this session' : 'Always sharing';
     syncStudentEditorSharing();
   }
   async function syncStudentEditorSharing() {
-    if (!isStudent || !['session', 'always'].includes($('#teacherEditorAccess')?.value)) return;
+    if (!isStudent || !$('#teacherEditorAccess') || editorShareConflict) return;
     try {
-      const data = await editorShareRequest('/api/compiler/editor-share', { method: 'POST', body: JSON.stringify({ mode: dataMode(), sessionToken: shareSessionToken, editorText: editor.value, sqlplusText: terminalInput.value, revision: sharedEditor?.revision }) });
+      const data = await editorShareRequest('/api/compiler/editor-share', { method: 'POST', body: JSON.stringify({ action: 'sync_view_snapshot', editorText: editor.value, sqlplusText: terminalInput.value, revision: sharedEditor?.revision }) });
       sharedEditor = data;
       lastSharedEditorText = editor.value;
       lastSharedSqlplusText = terminalInput.value;
@@ -1936,7 +2108,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }
   function dataMode() { return $('#teacherEditorAccess')?.value || 'private'; }
   function scheduleEditorShareSync() {
-    if (!isStudent || !['session', 'always'].includes(dataMode())) return;
+    if (!isStudent || !$('#teacherEditorAccess')) return;
     clearTimeout(shareSyncTimer);
     shareSyncTimer = setTimeout(syncStudentEditorSharing, 500);
   }
@@ -1950,18 +2122,90 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     } catch (error) { showToast(error.message); }
   }
   async function pollTeacherEditorChanges() {
-    if (!isStudent || !['statement', 'session', 'always'].includes(dataMode())) return;
+    if (!isStudent || !$('#teacherEditorAccess') || document.hidden) return;
     try {
       const data = await editorShareRequest('/api/compiler/editor-share');
+      const permissionRequest = data.editPermissionRequest;
+      if (permissionRequest?.id && permissionRequest.id !== lastEditPermissionPrompt) {
+        lastEditPermissionPrompt = permissionRequest.id;
+        const approved = await askTeacherEditorPermission(permissionRequest.teacherName);
+        const response = await editorShareRequest('/api/compiler/editor-share', {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'respond_edit_permission', requestId: permissionRequest.id, approved,
+            sessionToken: shareSessionToken, editorText: editor.value, sqlplusText: terminalInput.value,
+          }),
+        });
+        sharedEditor = response;
+        if (approved) $('#teacherEditorAccess').value = 'session';
+        lastSharedEditorText = editor.value;
+        lastSharedSqlplusText = terminalInput.value;
+        editorShareConflict = false;
+        $('#teacherEditorShareStatus').textContent = approved ? 'Sharing this session' : 'Edit request declined · view only';
+        if (approved) showToast('Your teacher can edit your shared editors for this session.');
+        return;
+      }
       if (sharedEditor && data.revision > sharedEditor.revision) {
-        if (editor.value === lastSharedEditorText) { window.CompilerWorkspace.edit(editor, data.editorText, 0, editor.value.length, 'insertReplacementText'); }
-        if (!terminalInput.readOnly && terminalInput.value === lastSharedSqlplusText) terminalInput.value = data.sqlplusText;
-        showToast('Your teacher updated a shared editor.');
+        const editorChangedLocally = editor.value !== lastSharedEditorText;
+        const editorChangedRemotely = (data.editorText || '') !== lastSharedEditorText;
+        const terminalChangedLocally = terminalInput.value !== lastSharedSqlplusText;
+        const terminalChangedRemotely = (data.sqlplusText || '') !== lastSharedSqlplusText;
+        const conflict = (editorChangedLocally && editorChangedRemotely && editor.value !== data.editorText)
+          || (terminalChangedLocally && terminalChangedRemotely && terminalInput.value !== data.sqlplusText);
+        if (conflict) {
+          editorShareConflict = true;
+          showToast('Your teacher and you edited the same code at once. Copy your local edits before reloading the shared editor.');
+        }
+        if (!conflict && editor.value === lastSharedEditorText && editorChangedRemotely) { window.CompilerWorkspace.edit(editor, data.editorText, 0, editor.value.length, 'insertReplacementText'); }
+        if (!conflict && !terminalInput.readOnly && terminalInput.value === lastSharedSqlplusText && terminalChangedRemotely) {
+          terminalInput.value = data.sqlplusText;
+          terminalInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText' }));
+        }
+        if (!conflict) showToast('Your teacher updated a shared editor.');
       }
       sharedEditor = data;
+      if (!editorShareConflict) {
+        lastSharedEditorText = editor.value;
+        lastSharedSqlplusText = terminalInput.value;
+      }
       if (data.mode === 'private') $('#teacherEditorAccess').value = 'private';
-      $('#teacherEditorShareStatus').textContent = data.mode === 'private' ? 'Private' : data.mode === 'statement' ? (data.statementSnapshotReady ? 'Statement shared' : 'Waiting for next statement') : data.mode === 'session' ? 'Sharing this session' : 'Always sharing';
+      $('#teacherEditorShareStatus').textContent = data.mode === 'private' ? 'View only · teacher cannot edit' : data.mode === 'statement' ? (data.statementSnapshotReady ? 'Statement shared' : 'Waiting for next statement') : data.mode === 'session' ? 'Sharing this session' : 'Always sharing';
     } catch { /* Keep the student's editor available if the polling request fails. */ }
+  }
+  function askTeacherEditorPermission(teacherName) {
+    return new Promise(resolve => {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'help-dialog';
+      const heading = document.createElement('div');
+      heading.className = 'dialog-heading';
+      const title = document.createElement('h2');
+      title.textContent = 'Teacher edit request';
+      heading.append(title);
+      const message = document.createElement('p');
+      message.className = 'dialog-note';
+      message.textContent = `${teacherName || 'Your teacher'} is asking to edit both your SQLCL Terminal and SQL WorkSheet code for this session.`;
+      const actions = document.createElement('div');
+      actions.className = 'profile-form-actions';
+      const reject = document.createElement('button');
+      reject.type = 'button'; reject.className = 'register-cancel'; reject.textContent = 'Reject';
+      const allow = document.createElement('button');
+      allow.type = 'button'; allow.className = 'submit-button'; allow.textContent = 'Allow for this session';
+      actions.append(reject, allow);
+      dialog.append(heading, message, actions);
+      document.body.append(dialog);
+      if (typeof dialog.showModal !== 'function') {
+        const approved = window.confirm(`${message.textContent} Allow?`);
+        dialog.remove();
+        resolve(approved);
+        return;
+      }
+      const finish = approved => { dialog.dataset.approved = approved ? 'true' : 'false'; dialog.close(); };
+      reject.addEventListener('click', () => finish(false));
+      allow.addEventListener('click', () => finish(true));
+      dialog.addEventListener('close', () => { const approved = dialog.dataset.approved === 'true'; dialog.remove(); resolve(approved); }, { once: true });
+      dialog.addEventListener('cancel', () => { dialog.dataset.approved = 'false'; }, { once: true });
+      dialog.showModal();
+    });
   }
   $('#teacherEditorAccess')?.addEventListener('change', async (event) => {
     try { await setStudentShareMode(event.target.value); }
@@ -2004,6 +2248,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   if (isStudent) {
     sharePollTimer = setInterval(pollTeacherEditorChanges, 4000);
     setInterval(syncStudentEditorSharing, 25000);
+    setInterval(pollRemoteTerminalCommand, 1200);
     loadStudentEditorSharing();
   }
 
@@ -2030,6 +2275,40 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     if (terminator < 0) return isSqlPlusClientInput(source);
     const remainder = source.slice(terminator + 1).trim();
     return !remainder || isSqlPlusClientInput(remainder);
+  }
+  let remoteTerminalPolling = false;
+  async function pollRemoteTerminalCommand() {
+    if (!isStudent || document.hidden || remoteTerminalPolling || executionBusy || terminalQueue || !terminalInput || $('#openConnection').dataset.connected !== 'true') return;
+    remoteTerminalPolling = true;
+    try {
+      const pending = await editorShareRequest('/api/compiler/remote-terminal/pending');
+      const job = pending.command;
+      if (!job) return;
+      let executionFinished = false;
+      try {
+        const sqlplus = job.editor !== 'worksheet';
+        const result = await execute(job.text, { sqlplus, script: Boolean(job.script) });
+        if (!result || result.retryPending) throw new Error('The student Oracle connection was lost before a result was returned.');
+        executionFinished = true;
+        const output = sqlplus ? window.CompilerWorkspace.outputText(job.text, result) : JSON.stringify(result, null, 2);
+        const error = result.error || (result.executionErrors?.length ? result.executionErrors.map(item => item.error || item.message || String(item)).join('\n') : '');
+        await editorShareRequest(`/api/compiler/remote-terminal/${encodeURIComponent(job.id)}/complete`, {
+          method: 'POST', body: JSON.stringify({ output, error, executed: executionFinished }),
+        });
+        if (sqlplus && terminalInput.value.trim() === job.text.trim()) {
+          terminalInput.value = '';
+          terminalInput.style.height = '';
+          terminalInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      } catch (error) {
+        try {
+          await editorShareRequest(`/api/compiler/remote-terminal/${encodeURIComponent(job.id)}/complete`, {
+            method: 'POST', body: JSON.stringify({ error: error.message || 'Remote SQLCL execution failed.', executed: executionFinished }),
+          });
+        } catch { /* Teacher will see the command expire if its result cannot be reported. */ }
+      }
+    } catch { /* Retry after the next student heartbeat if the portal is briefly unavailable. */ }
+    finally { remoteTerminalPolling = false; }
   }
   function advanceTerminalComments(source) {
     const leading=window.CompilerWorkspace.leadingComments(source);
@@ -2142,9 +2421,10 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     const highlight = $('#terminalInputHighlight');
     if (highlight) { highlight.scrollTop = terminalInput.scrollTop; highlight.scrollLeft = terminalInput.scrollLeft; }
   });
-  async function runPastedTerminalBatch(snapshot, recovered = null) {
+  async function runPastedTerminalBatch(snapshot, recovered = null, sourceMapOverride = null) {
     terminalBatchCancelled = false;
     const batch = recovered || window.CompilerWorkspace.pastedBatch(snapshot);
+    const batchSourceMap = sourceMapOverride || inputSourceRuns('sqlplus', snapshot);
     const batchInputMethod = recovered?.inputMethod || currentInputMethod('sqlplus');
     if (!batch.commands.length && snapshot.trim() && terminalInputIsComplete(snapshot)) {
       batch.commands.push(snapshot.trim()); batch.remaining = '';
@@ -2167,15 +2447,18 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       $('#terminalRun').disabled = true;
       terminalQueue = recovered || { commands: batch.commands, remaining, index: 0, request: null, inputMethod: batchInputMethod };
       saveTerminalQueue();
+      let provenanceSearchOffset = 0;
       for (let index=terminalQueue.index; index<batch.commands.length; index++) {
         if (terminalBatchCancelled) { remaining=''; break; }
         nextIndex = index;
         terminalInput.compilerPendingDraft = batch.commands.slice(index).join('\n')+'\n'+remaining;
         const command=advanceTerminalComments(batch.commands[index]);
         if(!command){nextIndex=index+1;continue;}
+        const commandOffset = snapshot.indexOf(command, provenanceSearchOffset);
+        if (commandOffset >= 0) provenanceSearchOffset = commandOffset + command.length;
         if (await waitForTerminalConnection() === false) { remaining=''; break; }
         if (batchInputMethod) editMetrics.sqlplus.inputMethods.add(batchInputMethod);
-        const result=await execute(command, { sqlplus:true });
+        const result=await execute(command, { sqlplus:true, inputSourceMap: commandOffset >= 0 ? sliceInputSourceRuns(batchSourceMap, commandOffset, commandOffset + command.length) : [] });
         if (terminalBatchCancelled) { remaining=''; break; }
         if (result?.retryPending) { saveTerminalQueue(); index--; await new Promise(resolve=>setTimeout(resolve,1000)); continue; }
         if (result === null) { remaining=batch.commands.slice(index).join('\n')+'\n'+remaining; break; }
@@ -2215,12 +2498,19 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     event.preventDefault();
     if (terminalInput.readOnly) return;
     const pastedText = event.clipboardData.getData('text/plain');
-    reportCompilerPaste('SQL*Plus', pastedText);
-    recordPaste('sqlplus', pastedText.length);
+    const internal = consumeInternalCopy(pastedText);
+    if (!internal) {
+      reportCompilerPaste('SQL*Plus', pastedText);
+      recordPaste('sqlplus', pastedText.length);
+    } else markInputMethod('sqlplus', 'internal_copy');
     const transcriptSql = window.CompilerWorkspace.cleanSqlPlusTranscript(pastedText);
     const withoutPrompts = window.CompilerWorkspace.stripSqlPlusPrompts(transcriptSql);
     const text = sqlplusCleanPaste.checked ? normalizePastedSql(withoutPrompts) : withoutPrompts.replace(/\r\n?/g, '\n');
-    const snapshot=terminalInput.value.slice(0,terminalInput.selectionStart)+text+terminalInput.value.slice(terminalInput.selectionEnd);
+    const replaceStart = terminalInput.selectionStart, replaceEnd = terminalInput.selectionEnd;
+    const snapshot=terminalInput.value.slice(0,replaceStart)+text+terminalInput.value.slice(replaceEnd);
+    const trace = inputProvenance.sqlplus;
+    trace.text = snapshot;
+    trace.sources = [...trace.sources.slice(0, replaceStart), ...Array(text.length).fill(internal ? 'internal' : 'pasted'), ...trace.sources.slice(replaceEnd)];
     if (window.CompilerWorkspace.pastedBatch(snapshot).commands.length) {
       // Queue before painting: the entire pasted batch never enters the textarea.
       runPastedTerminalBatch(snapshot).catch(error => showToast(error.message || 'Pasted batch failed.'));
@@ -2230,6 +2520,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         terminalInput.value=advanceTerminalComments(snapshot);
         terminalInput.setSelectionRange(terminalInput.value.length,terminalInput.value.length);
       } else terminalInput.setRangeText(text, terminalInput.selectionStart, terminalInput.selectionEnd, 'end');
+      inputProvenance.sqlplus.pending = internal ? 'internal' : 'pasted';
       terminalInput.dispatchEvent(new InputEvent('input', { bubbles:true, inputType:'insertFromPaste' }));
     }
   });
@@ -2246,7 +2537,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     const action = button.dataset.terminalAction;
     const output = $('#terminalOutput');
     if (action === 'clear') { output.replaceChildren(terminalPrompt); terminalInput.value = ''; terminalInput.style.height = ''; }
-    if (action === 'copy') { await navigator.clipboard.writeText(output.innerText); showToast('Terminal copied.'); }
+    if (action === 'copy') { rememberInternalCopy(output.innerText); await navigator.clipboard.writeText(output.innerText); showToast('Terminal copied.'); }
     if (action === 'download') {
       const link = document.createElement('a');
       link.href = URL.createObjectURL(new Blob([output.innerText], { type: 'text/plain' }));
@@ -2480,9 +2771,10 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }
   installFontSetting('plsqlFontFamily','plsql');
   installFontSetting('sqlplusFontFamily','sqlplus');
-  const initialView = ['sqlplus', 'compiler', 'history', 'settings'].includes(requestedView)
+  const availableViews = ['sqlplus', 'compiler', 'history', 'settings', ...(isStudent ? ['sharedCode'] : [])];
+  const initialView = availableViews.includes(requestedView)
     ? requestedView
-    : ['sqlplus', 'compiler', 'history', 'settings'].includes(workspaceResume?.view) ? workspaceResume.view : 'sqlplus';
+    : availableViews.includes(workspaceResume?.view) ? workspaceResume.view : 'sqlplus';
   setView(initialView);
   syncFullscreenControl();
   document.documentElement.classList.remove('workspace-restoring');
@@ -2507,17 +2799,158 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     try { localStorage.removeItem(terminalBufferKey); } catch {}
     updateBufferSetting();
   });
+  function applyCompilerTabAppearance() {
+    const entries = ['sqlplus', 'compiler'].map(key => ({ key, ...sharedCompilerTabAppearance[key] }));
+    for (const entry of entries) {
+      const navItem = $(`.ide-nav-item[data-view=\"${entry.key}\"]`);
+      const panel = $(`[data-panel=\"${entry.key}\"]`);
+      if (navItem) {
+        navItem.hidden = !entry.visible;
+        navItem.title = entry.label;
+        navItem.setAttribute('aria-label', entry.label);
+        const text = $('b', navItem); if (text) text.textContent = entry.label;
+      }
+      if (panel) {
+        panel.dataset.tabVisible = String(entry.visible);
+        panel.setAttribute('aria-label', entry.label);
+      }
+    }
+    const nav = $('#ideNav');
+    const historyTab = $('.ide-nav-item[data-view=\"history\"]', nav);
+    entries.sort((a, b) => a.order - b.order).forEach(entry => {
+      const item = $(`.ide-nav-item[data-view=\"${entry.key}\"]`, nav);
+      if (item && historyTab) nav.insertBefore(item, historyTab);
+    });
+    const title = $('.terminal-titlebar > span:nth-child(2)');
+    if (title?.firstChild) title.firstChild.textContent = `${sharedCompilerTabAppearance.sqlplus.label} Terminal `;
+    const sourceLabels = { 'SQL*Plus': sharedCompilerTabAppearance.sqlplus.label, 'PL/SQL': sharedCompilerTabAppearance.compiler.label };
+    $$('option[value=\"SQL*Plus\"], option[value=\"PL/SQL\"]').forEach(option => {
+      if (sourceLabels[option.value]) option.textContent = sourceLabels[option.value];
+    });
+    if (['sqlplus', 'compiler'].includes(currentView) && !sharedCompilerTabAppearance[currentView].visible) {
+      setView(sharedCompilerTabAppearance.sqlplus.visible ? 'sqlplus' : 'compiler');
+    }
+  }
+  function fillCompilerTabAppearanceControls() {
+    const fields = {
+      sqlplus: { label: $('#tabLabelSqlplus'), visible: $('#tabVisibleSqlplus'), order: $('#tabOrderSqlplus') },
+      compiler: { label: $('#tabLabelCompiler'), visible: $('#tabVisibleCompiler'), order: $('#tabOrderCompiler') },
+    };
+    for (const [key, controls] of Object.entries(fields)) {
+      if (!controls.label) continue;
+      controls.label.value = sharedCompilerTabAppearance[key].label;
+      controls.visible.checked = sharedCompilerTabAppearance[key].visible;
+      controls.order.value = String(sharedCompilerTabAppearance[key].order);
+    }
+  }
+  function fillCompilerTabTargets(data) {
+    const students = $('#compilerTabStudents');
+    const labs = $('#compilerTabLabs');
+    if (!students || !labs) return;
+    students.replaceChildren();
+    (data.students || []).forEach(student => {
+      const option = document.createElement('option');
+      option.value = String(student.id);
+      option.textContent = `${student.name} · ${student.identifier}`;
+      students.append(option);
+    });
+    labs.replaceChildren();
+    (data.labs || []).forEach(lab => {
+      const option = document.createElement('option');
+      option.value = String(lab.id);
+      option.textContent = `${lab.className} · ${lab.name}`;
+      labs.append(option);
+    });
+  }
+  function updateCompilerTargetScope() {
+    const scope = $('#compilerTabTargetScope')?.value;
+    if ($('#compilerTabStudentsWrap')) $('#compilerTabStudentsWrap').hidden = scope !== 'students';
+    if ($('#compilerTabLabsWrap')) $('#compilerTabLabsWrap').hidden = scope !== 'labs';
+  }
+  $('#compilerTabTargetScope')?.addEventListener('change', updateCompilerTargetScope);
+  updateCompilerTargetScope();
   async function loadBufferDefaults() {
     try {
       const response = await fetch('/api/compiler/settings', { credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(5000) });
-      if (!response.ok) throw new Error('Could not load shared buffer default.');
+      if (!response.ok) throw new Error('Could not load shared compiler settings.');
       const data = await response.json();
       defaultTerminalBufferEntries = data.bufferEntries;
       $('#defaultTerminalBufferEntries').value = data.bufferEntries;
       $('#terminalBufferDefaultCard').hidden = !data.canManageDefault;
+      if (data.effectiveTabs || data.tabAppearance) sharedCompilerTabAppearance = data.effectiveTabs || data.tabAppearance;
+      applyCompilerTabAppearance();
+      fillCompilerTabAppearanceControls();
+      fillCompilerTabTargets(data);
       updateBufferSetting();
     } catch (error) { $('#terminalBufferStatus').textContent = error.message; }
   }
+  async function loadStudentSharedCode() {
+    const list = $('#studentSharedCodeList');
+    const status = $('#studentSharedCodeStatus');
+    if (!isStudent || !list || !status) return;
+    try {
+      const response = await fetch('/api/compiler/shared-code', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not load code shared with you.');
+      list.replaceChildren();
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (!items.length) {
+        status.textContent = 'No code has been shared with you yet.';
+        return;
+      }
+      for (const item of items) {
+        const card = document.createElement('article');
+        card.className = 'student-shared-code-item';
+        const header = document.createElement('header');
+        const heading = document.createElement('div');
+        const title = document.createElement('strong');
+        title.textContent = item.title || 'Shared code';
+        const meta = document.createElement('small');
+        const created = item.createdAt ? new Date(item.createdAt).toLocaleString() : '';
+        meta.textContent = [item.editorLabel, item.teacher, created].filter(Boolean).join(' · ');
+        heading.append(title, meta);
+        const copy = document.createElement('button');
+        copy.type = 'button'; copy.className = 'tool-button'; copy.textContent = 'Copy code';
+        const details = document.createElement('details');
+        const summary = document.createElement('summary'); summary.textContent = 'View code';
+        const code = document.createElement('pre'); code.textContent = item.code || '';
+        details.append(summary, code);
+        copy.addEventListener('click', async () => {
+          try { await navigator.clipboard.writeText(item.code || ''); copy.textContent = 'Copied'; }
+          catch { copy.textContent = 'Copy unavailable'; }
+          window.setTimeout(() => { copy.textContent = 'Copy code'; }, 1600);
+        });
+        header.append(heading, copy);
+        card.append(header, details);
+        list.append(card);
+      }
+      status.textContent = `${items.length} shared item${items.length === 1 ? '' : 's'}`;
+    } catch (error) {
+      status.textContent = error.message || 'Could not load code shared with you.';
+    }
+  }
+  const saveTabAppearance = $('#saveCompilerTabAppearance');
+  if (saveTabAppearance) saveTabAppearance.addEventListener('click', async () => {
+    const status = $('#compilerTabAppearanceStatus');
+    const tabAppearance = {
+      sqlplus: { label: $('#tabLabelSqlplus').value.trim(), visible: $('#tabVisibleSqlplus').checked, order: Number($('#tabOrderSqlplus').value) },
+      compiler: { label: $('#tabLabelCompiler').value.trim(), visible: $('#tabVisibleCompiler').checked, order: Number($('#tabOrderCompiler').value) },
+    };
+    const scope = $('#compilerTabTargetScope').value;
+    const target = { scope };
+    if (scope === 'students') target.studentIds = [...$('#compilerTabStudents').selectedOptions].map(option => Number(option.value));
+    if (scope === 'labs') target.labIds = [...$('#compilerTabLabs').selectedOptions].map(option => Number(option.value));
+    try {
+      const response = await fetch('/api/compiler/settings', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tabAppearance, target}) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not save tab appearance.');
+      if (scope === 'all' && document.body.dataset.canManageCompilerTabs === 'true' && !isTeacher) {
+        sharedCompilerTabAppearance = data.tabAppearance;
+        applyCompilerTabAppearance(); fillCompilerTabAppearanceControls();
+      }
+      status.textContent = `Tab appearance saved for ${data.affectedCount} student${data.affectedCount === 1 ? '' : 's'}.`;
+    } catch (error) { status.textContent = error.message; }
+  });
   $('#saveDefaultTerminalBuffer').addEventListener('click', async () => {
     const status = $('#terminalBufferDefaultStatus');
     try {
@@ -2531,6 +2964,11 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   });
   updateBufferSetting();
   await loadBufferDefaults();
+  if (isStudent) {
+    loadStudentSharedCode();
+    window.setInterval(loadStudentSharedCode, 30000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) loadStudentSharedCode(); });
+  }
   try {
     const recovered = JSON.parse(sessionStorage.getItem(terminalQueueKey) || 'null');
     if (recovered?.commands?.length && Number.isInteger(recovered.index)) {

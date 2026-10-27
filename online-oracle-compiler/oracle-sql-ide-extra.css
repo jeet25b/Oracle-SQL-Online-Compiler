@@ -68,3 +68,23 @@ html[data-theme="light"] .ide-topbar .ide-header-controls > .ide-back-link:is(:h
 .terminal-substitution{display:flex;align-items:center;gap:8px;padding:8px 0;color:inherit;font:inherit}
 .terminal-substitution label{display:flex;align-items:center;gap:8px}
 .terminal-substitution input{background:transparent;color:inherit;border:0;border-bottom:1px solid currentColor;font:inherit;min-width:180px}
+:root{--settings-control-bg:#0b1524;--settings-control-border:#34465d;--settings-control-text:#e6edf7;--settings-control-muted:#94a5bb}
+.settings-card label{color:var(--settings-control-muted);font-size:12px;font-weight:600;line-height:1.4}
+.settings-card input:not([type="checkbox"]):not([type="range"]),.settings-card select{min-height:42px;max-width:100%;padding:8px 11px;border:1px solid var(--settings-control-border);border-radius:8px;background:var(--settings-control-bg);color:var(--settings-control-text);font:500 14px/1.35 Inter,"Segoe UI",Arial,sans-serif;box-shadow:inset 0 1px 2px #0002;accent-color:var(--ide-accent)}
+.settings-card select{color-scheme:dark}
+.settings-card input[type="number"]{width:160px}
+.settings-card select option{background-color:var(--settings-control-bg);color:var(--settings-control-text)}
+.settings-card input:not([type="checkbox"]):not([type="range"]):focus,.settings-card select:focus{outline:2px solid color-mix(in srgb,var(--ide-accent) 38%,transparent);outline-offset:1px;border-color:var(--ide-accent)}
+.settings-card>span[role="status"],.settings-card>.share-status{max-width:190px;color:var(--settings-control-muted);font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+html[data-theme="light"]{--settings-control-bg:#f8fafd;--settings-control-border:#cbd6e4;--settings-control-text:#1c2b42;--settings-control-muted:#60738a}
+html[data-theme="light"] .settings-card select{color-scheme:light}
+.settings-cards{gap:0}
+.settings-card,.settings-card:hover{transform:none;box-shadow:none;transition:none}
+.student-shared-code-card{grid-template-columns:minmax(0,1fr) auto}.student-shared-code-list{grid-column:1/-1;display:grid;gap:10px;width:100%}
+.student-shared-code-item{min-width:0;padding:12px;border:1px solid var(--ide-border);border-radius:9px;background:var(--ide-panel-2)}
+.student-shared-code-item header{display:flex;align-items:center;justify-content:space-between;gap:12px}.student-shared-code-item header>div{display:grid;gap:4px;min-width:0}
+.student-shared-code-item strong{font-size:13px}.student-shared-code-item small{color:var(--ide-muted);font-size:10px}
+.student-shared-code-item details{margin-top:8px}.student-shared-code-item summary{color:var(--ide-accent);cursor:pointer;font-size:11px}
+.student-shared-code-item pre{max-height:300px;overflow:auto;margin:8px 0 0;padding:11px;border-radius:7px;background:#07101c;color:var(--ide-text);font:12px/1.6 "Cascadia Code",Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+html[data-theme="light"] .student-shared-code-item pre{background:#f0f4f9;color:#26374f}
+@media(max-width:620px){.student-shared-code-card{grid-template-columns:1fr}.student-shared-code-item header{align-items:flex-start;flex-direction:column}}

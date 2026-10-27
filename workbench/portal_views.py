@@ -6,12 +6,18 @@ import mimetypes
 from pathlib import Path
 from datetime import date, time, timedelta
 import secrets
+import csv
+import io
+import re
+import zipfile
+import xml.etree.ElementTree as ElementTree
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout, password_validation, update_session_auth_hash
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q, Count, Sum, Max, F
+from django.middleware.csrf import get_token
+from django.db.models import Q, Count, Sum, Max
 from django.db import IntegrityError, transaction
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -33,7 +39,9 @@ from .models import (
     CompilerActivitySlice,
     CompilerLab,
     CompilerPasteEvent,
+    CompilerQueryHistory,
     ClassSection,
+    Course,
     AuditEvent,
     DashboardNavigationItem,
     Enrollment,
@@ -44,8 +52,13 @@ from .models import (
     RegistrationField,
     normalize_mobile_number,
     SQLTest,
+    SQLTestQuestion,
+    TestAnswer,
+    TestAttempt,
     Submission,
+    SharedCompilerCode,
     TeacherAssignment,
+    TeacherActivityPreference,
 )
 from .otp_delivery import OTPDeliveryError, send_email_otp, send_whatsapp_otp
 from .account_notifications import notify_account_event
@@ -179,7 +192,7 @@ def portal_choose_role(request):
         "role_options": [{"value": role, "label": labels[role]} for role in roles],
         "username": request.user.username,
     }
-    return _render_dashboard("role-choice.html", context)
+    return _render_dashboard("role-choice.html", context, request)
 
 
 @login_required(login_url="/portal/")
@@ -918,8 +931,10 @@ def portal_logout_api(request):
     return JsonResponse({"ok": True, "next": "/portal/"})
 
 
-def _render_dashboard(template_name, context):
+def _render_dashboard(template_name, context, request=None):
     template = TEMPLATE_ENGINE.get_template(template_name)
+    if request is not None:
+        context = {**context, "csrf_token": get_token(request)}
     response = HttpResponse(template.render(Context(context)), content_type="text/html; charset=utf-8")
     response["Cache-Control"] = "no-store"
     return response
@@ -929,7 +944,7 @@ def _render_dashboard(template_name, context):
 @require_GET
 def portal_profile_page(request):
     context = _profile_dashboard_context(request)
-    return _render_dashboard("profile-dashboard.html", context)
+    return _render_dashboard("profile-dashboard.html", context, request)
 
 
 @login_required(login_url="/portal/")
@@ -977,7 +992,70 @@ def teacher_dashboard(request):
             registration_status=PortalUser.RegistrationStatus.PENDING_ADMIN,
         ).order_by("date_joined")[:50] if request.user.can_approve_students else [],
     }
-    return _render_dashboard("teacher-dashboard.html", context)
+    return _render_dashboard("teacher-dashboard.html", context, request)
+
+
+@login_required(login_url="/portal/")
+@ensure_csrf_cookie
+@require_http_methods(["GET", "POST"])
+def teacher_announcements(request):
+    if _active_portal_role(request) != PortalUser.Role.TEACHER:
+        return redirect("/portal/choose-role/" if len(_available_portal_roles(request.user)) > 1 else _dashboard_path(request.user.role))
+    classes = ClassSection.objects.filter(
+        teacher_assignments__teacher=request.user, is_active=True,
+    ).select_related("course").distinct().order_by("course__name", "name", "section")
+    class_ids = classes.values_list("id", flat=True)
+    labs = CompilerLab.objects.filter(class_section_id__in=class_ids, is_active=True).select_related("class_section", "class_section__course").order_by("class_section__course__name", "class_section__name", "name")
+    students = PortalUser.objects.filter(
+        role=PortalUser.Role.STUDENT, is_active=True,
+        enrollments__class_section_id__in=class_ids, enrollments__active=True,
+    ).distinct().order_by("first_name", "last_name", "username")
+    message = ""
+    error = ""
+    if request.method == "POST":
+        title = str(request.POST.get("title", "")).strip()
+        body = str(request.POST.get("message", "")).strip()
+        audience = request.POST.get("audience", "")
+        if not title or len(title) > 200 or not body or len(body) > 10000:
+            error = "Enter a title (up to 200 characters) and a message (up to 10,000 characters)."
+        else:
+            target = {"class_section": None, "lab": None, "student": None}
+            if audience == "class":
+                target_id = request.POST.get("class_id", "")
+                target["class_section"] = classes.filter(pk=int(target_id)).first() if target_id.isdigit() else None
+            elif audience == "lab":
+                target_id = request.POST.get("lab_id", "")
+                target["lab"] = labs.filter(pk=int(target_id)).first() if target_id.isdigit() else None
+            elif audience == "student":
+                target_id = request.POST.get("student_id", "")
+                target["student"] = students.filter(pk=int(target_id)).first() if target_id.isdigit() else None
+            else:
+                error = "Choose a student, class, or lab audience."
+            if not error and not any(target.values()):
+                error = "Choose a student, class, or lab that belongs to your teaching scope."
+            if not error:
+                Announcement.objects.create(created_by=request.user, title=title, message=body, **target)
+                message = "Announcement published to the selected audience."
+    announcements = Announcement.objects.filter(created_by=request.user).filter(
+        Q(class_section_id__in=class_ids) | Q(lab__class_section_id__in=class_ids) | Q(student__in=students)
+        | Q(class_section__isnull=True, lab__isnull=True, student__isnull=True)
+    ).select_related("class_section", "class_section__course", "lab", "lab__class_section", "student").order_by("-created_at")[:50]
+    context = {
+        "user": request.user,
+        "portal_role": PortalUser.Role.TEACHER,
+        "has_multiple_roles": len(_available_portal_roles(request.user)) > 1,
+        "global_default_accent": _global_default_accent(),
+        "dashboard_navigation_items": _dashboard_navigation_items(PortalUser.Role.TEACHER),
+        "dashboard_home_path": _dashboard_path(PortalUser.Role.TEACHER),
+        "announcement_classes": classes,
+        "announcement_labs": labs,
+        "announcement_students": students,
+        "teacher_announcements": announcements,
+        "announcement_message": message,
+        "announcement_error": error,
+        "is_announcements_page": True,
+    }
+    return _render_dashboard("teacher-announcements.html", context, request)
 
 
 @login_required(login_url="/portal/")
@@ -986,7 +1064,19 @@ def student_dashboard(request):
         return redirect("/portal/choose-role/" if len(_available_portal_roles(request.user)) > 1 else _dashboard_path(request.user.role))
     enrollments = Enrollment.objects.filter(student=request.user, active=True).select_related("class_section", "class_section__course")
     assignments = Assignment.objects.filter(class_section__enrollments__student=request.user, class_section__enrollments__active=True, published=True).select_related("class_section", "class_section__course").distinct().order_by("due_at")[:6]
-    announcements = Announcement.objects.filter(published=True).filter(Q(class_section__isnull=True) | Q(class_section__enrollments__student=request.user)).distinct().order_by("-created_at")[:4]
+    announcements = Announcement.objects.filter(published=True).filter(
+        Q(class_section__isnull=True, lab__isnull=True, student__isnull=True)
+        | Q(student=request.user)
+        | Q(class_section__enrollments__student=request.user, class_section__enrollments__active=True)
+        | Q(lab__class_section__enrollments__student=request.user, lab__class_section__enrollments__active=True)
+    ).distinct().order_by("-created_at")[:4]
+    shared_code = SharedCompilerCode.objects.filter(published=True).filter(
+        Q(class_section__isnull=True, lab__isnull=True, student__isnull=True)
+        | Q(student=request.user)
+        | Q(class_section__enrollments__student=request.user, class_section__enrollments__active=True)
+        | Q(lab__class_section__enrollments__student=request.user, lab__class_section__enrollments__active=True)
+        | Q(all_students=True)
+    ).select_related("created_by", "class_section", "class_section__course", "lab", "lab__class_section").distinct().order_by("-created_at")[:20]
     context = {
         "user": request.user,
         "portal_role": PortalUser.Role.STUDENT,
@@ -999,8 +1089,225 @@ def student_dashboard(request):
         "test_count": SQLTest.objects.filter(published=True, course__classes__enrollments__student=request.user, course__classes__enrollments__active=True).distinct().count(),
         "assignments": assignments,
         "announcements": announcements,
+        "shared_code": shared_code,
     }
-    return _render_dashboard("student-dashboard.html", context)
+    return _render_dashboard("student-dashboard.html", context, request)
+
+
+@ensure_csrf_cookie
+@require_http_methods(["GET", "POST"])
+def portal_tests(request):
+    role = _active_portal_role(request)
+    if role not in (PortalUser.Role.TEACHER, PortalUser.Role.STUDENT):
+        return redirect("/portal/choose-role/" if len(_available_portal_roles(request.user)) > 1 else _dashboard_path(request.user.role))
+    message = ""
+    if role == PortalUser.Role.TEACHER:
+        teaching_classes = ClassSection.objects.filter(teacher_assignments__teacher=request.user, is_active=True).select_related("course").distinct().order_by("course__name", "name")
+        if request.method == "POST":
+            if request.POST.get("action") == "setup_class":
+                code = request.POST.get("course_code", "").strip().upper()[:32]
+                course_name = request.POST.get("course_name", "").strip()[:160]
+                class_name = request.POST.get("new_class_name", "").strip()[:80]
+                section = request.POST.get("new_section", "").strip()[:32]
+                academic_year = request.POST.get("academic_year", "").strip()[:20]
+                if not code or not course_name or not class_name:
+                    message = "Enter a course code, course name, and class name."
+                    tests = SQLTest.objects.filter(created_by=request.user).select_related("class_section", "lab", "course").prefetch_related("questions", "attempts__student", "attempts__answers__question").order_by("-id")
+                    for test in tests:
+                        test.schedule_label = _test_schedule_label(test)
+                    return _render_dashboard("portal-tests.html", _tests_context(
+                        request, role, tests=tests, teaching_classes=teaching_classes,
+                        labs=CompilerLab.objects.filter(class_section__in=teaching_classes, is_active=True).select_related("class_section"),
+                        students=PortalUser.objects.filter(role=PortalUser.Role.STUDENT, is_active=True).order_by("first_name", "last_name", "username"),
+                        message=message,
+                    ), request)
+                else:
+                    with transaction.atomic():
+                        course, _ = Course.objects.get_or_create(code=code, defaults={"name": course_name})
+                        class_section, _ = ClassSection.objects.get_or_create(
+                            course=course, name=class_name, academic_year=academic_year, section=section,
+                        )
+                        TeacherAssignment.objects.get_or_create(teacher=request.user, class_section=class_section)
+                        student_ids = request.POST.getlist("student_ids")
+                        students = PortalUser.objects.filter(pk__in=student_ids, role=PortalUser.Role.STUDENT, is_active=True)
+                        for student in students:
+                            Enrollment.objects.get_or_create(student=student, class_section=class_section)
+                    return redirect("/portal/tests/")
+            class_section = teaching_classes.filter(pk=_safe_int(request.POST.get("class_section"), None)).first()
+            title = request.POST.get("title", "").strip()[:200]
+            questions = [value.strip() for value in request.POST.getlist("question") if value.strip()]
+            question_file = request.FILES.get("question_file")
+            try:
+                if question_file:
+                    questions.extend(_questions_from_upload(question_file))
+                    if len(questions) > 200:
+                        raise ValueError("A test can contain at most 200 questions.")
+            except ValueError as error:
+                message = str(error)
+            lab_id = request.POST.get("lab", "").strip()
+            lab_pk = _safe_int(lab_id, None) if lab_id else None
+            lab = CompilerLab.objects.filter(pk=lab_pk, class_section=class_section, is_active=True).first() if class_section and lab_id else None
+            frequency = request.POST.get("schedule_frequency", SQLTest.ScheduleFrequency.ANYTIME)
+            try:
+                schedule_start = time.fromisoformat(request.POST.get("schedule_start_time", "")) if request.POST.get("schedule_start_time") else None
+                schedule_end = time.fromisoformat(request.POST.get("schedule_end_time", "")) if request.POST.get("schedule_end_time") else None
+                weekdays = sorted({int(day) for day in request.POST.getlist("schedule_weekdays")})
+            except (TypeError, ValueError):
+                schedule_start, schedule_end, weekdays = None, None, []
+                frequency = "invalid"
+            if message:
+                pass
+            elif not class_section or not title or not questions:
+                message = "Choose a class, enter a title, and add at least one question."
+            elif lab_id and not lab:
+                message = "Choose a lab that belongs to the selected class."
+            elif frequency not in {choice for choice, _label in SQLTest.ScheduleFrequency.choices}:
+                message = "Choose a valid test schedule."
+            elif frequency != SQLTest.ScheduleFrequency.ANYTIME and (not schedule_start or not schedule_end or schedule_start == schedule_end):
+                message = "Set different start and end times for the test schedule."
+            elif frequency == SQLTest.ScheduleFrequency.WEEKLY and (not weekdays or any(day < 0 or day > 6 for day in weekdays)):
+                message = "Choose at least one weekday for a weekly test."
+            else:
+                test = SQLTest.objects.create(
+                    course=class_section.course, class_section=class_section, lab=lab,
+                    created_by=request.user, title=title,
+                    instructions=request.POST.get("instructions", "").strip(),
+                    duration_minutes=max(1, min(_safe_int(request.POST.get("duration"), 60), 600)),
+                    total_marks=len(questions),
+                    published=request.POST.get("published") == "on",
+                    schedule_frequency=frequency,
+                    schedule_start_time=schedule_start,
+                    schedule_end_time=schedule_end,
+                    schedule_weekdays=weekdays if frequency == SQLTest.ScheduleFrequency.WEEKLY else [],
+                )
+                SQLTestQuestion.objects.bulk_create([SQLTestQuestion(test=test, position=index, prompt=prompt) for index, prompt in enumerate(questions, 1)])
+                return redirect("/portal/tests/")
+        tests = SQLTest.objects.filter(created_by=request.user).select_related("class_section", "lab", "course").prefetch_related("questions", "attempts__student", "attempts__answers__question").order_by("-id")
+        for test in tests:
+            test.schedule_label = _test_schedule_label(test)
+        context = _tests_context(request, role, tests=tests, teaching_classes=teaching_classes, labs=CompilerLab.objects.filter(class_section__in=teaching_classes, is_active=True).select_related("class_section"), students=PortalUser.objects.filter(role=PortalUser.Role.STUDENT, is_active=True).order_by("first_name", "last_name", "username"), message=message)
+    else:
+        enrollment_classes = Enrollment.objects.filter(student=request.user, active=True).values_list("class_section_id", flat=True)
+        tests = SQLTest.objects.filter(published=True).filter(
+            Q(class_section_id__in=enrollment_classes) | Q(class_section__isnull=True, course__classes__enrollments__student=request.user, course__classes__enrollments__active=True)
+        ).distinct().select_related("class_section", "lab", "course").prefetch_related("questions")
+        if request.method == "POST":
+            test = tests.filter(pk=_safe_int(request.POST.get("test_id"), None)).first()
+            now = timezone.now()
+            if not test or (test.starts_at and now < test.starts_at) or (test.ends_at and now > test.ends_at) or not _test_schedule_is_open(test, now):
+                message = "This test is not currently available."
+            else:
+                attempt, _ = TestAttempt.objects.get_or_create(test=test, student=request.user)
+                if attempt.submitted_at:
+                    message = "You have already submitted this test."
+                else:
+                    for question in test.questions.all():
+                        TestAnswer.objects.update_or_create(
+                            attempt=attempt, question=question,
+                            defaults={"answer": request.POST.get(f"answer_{question.pk}", "").strip()},
+                        )
+                    attempt.status = "submitted"
+                    attempt.submitted_at = now
+                    attempt.save(update_fields=("status", "submitted_at"))
+                    return redirect("/portal/tests/")
+        attempts = {attempt.test_id: attempt for attempt in TestAttempt.objects.filter(student=request.user, test__in=tests).prefetch_related("answers__question")}
+        tests = list(tests.order_by("-id"))
+        for test in tests:
+            test.student_attempt = attempts.get(test.pk)
+            test.schedule_open = _test_schedule_is_open(test)
+            test.schedule_label = _test_schedule_label(test)
+        context = _tests_context(request, role, tests=tests, message=message)
+    return _render_dashboard("portal-tests.html", context, request)
+
+
+def _safe_int(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _questions_from_upload(upload):
+    if upload.size > 2 * 1024 * 1024:
+        raise ValueError("Question files must be 2 MB or smaller.")
+    suffix = Path(upload.name or "").suffix.lower()
+    try:
+        if suffix == ".txt":
+            content = upload.read().decode("utf-8-sig")
+            rows = [line.strip() for line in content.splitlines() if line.strip()]
+        elif suffix == ".csv":
+            content = upload.read().decode("utf-8-sig")
+            rows = []
+            for row in csv.reader(io.StringIO(content)):
+                if row and row[0].strip():
+                    first_cell = row[0].strip()
+                    if not rows and first_cell.lower() in {"question", "questions", "prompt"}:
+                        continue
+                    rows.append(first_cell)
+        elif suffix == ".docx":
+            with zipfile.ZipFile(upload) as docx:
+                document = docx.getinfo("word/document.xml")
+                if document.file_size > 4 * 1024 * 1024:
+                    raise ValueError("The document contains too much text to import.")
+                root = ElementTree.fromstring(docx.read(document))
+            namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+            rows = ["".join(node.text or "" for node in paragraph.findall(".//w:t", namespace)).strip() for paragraph in root.findall(".//w:body/w:p", namespace)]
+            rows = [row for row in rows if row]
+        else:
+            raise ValueError("Use a .txt, .csv, or .docx file. Put one question on each line or row.")
+    except (UnicodeDecodeError, csv.Error, zipfile.BadZipFile, KeyError, ElementTree.ParseError, RuntimeError, OSError):
+        raise ValueError("The question file could not be read. Check its format and try again.") from None
+    questions = [re.sub(r"^\s*(?:(?:Q\s*)?\d+\s*[.) :]\s*)", "", row).strip() for row in rows]
+    questions = [question for question in questions if question]
+    if not questions:
+        raise ValueError("No questions were found in that file.")
+    if len(questions) > 200:
+        raise ValueError("A test can contain at most 200 questions.")
+    return questions
+
+
+def _test_schedule_is_open(test, now=None):
+    if test.schedule_frequency == SQLTest.ScheduleFrequency.ANYTIME:
+        return True
+    if not test.schedule_start_time or not test.schedule_end_time:
+        return False
+    local_now = timezone.localtime(now or timezone.now())
+    current_time = local_now.time().replace(tzinfo=None)
+    start, end = test.schedule_start_time, test.schedule_end_time
+    if test.schedule_frequency == SQLTest.ScheduleFrequency.WEEKLY:
+        schedule_day = (local_now.weekday() - 1) % 7 if start > end and current_time < end else local_now.weekday()
+        if schedule_day not in (test.schedule_weekdays or []):
+            return False
+    elif test.schedule_frequency != SQLTest.ScheduleFrequency.DAILY:
+        return False
+    return start <= current_time < end if start < end else current_time >= start or current_time < end
+
+
+def _test_schedule_label(test):
+    if test.schedule_frequency == SQLTest.ScheduleFrequency.ANYTIME:
+        return "Available anytime"
+    if not test.schedule_start_time or not test.schedule_end_time:
+        return "Schedule not configured"
+    times = f"{test.schedule_start_time.strftime('%H:%M')}–{test.schedule_end_time.strftime('%H:%M')}"
+    if test.schedule_frequency == SQLTest.ScheduleFrequency.DAILY:
+        return f"Daily · {times}"
+    labels = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+    days = ", ".join(labels[day] for day in (test.schedule_weekdays or []) if isinstance(day, int) and 0 <= day <= 6)
+    return f"Weekly · {days or 'No days selected'} · {times}"
+
+
+def _tests_context(request, role, **values):
+    context = {
+        "user": request.user,
+        "portal_role": role,
+        "has_multiple_roles": len(_available_portal_roles(request.user)) > 1,
+        "global_default_accent": _global_default_accent(),
+        "dashboard_navigation_items": _dashboard_navigation_items(role),
+        "is_tests_page": True,
+        "dashboard_home_path": _dashboard_path(role),
+    }
+    context.update(values)
+    return context
 
 
 @login_required(login_url="/portal/")
@@ -1023,7 +1330,7 @@ def teacher_activity_dashboard(request):
         "can_view_all_compiler_activity": can_view_all_activity,
         "is_activity_page": True,
     }
-    return _render_dashboard("teacher-activity.html", context)
+    return _render_dashboard("teacher-activity.html", context, request)
 
 
 @login_required(login_url="/portal/")
@@ -1044,7 +1351,7 @@ def teacher_attendance_dashboard(request):
         "dashboard_home_path": _dashboard_path(PortalUser.Role.TEACHER),
         "is_attendance_page": True,
     }
-    return _render_dashboard("teacher-attendance.html", context)
+    return _render_dashboard("teacher-attendance.html", context, request)
 
 
 @login_required(login_url="/portal/")
@@ -1061,11 +1368,11 @@ def teacher_history_dashboard(request):
         "dashboard_home_path": _dashboard_path(PortalUser.Role.TEACHER),
         "is_history_page": True,
     }
-    return _render_dashboard("teacher-history.html", context)
+    return _render_dashboard("teacher-history.html", context, request)
 
 
 @login_required(login_url="/portal/")
-@require_GET
+@require_http_methods(["GET", "POST"])
 def teacher_remote_code_dashboard(request):
     if _active_portal_role(request) != PortalUser.Role.TEACHER:
         return redirect("/portal/choose-role/" if len(_available_portal_roles(request.user)) > 1 else _dashboard_path(request.user.role))
@@ -1077,6 +1384,47 @@ def teacher_remote_code_dashboard(request):
             student__role=PortalUser.Role.STUDENT,
         ).values_list("student_id", flat=True)
         students = PortalUser.objects.filter(pk__in=enrolled_ids, role=PortalUser.Role.STUDENT)
+    classes = ClassSection.objects.filter(teacher_assignments__teacher=request.user, is_active=True).select_related("course").distinct().order_by("course__name", "name")
+    labs = CompilerLab.objects.filter(class_section__in=classes, is_active=True).select_related("class_section", "class_section__course").order_by("class_section__course__name", "class_section__name", "name")
+    remote_students = students.order_by("first_name", "last_name", "username")
+    share_students = PortalUser.objects.filter(
+        role=PortalUser.Role.STUDENT, is_active=True,
+        enrollments__active=True, enrollments__class_section__in=classes,
+    ).distinct().order_by("first_name", "last_name", "username")
+    share_code_message = ""
+    share_code_error = ""
+    if request.method == "POST":
+        title = str(request.POST.get("code_title", "")).strip()
+        code = str(request.POST.get("code", ""))
+        editor_kind = request.POST.get("editor_kind", "")
+        audience = request.POST.get("code_audience", "")
+        target = {"class_section": None, "lab": None, "student": None}
+        if audience == "all":
+            if not PortalUser.objects.filter(role=PortalUser.Role.STUDENT, is_active=True).exists():
+                share_code_error = "There are no active student accounts to receive this code."
+        elif audience == "class":
+            target_id = request.POST.get("code_class_id", "")
+            target["class_section"] = classes.filter(pk=int(target_id)).first() if target_id.isdigit() else None
+        elif audience == "lab":
+            target_id = request.POST.get("code_lab_id", "")
+            target["lab"] = labs.filter(pk=int(target_id)).first() if target_id.isdigit() else None
+        elif audience == "student":
+            target_id = request.POST.get("code_student_id", "")
+            target["student"] = share_students.filter(pk=int(target_id)).first() if target_id.isdigit() else None
+        else:
+            share_code_error = "Choose a student, class, or lab audience."
+        if not title or len(title) > 200 or not code.strip() or len(code) > 50000:
+            share_code_error = "Enter a title and code (up to 50,000 characters)."
+        elif audience != "all" and not share_code_error and not any(target.values()):
+            share_code_error = "Choose a student, class, or lab from your teaching scope."
+        if not share_code_error and editor_kind not in SharedCompilerCode.EditorKind.values:
+            share_code_error = "Choose SQLCL or SQL WorkSheet."
+        if not share_code_error:
+            SharedCompilerCode.objects.create(created_by=request.user, title=title, code=code, editor_kind=editor_kind, all_students=audience == "all", **target)
+            share_code_message = "Code shared with all active students." if audience == "all" else "Code shared. Students can view and copy it from their portal."
+    shared_code_records = SharedCompilerCode.objects.filter(created_by=request.user).filter(
+        Q(class_section__in=classes) | Q(lab__in=labs) | Q(student__in=share_students) | Q(all_students=True)
+    ).select_related("class_section", "class_section__course", "lab", "lab__class_section", "student").order_by("-created_at")[:30]
     context = {
         "user": request.user,
         "portal_role": PortalUser.Role.TEACHER,
@@ -1084,10 +1432,16 @@ def teacher_remote_code_dashboard(request):
         "global_default_accent": _global_default_accent(),
         "dashboard_navigation_items": _dashboard_navigation_items(PortalUser.Role.TEACHER),
         "dashboard_home_path": _dashboard_path(PortalUser.Role.TEACHER),
-        "remote_code_students": students.order_by("first_name", "last_name", "username"),
+        "remote_code_students": remote_students,
+        "share_code_students": share_students,
+        "remote_code_classes": classes,
+        "remote_code_labs": labs,
+        "shared_code_records": shared_code_records,
+        "share_code_message": share_code_message,
+        "share_code_error": share_code_error,
         "is_remote_code_page": True,
     }
-    return _render_dashboard("teacher-remote-code.html", context)
+    return _render_dashboard("teacher-remote-code.html", context, request)
 
 
 @login_required(login_url="/portal/")
@@ -1372,10 +1726,9 @@ def teacher_attendance_report(request):
         for student in PortalUser.objects.filter(role=PortalUser.Role.STUDENT, is_active=True).order_by("first_name", "last_name", "username"):
             students.setdefault(student.pk, {"user": student, "presentDates": set(), "sessions": []})
     student_ids = list(students)
-    sessions = AttendanceSession.objects.filter(
-        user_id__in=student_ids,
-        login_at__date__gte=start_day,
-        login_at__date__lte=end_day,
+    sessions = AttendanceSession.objects.filter(user_id__in=student_ids).filter(
+        Q(login_at__date__gte=start_day, login_at__date__lte=end_day)
+        | Q(logout_at__date__gte=start_day, logout_at__date__lte=end_day)
     )
     if selected_lab:
         sessions = sessions.filter(lab_id=selected_lab.pk)
@@ -1384,8 +1737,12 @@ def teacher_attendance_report(request):
     for session in sessions.order_by("login_at"):
         login_day = timezone.localtime(session.login_at).date()
         students[session.user_id]["sessions"].append(session)
-        if login_day.weekday() < 5:
+        if start_day <= login_day <= end_day and login_day.weekday() < 5:
             students[session.user_id]["presentDates"].add(login_day.isoformat())
+        if session.logout_at:
+            logout_day = timezone.localtime(session.logout_at).date()
+            if start_day <= logout_day <= end_day and logout_day.weekday() < 5:
+                students[session.user_id]["presentDates"].add(logout_day.isoformat())
 
     eligible_days = sum(1 for offset in range((end_day - start_day).days + 1) if (start_day + timedelta(days=offset)).weekday() < 5)
     rows = []
@@ -1433,6 +1790,7 @@ def teacher_attendance_report(request):
             "absentDays": max(0, eligible_days - present_days),
             "lastPresent": dates[-1] if dates else "",
             "firstLogin": first_session.login_at.isoformat() if first_session else "",
+            "lastLogin": latest_session.login_at.isoformat() if latest_session else "",
             "lastLogout": latest_logout.isoformat() if latest_logout else "",
             "openSession": latest_is_open,
             "logoutEstimated": bool(latest_session and (latest_session.logout_estimated or (latest_session.logout_at is None and not latest_is_open))),
@@ -1491,6 +1849,25 @@ def teacher_attendance_schedule(request):
     return JsonResponse({"ok": True, "startTime": start_time.strftime("%H:%M") if start_time else ""})
 
 
+@login_required(login_url="/portal/")
+@require_http_methods(["GET", "POST"])
+def teacher_presence_timeout(request):
+    if _active_portal_role(request) != PortalUser.Role.TEACHER:
+        return JsonResponse({"error": "Only teachers can change this setting."}, status=403)
+    preference, _ = TeacherActivityPreference.objects.get_or_create(teacher=request.user)
+    if request.method == "POST":
+        try:
+            payload = json.loads(request.body or b"{}")
+            seconds = int(payload.get("seconds"))
+        except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+            return JsonResponse({"error": "Choose a valid offline timeout."}, status=400)
+        if seconds not in {30, 60, 90, 120, 180, 300, 600}:
+            return JsonResponse({"error": "Choose one of the available timeout values."}, status=400)
+        preference.presence_offline_timeout_seconds = seconds
+        preference.save(update_fields=("presence_offline_timeout_seconds", "updated_at"))
+    return JsonResponse({"seconds": preference.presence_offline_timeout_seconds})
+
+
 def teacher_compiler_activity(request):
     if _active_portal_role(request) != PortalUser.Role.TEACHER:
         return JsonResponse({"error": "Only teachers can view student activity."}, status=403)
@@ -1537,14 +1914,9 @@ def teacher_compiler_activity(request):
     student_ids = list(students_by_id)
 
     now = timezone.now()
-    stale_before = now - timedelta(seconds=90)
-    stale_sessions = AttendanceSession.objects.filter(user_id__in=student_ids, logout_at__isnull=True, last_heartbeat_at__lt=stale_before)
-    stale_session_ids = list(stale_sessions.values_list("id", flat=True))
-    stale_sessions.update(logout_at=F("last_heartbeat_at"), logout_estimated=True, end_reason="timeout", compiler_active=False, is_active_now=False)
-    if stale_session_ids:
-        CompilerActivitySlice.objects.filter(attendance_session_id__in=stale_session_ids, ended_at__isnull=True).update(
-            ended_at=F("last_heartbeat_at"), compiler_active=False, is_active_now=False,
-        )
+    presence_setting = TeacherActivityPreference.objects.filter(teacher=request.user).only("presence_offline_timeout_seconds").first()
+    offline_timeout_seconds = max(30, min(600, int(presence_setting.presence_offline_timeout_seconds if presence_setting else 90)))
+    stale_before = now - timedelta(seconds=offline_timeout_seconds)
 
     attendance_rows = list(AttendanceSession.objects.filter(user_id__in=student_ids, login_at__date=report_day).order_by("login_at"))
     attendance_by_student = {}
@@ -1603,6 +1975,22 @@ def teacher_compiler_activity(request):
         # NULL)), which SQLite rejects as a nested aggregate.
         tracked_executions=Count("typed_chars"),
     )}
+    history_recall_stats = {
+        row["student_id"]: row["count"]
+        for row in CompilerQueryHistory.objects.filter(
+            student_id__in=student_ids,
+            executed_at__date=report_day,
+            input_method="history_recall",
+            is_active=True,
+        ).values("student_id").annotate(count=Count("id"))
+    }
+    last_execution_sql = {}
+    for history_row in CompilerQueryHistory.objects.filter(
+        student_id__in=student_ids, executed_at__date=report_day, is_active=True,
+    ).order_by("student_id", "-executed_at", "-id").values(
+        "student_id", "sql", "input_method", "typed_chars", "pasted_chars", "edits_after_paste",
+    ):
+        last_execution_sql.setdefault(history_row["student_id"], history_row)
     paste_stats = {row["student_id"]: row["count"] for row in paste_events.values("student_id").annotate(count=Count("id"))}
     client_activity_stats = {row["student_id"]: row for row in client_activity_events.values("student_id").annotate(
         page_hidden=Count("id", filter=Q(kind=CompilerClientActivityEvent.Kind.PAGE_HIDDEN)),
@@ -1610,7 +1998,7 @@ def teacher_compiler_activity(request):
     )}
 
     roster = []
-    counts = {"active": 0, "idle": 0, "portal": 0, "offline": 0, "present": 0, "success": 0, "failed": 0, "activeSeconds": 0, "idleSeconds": 0, "typedChars": 0, "pastedChars": 0, "pasteCount": 0, "editsAfterPaste": 0, "trackedExecutions": 0, "pasteEvents": 0, "pageHiddenEvents": 0, "windowBlurEvents": 0}
+    counts = {"active": 0, "idle": 0, "portal": 0, "offline": 0, "present": 0, "success": 0, "failed": 0, "activeSeconds": 0, "idleSeconds": 0, "typedChars": 0, "pastedChars": 0, "pasteCount": 0, "editsAfterPaste": 0, "historyRecallCount": 0, "trackedExecutions": 0, "pasteEvents": 0, "pageHiddenEvents": 0, "windowBlurEvents": 0}
     for student_id, item in students_by_id.items():
         student = item["user"]
         daily_sessions = attendance_by_student.get(student_id, [])
@@ -1641,6 +2029,8 @@ def teacher_compiler_activity(request):
         counts["pastedChars"] += executions.get("pasted_chars_total") or 0
         counts["pasteCount"] += executions.get("paste_count_total") or 0
         counts["editsAfterPaste"] += executions.get("edits_after_paste_total") or 0
+        history_recall_count = history_recall_stats.get(student_id, 0)
+        counts["historyRecallCount"] += history_recall_count
         counts["trackedExecutions"] += executions.get("tracked_executions") or 0
         first_login = daily_sessions[0] if daily_sessions else None
         last_closed = next((session for session in reversed(daily_sessions) if session.logout_at), None)
@@ -1666,11 +2056,17 @@ def teacher_compiler_activity(request):
             "successfulExecutions": success_count,
             "failedExecutions": failed_count,
             "lastExecution": executions.get("last_execution").isoformat() if executions.get("last_execution") else None,
+            "lastExecutionStatement": last_execution_sql.get(student_id, {}).get("sql", ""),
+            "lastExecutionInputMethod": last_execution_sql.get(student_id, {}).get("input_method", ""),
+            "lastExecutionTypedChars": last_execution_sql.get(student_id, {}).get("typed_chars"),
+            "lastExecutionPastedChars": last_execution_sql.get(student_id, {}).get("pasted_chars"),
+            "lastExecutionEditsAfterPaste": last_execution_sql.get(student_id, {}).get("edits_after_paste"),
             "totalExecutionMs": executions.get("total_duration") or 0,
             "typedChars": executions.get("typed_chars_total"),
             "pastedChars": executions.get("pasted_chars_total"),
             "pasteCount": executions.get("paste_count_total"),
             "editsAfterPaste": executions.get("edits_after_paste_total"),
+            "historyRecallCount": history_recall_count,
             "trackedExecutions": executions.get("tracked_executions", 0),
             "pasteEvents": student_paste_count,
             "pageHiddenEvents": student_client_events.get("page_hidden", 0),

@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import time
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -16,6 +17,7 @@ import oracledb
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
+from django.db import transaction
 from django.http import FileResponse, JsonResponse, HttpResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -58,11 +60,24 @@ def _history_archive_record(record):
         "typedChars": record.typed_chars, "pastedChars": record.pasted_chars,
         "pasteCount": record.paste_count, "editsAfterPaste": record.edits_after_paste,
         "inputMethod": record.input_method,
+        "inputSourceMap": record.input_source_map,
         "message": record.message, "isActive": record.is_active,
         "executedAt": record.executed_at.isoformat(),
     }
     _append_local_history_event(record.student_id, event)
     return event
+
+
+def _validated_input_source_map(value, start=0, end=MAX_BODY):
+    if not isinstance(value, list): return []
+    output = []
+    for item in value[:20000]:
+        if not isinstance(item, (list, tuple)) or len(item) != 3: continue
+        left, right, source = item
+        if type(left) is not int or type(right) is not int or source not in {"typed", "pasted"}: continue
+        left, right = max(left, start), min(right, end)
+        if right > left: output.append([left - start, right - start, source])
+    return output
 
 
 def _read_local_history(user_id):
@@ -348,7 +363,7 @@ def compiler_selection(request):
     from .portal_views import _active_portal_role, _available_portal_roles, _dashboard_navigation_items, _global_default_accent
 
     role = _active_portal_role(request)
-    if role not in {"STUDENT", "TEACHER"}:
+    if role not in {"STUDENT", "TEACHER", "ADMIN"} and not request.user.is_superuser:
         if len(_available_portal_roles(request.user)) > 1:
             return redirect("/portal/choose-role/")
         return redirect("/portal/")
@@ -366,7 +381,7 @@ def compiler_selection(request):
         "dashboard_navigation_items": _dashboard_navigation_items(role),
         "is_compiler_page": True,
         "is_profile_page": False,
-        "dashboard_home_path": "/teacher" if role == "TEACHER" else "/portal/student/",
+        "dashboard_home_path": "/teacher" if role == "TEACHER" else "/portal/student/" if role == "STUDENT" else "/admin/",
     })
 
 
@@ -386,6 +401,7 @@ def oracle_sql_workspace(request):
     response = render(request, "oracle_sql_workspace.html", {
         "is_teacher": role == "TEACHER",
         "is_student": role == "STUDENT",
+        "can_manage_compiler_tabs": role in {"ADMIN", "TEACHER"} or request.user.is_superuser,
     })
     response["Cache-Control"] = "no-store"
     return response
@@ -652,6 +668,9 @@ def _execute_sql_request(request):
     history_edit_source = payload.get("editSource")
     history_input_method = (history_edit_source.get("inputMethod", "")
                             if isinstance(history_edit_source, dict) else "")
+    history_source_runs = history_edit_source.get("inputSourceMap", []) if isinstance(history_edit_source, dict) else []
+    history_source_sql = sql
+    history_source_cursor = 0
     statements = split_script(sql, sqlplus=bool(payload.get("sqlplus")))
     statements = [item for item in statements if item]
     if not statements: return json_error("Provide a SQL statement.")
@@ -681,6 +700,9 @@ def _execute_sql_request(request):
         columns, rows, affected, output, messages, statement_results, execution_errors = [], [], None, [], [], [], []
         for raw in statements:
             display_statement = raw.strip()
+            history_source_start = history_source_sql.find(display_statement, history_source_cursor) if display_statement else -1
+            if history_source_start >= 0:
+                history_source_cursor = history_source_start + len(display_statement)
             from .sql_lexer import prepare_statement
             statement = prepare_statement(raw)
             if not statement: continue
@@ -787,6 +809,10 @@ def _execute_sql_request(request):
             finally:
                 statement_edit_source = dict(history_edit_source) if isinstance(history_edit_source, dict) else {}
                 statement_edit_source["inputMethod"] = history_input_method
+                statement_edit_source["inputSourceMap"] = (
+                    _validated_input_source_map(history_source_runs, history_source_start, history_source_start + len(display_statement))
+                    if history_source_start >= 0 else []
+                )
                 _record_compiler_query(request, display_statement, connection_key, statement_status,
                                        round((time.monotonic()-statement_started)*1000), statement_row_count,
                                        statement_message, statement_edit_source)
@@ -845,12 +871,13 @@ def _record_compiler_query(request, sql, connection_key, status, duration_ms, ro
             "edits_after_paste": metric("editsAfterPaste"),
         }
         input_method = str(edit_source.get("inputMethod", "")).strip().lower()
-        if input_method not in {"typed", "pasted", "file", "history_recall", "mixed"}:
+        if input_method not in {"typed", "pasted", "file", "history_recall", "mixed", "internal_copy"}:
             input_method = ""
+        input_source_map = _validated_input_source_map(edit_source.get("inputSourceMap", []), 0, min(len(str(sql)), MAX_BODY))
         history_record = CompilerQueryHistory.objects.create(
             student=request.user, source=source, sql=str(sql)[:MAX_BODY], status=status,
             duration_ms=elapsed, row_count=rows, message=str(message or "")[:4000],
-            input_method=input_method, **edit_metrics,
+            input_method=input_method, input_source_map=input_source_map, **edit_metrics,
         )
         _history_archive_record(history_record)
         attendance_id = request.session.get("attendance_session_id")
@@ -986,11 +1013,12 @@ def compiler_history(request):
                 "source": record.source, "status": record.status,
                 "durationMs": record.duration_ms, "rows": record.row_count,
                 "message": record.message, "isActive": record.is_active,
+                "inputMethod": record.input_method,
+                "inputSourceMap": record.input_source_map,
                 "executedAt": record.executed_at.isoformat()}
         if role == "TEACHER":
             item.update({"typedChars": record.typed_chars, "pastedChars": record.pasted_chars,
-                         "pasteCount": record.paste_count, "editsAfterPaste": record.edits_after_paste,
-                         "inputMethod": record.input_method})
+                         "pasteCount": record.paste_count, "editsAfterPaste": record.edits_after_paste})
         records_payload.append(item)
     return JsonResponse({
         "classes": _history_classes(request.user) if role == "TEACHER" else [],
@@ -1046,19 +1074,149 @@ def compiler_history_clear_student(request, student_id):
 def compiler_settings(request):
     if not same_origin(request): return json_error('Cross-origin API requests are blocked.', 403)
     if not request.user.is_authenticated: return json_error('Sign in to view compiler settings.', 401)
-    from .models import PortalSetting
+    from .models import (ClassSection, CompilerLab, CompilerTabAppearanceOverride, Enrollment, PortalSetting, PortalUser)
     from .portal_views import _active_portal_role
-    can_manage = _active_portal_role(request) in {'ADMIN', 'TEACHER'} or request.user.is_superuser
+    role = _active_portal_role(request)
+    is_admin = role == 'ADMIN' or request.user.is_superuser
+    can_manage = is_admin or role == 'TEACHER'
+    default_tabs = {
+        'sqlplus': {'label': 'SQLCL', 'visible': True, 'order': 1},
+        'compiler': {'label': 'SQL WorkSheet', 'visible': False, 'order': 2},
+    }
+    setting = PortalSetting.objects.filter(pk=1).first()
+    global_tabs = setting.compiler_tab_appearance if setting and isinstance(setting.compiler_tab_appearance, dict) else default_tabs
+    if set(global_tabs) != {'sqlplus', 'compiler'}: global_tabs = default_tabs
+
+    if is_admin:
+        allowed_students = PortalUser.objects.filter(role=PortalUser.Role.STUDENT)
+        allowed_labs = CompilerLab.objects.select_related('class_section', 'class_section__course')
+        allowed_classes = ClassSection.objects.all()
+    elif role == 'TEACHER':
+        if request.user.can_view_all_compiler_activity:
+            allowed_students = PortalUser.objects.filter(role=PortalUser.Role.STUDENT)
+            allowed_classes = ClassSection.objects.all()
+        else:
+            allowed_students = PortalUser.objects.filter(pk__in=_teacher_student_ids(request.user), role=PortalUser.Role.STUDENT)
+            allowed_classes = ClassSection.objects.filter(teacher_assignments__teacher=request.user)
+        allowed_labs = CompilerLab.objects.filter(class_section__in=allowed_classes).select_related('class_section', 'class_section__course')
+    else:
+        allowed_students = PortalUser.objects.none()
+        allowed_classes = ClassSection.objects.none()
+        allowed_labs = CompilerLab.objects.none()
+
     if request.method == 'POST':
-        if not can_manage: return json_error('Only admins and teachers can change the default buffer size.', 403)
+        if not can_manage: return json_error('Only admins and teachers can change shared compiler settings.', 403)
         try:
-            value = read_json(request).get('bufferEntries')
+            payload = read_json(request)
+        except ValueError as exc: return json_error(str(exc))
+        if 'bufferEntries' in payload:
+            value = payload.get('bufferEntries')
             if type(value) is not int or not 100 <= value <= 50000:
                 return json_error('Buffer size must be a whole number from 100 to 50000.')
-        except ValueError as exc: return json_error(str(exc))
-        PortalSetting.objects.update_or_create(pk=1, defaults={'sqlplus_buffer_entries': value})
-    setting = PortalSetting.objects.filter(pk=1).first()
-    return JsonResponse({'bufferEntries': setting.sqlplus_buffer_entries if setting else 5000, 'canManageDefault': can_manage})
+            PortalSetting.objects.update_or_create(pk=1, defaults={'sqlplus_buffer_entries': value})
+            if 'tabAppearance' not in payload:
+                setting = PortalSetting.objects.filter(pk=1).first()
+                tabs = setting.compiler_tab_appearance if setting and isinstance(setting.compiler_tab_appearance, dict) else default_tabs
+                return JsonResponse({'bufferEntries': value, 'canManageDefault': can_manage, 'tabAppearance': tabs})
+        tabs = payload.get('tabAppearance')
+        if not isinstance(tabs, dict): return json_error('Tab settings are invalid.')
+        normalized_tabs = {}
+        for key in ('sqlplus', 'compiler'):
+            item = tabs.get(key)
+            if not isinstance(item, dict): return json_error('Both compiler tabs need valid settings.')
+            label, visible, order = item.get('label'), item.get('visible'), item.get('order')
+            if not isinstance(label, str) or not label.strip() or len(label.strip()) > 30:
+                return json_error('Tab names must contain 1 to 30 characters.')
+            if type(visible) is not bool or type(order) is not int or order not in (1, 2):
+                return json_error('Tab visibility or order is invalid.')
+            normalized_tabs[key] = {'label': label.strip(), 'visible': visible, 'order': order}
+        if not any(tab['visible'] for tab in normalized_tabs.values()):
+            return json_error('At least one compiler tab must remain visible.')
+        if normalized_tabs['sqlplus']['order'] == normalized_tabs['compiler']['order']:
+            return json_error('Choose a different position for each tab.')
+
+        target = payload.get('target') or {}
+        scope = target.get('scope') if isinstance(target, dict) else None
+        student_ids = set()
+        if scope == 'all':
+            student_ids = set(allowed_students.values_list('pk', flat=True))
+        elif scope == 'students':
+            raw_ids = target.get('studentIds', [])
+            if not isinstance(raw_ids, list) or not raw_ids:
+                return json_error('Select at least one student.')
+            try: requested_ids = {int(value) for value in raw_ids}
+            except (TypeError, ValueError): return json_error('Student selection is invalid.')
+            allowed_ids = set(allowed_students.filter(pk__in=requested_ids).values_list('pk', flat=True))
+            if allowed_ids != requested_ids: return json_error('One or more selected students are outside your teaching scope.', 403)
+            student_ids = allowed_ids
+        elif scope == 'labs':
+            raw_ids = target.get('labIds', [])
+            if not isinstance(raw_ids, list) or not raw_ids:
+                return json_error('Select at least one lab.')
+            try: requested_lab_ids = {int(value) for value in raw_ids}
+            except (TypeError, ValueError): return json_error('Lab selection is invalid.')
+            selected_labs = allowed_labs.filter(pk__in=requested_lab_ids)
+            if set(selected_labs.values_list('pk', flat=True)) != requested_lab_ids:
+                return json_error('One or more selected labs are outside your teaching scope.', 403)
+            student_ids = set(Enrollment.objects.filter(active=True, class_section_id__in=selected_labs.values('class_section_id'), student__role=PortalUser.Role.STUDENT).values_list('student_id', flat=True))
+            student_ids &= set(allowed_students.values_list('pk', flat=True))
+        else:
+            return json_error('Choose all students, selected students, or selected labs.')
+        if not student_ids: return json_error('No students were found in that selection.')
+        if scope == 'all' and is_admin:
+            PortalSetting.objects.update_or_create(pk=1, defaults={'compiler_tab_appearance': normalized_tabs})
+        for student_id in student_ids:
+            CompilerTabAppearanceOverride.objects.update_or_create(
+                student_id=student_id,
+                defaults={'appearance': normalized_tabs, 'updated_by': request.user},
+            )
+        return JsonResponse({'ok': True, 'tabAppearance': normalized_tabs, 'affectedCount': len(student_ids)})
+
+    if role == 'STUDENT':
+        override = CompilerTabAppearanceOverride.objects.filter(student=request.user).first()
+        effective_tabs = override.appearance if override else global_tabs
+        return JsonResponse({'bufferEntries': setting.sqlplus_buffer_entries if setting else 5000,
+                             'canManageDefault': False, 'canManageTabs': False,
+                             'tabAppearance': effective_tabs, 'effectiveTabs': effective_tabs})
+
+    students = [{
+        'id': student.pk,
+        'name': student.get_full_name().strip() or student.username,
+        'identifier': student.student_number or student.username,
+    } for student in allowed_students.order_by('first_name', 'last_name', 'username')]
+    labs = [{
+        'id': lab.pk, 'name': lab.name,
+        'className': f'{lab.class_section.course.code} · {lab.class_section.name} {lab.class_section.section}'.strip(),
+    } for lab in allowed_labs.order_by('class_section__course__code', 'class_section__name', 'name')]
+    return JsonResponse({'bufferEntries': setting.sqlplus_buffer_entries if setting else 5000,
+                         'canManageDefault': can_manage, 'canManageTabs': can_manage,
+                         'tabAppearance': global_tabs, 'effectiveTabs': global_tabs,
+                         'students': students, 'labs': labs})
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def compiler_shared_code(request):
+    if not same_origin(request): return json_error("Cross-origin API requests are blocked.", 403)
+    if not request.user.is_authenticated: return json_error("Sign in to view code shared with you.", 401)
+    from .models import SharedCompilerCode
+    from .portal_views import _active_portal_role
+    if _active_portal_role(request) != "STUDENT": return json_error("Shared student code is available to student accounts.", 403)
+    records = SharedCompilerCode.objects.filter(published=True).filter(
+        Q(all_students=True)
+        | Q(student=request.user)
+        | Q(class_section__enrollments__student=request.user, class_section__enrollments__active=True)
+        | Q(lab__class_section__enrollments__student=request.user, lab__class_section__enrollments__active=True)
+    ).select_related("created_by").distinct().order_by("-created_at")[:50]
+    return JsonResponse({"items": [{
+        "id": item.pk,
+        "title": item.title,
+        "editorKind": item.editor_kind,
+        "editorLabel": item.get_editor_kind_display(),
+        "code": item.code,
+        "teacher": item.created_by.get_full_name() or item.created_by.username,
+        "createdAt": item.created_at.isoformat(),
+    } for item in records]})
 
 
 def _history_classes(user):
@@ -1101,6 +1259,7 @@ def compiler_history_clear_scope(request):
 
 
 def _editor_share_payload(share, student=None):
+    requesting_teacher = share.edit_permission_requested_by
     return {
         "studentId": share.student_id,
         "studentName": (student.get_full_name() or student.username) if student else "",
@@ -1109,6 +1268,11 @@ def _editor_share_payload(share, student=None):
         "sqlplusText": share.sqlplus_text,
         "revision": share.revision,
         "statementSnapshotReady": share.statement_snapshot_ready,
+        "editPermissionRequest": ({
+            "id": share.edit_permission_requested_at.isoformat(),
+            "teacherName": requesting_teacher.get_full_name() or requesting_teacher.username if requesting_teacher else "Your teacher",
+        } if share.edit_permission_requested_at else None),
+        "editPermissionRequestedBy": share.edit_permission_requested_by_id,
         "updatedAt": share.updated_at.isoformat(),
     }
 
@@ -1124,7 +1288,7 @@ def compiler_editor_share(request, student_id=None):
     CompilerEditorShare.objects.filter(
         access_mode=CompilerEditorShare.AccessMode.STATEMENT,
         updated_at__lt=timezone.now() - timedelta(minutes=2),
-    ).update(access_mode=CompilerEditorShare.AccessMode.PRIVATE, editor_text="", sqlplus_text="", statement_snapshot_ready=False)
+    ).update(access_mode=CompilerEditorShare.AccessMode.PRIVATE, statement_snapshot_ready=False)
     if request.method == "GET":
         if role == "STUDENT" and student_id is None:
             share, _ = CompilerEditorShare.objects.get_or_create(student=request.user)
@@ -1133,34 +1297,73 @@ def compiler_editor_share(request, student_id=None):
             return json_error("Only students can manage sharing and teachers can view students in their activity scope.", 403)
         student = PortalUser.objects.filter(pk__in=_teacher_student_ids(request.user), role=PortalUser.Role.STUDENT).filter(pk=student_id).first()
         if not student: return json_error("Student is not available in your activity scope.", 403)
-        share = CompilerEditorShare.objects.filter(student=student).first()
-        if not share or share.access_mode == CompilerEditorShare.AccessMode.PRIVATE:
-            return json_error("This student has not allowed teacher editor access.", 403)
-        if share.access_mode == CompilerEditorShare.AccessMode.SESSION and timezone.now() - share.updated_at > timedelta(minutes=2):
-            return json_error("This student editor session is no longer active.", 403)
-        if share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and not share.statement_snapshot_ready:
-            return json_error("The student has not shared a statement yet.", 403)
+        share, _ = CompilerEditorShare.objects.get_or_create(student=student)
         return JsonResponse(_editor_share_payload(share, student))
     try: payload = read_json(request)
     except ValueError as exc: return json_error(exc, 400)
     if role == "STUDENT" and student_id is None:
+        share, _ = CompilerEditorShare.objects.get_or_create(student=request.user)
+        if payload.get("action") == "sync_view_snapshot":
+            editor_text, sqlplus_text = payload.get("editorText"), payload.get("sqlplusText")
+            if not isinstance(editor_text, str) or not isinstance(sqlplus_text, str):
+                return json_error("Both editor contents are required.")
+            if "revision" in payload and payload.get("revision") != share.revision:
+                return json_error("The shared editor changed. Reload it before syncing your changes.", 409)
+            editor_text, sqlplus_text = editor_text[:MAX_BODY], sqlplus_text[:MAX_BODY]
+            update_fields = [] if share.access_mode == CompilerEditorShare.AccessMode.STATEMENT else ["updated_at"]
+            if editor_text != share.editor_text or sqlplus_text != share.sqlplus_text:
+                share.editor_text, share.sqlplus_text = editor_text, sqlplus_text
+                share.revision += 1
+                update_fields.extend(("editor_text", "sqlplus_text", "revision"))
+            if update_fields:
+                share.save(update_fields=update_fields)
+            return JsonResponse(_editor_share_payload(share, request.user))
+        if payload.get("action") == "respond_edit_permission":
+            request_id = share.edit_permission_requested_at.isoformat() if share.edit_permission_requested_at else ""
+            if not request_id or payload.get("requestId") != request_id:
+                return json_error("This edit request is no longer active.", 409)
+            approved = payload.get("approved") is True
+            if approved:
+                token = str(payload.get("sessionToken") or "")
+                editor_text, sqlplus_text = payload.get("editorText"), payload.get("sqlplusText")
+                if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", token): return json_error("Invalid editor session token.")
+                share.access_mode = CompilerEditorShare.AccessMode.SESSION
+                share.session_token = token
+                share.statement_snapshot_ready = False
+                if isinstance(editor_text, str) and isinstance(sqlplus_text, str):
+                    share.editor_text = editor_text[:MAX_BODY]
+                    share.sqlplus_text = sqlplus_text[:MAX_BODY]
+                share.revision += 1
+            elif share.access_mode == CompilerEditorShare.AccessMode.SESSION and timezone.now() - share.updated_at > timedelta(minutes=2):
+                share.access_mode = CompilerEditorShare.AccessMode.PRIVATE
+                share.session_token = ""
+            share.edit_permission_requested_at = None
+            share.edit_permission_requested_by = None
+            share.save(update_fields=("access_mode", "session_token", "statement_snapshot_ready", "editor_text", "sqlplus_text", "revision", "edit_permission_requested_at", "edit_permission_requested_by", "updated_at"))
+            return JsonResponse(_editor_share_payload(share, request.user))
         mode = payload.get("mode")
         allowed_modes = {CompilerEditorShare.AccessMode.PRIVATE, CompilerEditorShare.AccessMode.SESSION, CompilerEditorShare.AccessMode.ALWAYS}
         if mode not in allowed_modes: return json_error("Choose a valid teacher editor access setting.")
-        share, _ = CompilerEditorShare.objects.get_or_create(student=request.user)
         if "revision" in payload and payload.get("revision") != share.revision:
             return json_error("The shared editor changed. Reload it before syncing your changes.", 409)
         changed_fields = ["access_mode", "session_token", "statement_snapshot_ready", "revision", "updated_at"]
         if mode != share.access_mode:
             share.statement_snapshot_ready = False
         share.access_mode = mode
+        if mode != CompilerEditorShare.AccessMode.PRIVATE:
+            share.edit_permission_requested_at = None
+            share.edit_permission_requested_by = None
+            changed_fields.extend(("edit_permission_requested_at", "edit_permission_requested_by"))
         if mode == CompilerEditorShare.AccessMode.PRIVATE:
             share.session_token = ""
-            share.editor_text = ""
-            share.sqlplus_text = ""
             share.statement_snapshot_ready = False
-            share.revision += 1
-            changed_fields.extend(["editor_text", "sqlplus_text"])
+            editor_text, sqlplus_text = payload.get("editorText"), payload.get("sqlplusText")
+            if isinstance(editor_text, str) and isinstance(sqlplus_text, str):
+                editor_text, sqlplus_text = editor_text[:MAX_BODY], sqlplus_text[:MAX_BODY]
+                if editor_text != share.editor_text or sqlplus_text != share.sqlplus_text:
+                    share.editor_text, share.sqlplus_text = editor_text, sqlplus_text
+                    share.revision += 1
+                    changed_fields.extend(("editor_text", "sqlplus_text", "revision"))
         elif mode == CompilerEditorShare.AccessMode.SESSION:
             token = str(payload.get("sessionToken") or "")
             if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", token): return json_error("Invalid editor session token.")
@@ -1194,9 +1397,19 @@ def compiler_editor_share(request, student_id=None):
     if role == "TEACHER" and student_id is not None:
         student = PortalUser.objects.filter(pk__in=_teacher_student_ids(request.user), role=PortalUser.Role.STUDENT).filter(pk=student_id).first()
         if not student: return json_error("Student is not available in your activity scope.", 403)
-        share = CompilerEditorShare.objects.filter(student=student).first()
-        if not share or share.access_mode == CompilerEditorShare.AccessMode.PRIVATE:
-            return json_error("This student has not allowed teacher editor access.", 403)
+        share, _ = CompilerEditorShare.objects.get_or_create(student=student)
+        if payload.get("action") == "request_edit_permission":
+            age = timezone.now() - share.updated_at
+            has_edit_permission = share.access_mode == CompilerEditorShare.AccessMode.ALWAYS or (share.access_mode == CompilerEditorShare.AccessMode.SESSION and age <= timedelta(minutes=2)) or (share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and share.statement_snapshot_ready and age <= timedelta(minutes=2))
+            if has_edit_permission:
+                return json_error("This student has already allowed editor access.", 409)
+            share.edit_permission_requested_at = timezone.now()
+            share.edit_permission_requested_by = request.user
+            share.save(update_fields=("edit_permission_requested_at", "edit_permission_requested_by"))
+            return JsonResponse(_editor_share_payload(share, student))
+        has_edit_permission = share.access_mode in {CompilerEditorShare.AccessMode.SESSION, CompilerEditorShare.AccessMode.ALWAYS} or (share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and share.statement_snapshot_ready)
+        if not has_edit_permission:
+            return json_error("Student permission is required to edit this editor.", 403)
         if share.access_mode == CompilerEditorShare.AccessMode.SESSION and timezone.now() - share.updated_at > timedelta(minutes=2):
             return json_error("This student editor session is no longer active.", 403)
         if share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and not share.statement_snapshot_ready:
@@ -1213,6 +1426,150 @@ def compiler_editor_share(request, student_id=None):
         share.save(update_fields=["editor_text", "sqlplus_text", "revision", "access_mode", "statement_snapshot_ready", "updated_at"])
         return JsonResponse(_editor_share_payload(share, student))
     return json_error("You are not allowed to change this editor sharing setting.", 403)
+
+
+def _remote_terminal_teacher_access(request, student_id, *, require_edit=True):
+    from .models import CompilerEditorShare, PortalUser
+    from .portal_views import _active_portal_role
+    user = request.user
+    if _active_portal_role(request) != "TEACHER":
+        return None, None, json_error("Only teachers can send remote terminal commands.", 403)
+    student = PortalUser.objects.filter(
+        pk__in=_teacher_student_ids(user), role=PortalUser.Role.STUDENT, pk=student_id,
+    ).first()
+    if not student:
+        return None, None, json_error("Student is not available in your teaching scope.", 403)
+    share = CompilerEditorShare.objects.filter(student=student).first()
+    now = timezone.now()
+    allowed = bool(share and (
+        share.access_mode == CompilerEditorShare.AccessMode.ALWAYS
+        or (share.access_mode == CompilerEditorShare.AccessMode.SESSION and now - share.updated_at <= timedelta(minutes=2))
+        or (share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and share.statement_snapshot_ready and now - share.updated_at <= timedelta(minutes=2))
+    ))
+    if require_edit and not allowed:
+        return None, None, json_error("Current student permission to edit is required to execute a remote command.", 403)
+    return student, share, None
+
+
+def _remote_terminal_payload(command):
+    if not command:
+        return {"command": None}
+    return {"command": {
+        "id": str(command.id), "text": command.command, "status": command.status,
+        "editor": command.editor_kind, "script": command.run_script,
+        "output": command.output, "error": command.error,
+        "executed": command.execution_finished,
+        "requestedAt": command.requested_at.isoformat(),
+        "startedAt": command.started_at.isoformat() if command.started_at else None,
+        "completedAt": command.completed_at.isoformat() if command.completed_at else None,
+    }}
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def compiler_remote_terminal(request, student_id):
+    if not same_origin(request): return json_error("Cross-origin API requests are blocked.", 403)
+    if not request.user.is_authenticated: return json_error("Sign in to use the remote terminal.", 401)
+    from .models import CompilerRemoteTerminalCommand
+    student, share, error = _remote_terminal_teacher_access(request, student_id, require_edit=request.method == "POST")
+    if error: return error
+    if request.method == "GET":
+        CompilerRemoteTerminalCommand.objects.filter(
+            student=student, teacher=request.user, status=CompilerRemoteTerminalCommand.Status.QUEUED,
+            requested_at__lt=timezone.now() - timedelta(seconds=60),
+        ).update(status=CompilerRemoteTerminalCommand.Status.EXPIRED, completed_at=timezone.now(), error="Student terminal was unavailable for 60 seconds.")
+        latest = CompilerRemoteTerminalCommand.objects.filter(student=student, teacher=request.user).first()
+        return JsonResponse(_remote_terminal_payload(latest))
+    try: payload = read_json(request)
+    except ValueError as exc: return json_error(exc, 400)
+    command_text = payload.get("command")
+    editor_kind = payload.get("editor", "sqlplus")
+    run_script = payload.get("script") is True
+    try: request_id = uuid.UUID(str(payload.get("requestId", "")))
+    except (ValueError, TypeError, AttributeError): return json_error("Invalid remote command request ID.", 400)
+    if not isinstance(command_text, str) or not command_text.strip() or len(command_text) > 20000:
+        return json_error("Enter a SQLCL command under 20,000 characters.", 400)
+    if editor_kind not in {"sqlplus", "worksheet"} or (run_script and editor_kind != "worksheet"):
+        return json_error("Choose SQLCL or SQL WorkSheet and a valid execution mode.", 400)
+    now = timezone.now()
+    with transaction.atomic():
+        existing = CompilerRemoteTerminalCommand.objects.filter(teacher=request.user, request_id=request_id).first()
+        if existing:
+            if existing.student_id != student.id: return json_error("Request ID belongs to a different student.", 409)
+            return JsonResponse(_remote_terminal_payload(existing))
+        CompilerRemoteTerminalCommand.objects.filter(
+            student=student, status=CompilerRemoteTerminalCommand.Status.QUEUED,
+            requested_at__lt=now - timedelta(seconds=60),
+        ).update(status=CompilerRemoteTerminalCommand.Status.EXPIRED, completed_at=now, error="Student terminal was unavailable for 60 seconds.")
+        if CompilerRemoteTerminalCommand.objects.filter(student=student, status__in=(CompilerRemoteTerminalCommand.Status.QUEUED, CompilerRemoteTerminalCommand.Status.RUNNING)).exists():
+            return json_error("A remote command is already waiting or running for this student.", 409)
+        command = CompilerRemoteTerminalCommand.objects.create(
+            student=student, teacher=request.user, request_id=request_id, command=command_text.strip(),
+            editor_kind=editor_kind, run_script=run_script,
+        )
+        if share.access_mode == "statement":
+            share.access_mode = "private"
+            share.statement_snapshot_ready = False
+            share.save(update_fields=("access_mode", "statement_snapshot_ready", "updated_at"))
+    return JsonResponse(_remote_terminal_payload(command), status=202)
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def compiler_remote_terminal_pending(request):
+    if not same_origin(request): return json_error("Cross-origin API requests are blocked.", 403)
+    if not request.user.is_authenticated: return json_error("Sign in to receive remote commands.", 401)
+    from .models import CompilerRemoteTerminalCommand
+    from .portal_views import _active_portal_role
+    if _active_portal_role(request) != "STUDENT": return json_error("Only students can receive remote commands.", 403)
+    now = timezone.now()
+    with transaction.atomic():
+        CompilerRemoteTerminalCommand.objects.filter(
+            student=request.user, status=CompilerRemoteTerminalCommand.Status.QUEUED,
+            requested_at__lt=now - timedelta(seconds=60),
+        ).update(status=CompilerRemoteTerminalCommand.Status.EXPIRED, completed_at=now, error="Student terminal was unavailable for 60 seconds.")
+        command = CompilerRemoteTerminalCommand.objects.filter(
+            student=request.user, status=CompilerRemoteTerminalCommand.Status.QUEUED,
+        ).order_by("requested_at").first()
+        if command and CompilerRemoteTerminalCommand.objects.filter(
+            pk=command.pk, status=CompilerRemoteTerminalCommand.Status.QUEUED,
+        ).update(status=CompilerRemoteTerminalCommand.Status.RUNNING, started_at=now):
+            command.status = CompilerRemoteTerminalCommand.Status.RUNNING
+            command.started_at = now
+        else:
+            command = None
+    return JsonResponse(_remote_terminal_payload(command))
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def compiler_remote_terminal_complete(request, command_id):
+    if not same_origin(request): return json_error("Cross-origin API requests are blocked.", 403)
+    if not request.user.is_authenticated: return json_error("Sign in to return the command result.", 401)
+    from .models import CompilerRemoteTerminalCommand
+    from .portal_views import _active_portal_role
+    if _active_portal_role(request) != "STUDENT": return json_error("Only students can return command results.", 403)
+    try: payload = read_json(request)
+    except ValueError as exc: return json_error(exc, 400)
+    with transaction.atomic():
+        command = CompilerRemoteTerminalCommand.objects.select_for_update().filter(
+            pk=command_id, student=request.user, status=CompilerRemoteTerminalCommand.Status.RUNNING,
+        ).first()
+        if not command: return json_error("This remote command is no longer running.", 409)
+        command.output = str(payload.get("output") or "")[:20000]
+        command.error = str(payload.get("error") or "")[:5000]
+        command.execution_finished = payload.get("executed") is True
+        command.status = CompilerRemoteTerminalCommand.Status.FAILED if command.error else CompilerRemoteTerminalCommand.Status.COMPLETED
+        command.completed_at = timezone.now()
+        command.save(update_fields=("output", "error", "execution_finished", "status", "completed_at"))
+        if command.editor_kind == "sqlplus" and command.execution_finished:
+            from .models import CompilerEditorShare
+            share = CompilerEditorShare.objects.filter(student=request.user).first()
+            if share and share.sqlplus_text.strip() == command.command.strip():
+                share.sqlplus_text = ""
+                share.revision += 1
+                share.save(update_fields=("sqlplus_text", "revision", "updated_at"))
+    return JsonResponse(_remote_terminal_payload(command))
 
 
 @require_http_methods(["GET"])

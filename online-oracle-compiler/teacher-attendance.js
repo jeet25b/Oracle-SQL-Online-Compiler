@@ -9,6 +9,37 @@
   const body = $('#attendanceTable');
   let report = null;
   let sort = { key: 'studentName', direction: 1 };
+  function enableColumnResizing(table, storageKey) {
+    if (!table?.tHead?.rows[0]) return;
+    let colgroup = table.querySelector('colgroup');
+    if (!colgroup) { colgroup = document.createElement('colgroup'); table.insertBefore(colgroup, table.firstChild); }
+    const headers = [...table.tHead.rows[0].cells];
+    const columns = headers.map((header, index) => { if (!colgroup.children[index]) colgroup.append(document.createElement('col')); return colgroup.children[index]; });
+    while (colgroup.children.length > columns.length) colgroup.lastElementChild.remove();
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(storageKey) || '[]'); } catch {}
+    columns.forEach((column, index) => { const width = Number(saved[index]); if (width >= 72 && width <= 1000) column.style.width = `${width}px`; });
+    headers.forEach((header, index) => {
+      if (header.querySelector('.column-resize-handle')) return;
+      header.classList.add('resizable-column-header');
+      const handle = document.createElement('span'); handle.className = 'column-resize-handle'; handle.title = 'Drag to resize this column';
+      handle.setAttribute('role', 'separator'); handle.setAttribute('aria-orientation', 'vertical'); handle.setAttribute('aria-label', `Resize ${header.textContent.trim()} column`);
+      handle.addEventListener('pointerdown', (event) => {
+        event.preventDefault(); const startX = event.clientX;
+        const startWidth = columns[index].getBoundingClientRect().width || header.getBoundingClientRect().width;
+        handle.setPointerCapture(event.pointerId);
+        const move = (moveEvent) => { columns[index].style.width = `${Math.max(72, Math.min(1000, startWidth + moveEvent.clientX - startX))}px`; };
+        const finish = () => {
+          handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', finish); handle.removeEventListener('pointercancel', finish);
+          try { localStorage.setItem(storageKey, JSON.stringify(columns.map((column) => Math.round(column.getBoundingClientRect().width)))); } catch {}
+        };
+        handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', finish); handle.addEventListener('pointercancel', finish);
+      });
+      header.append(handle);
+    });
+    table.classList.add('resizable-table');
+  }
+  enableColumnResizing($('.attendance-table'), `teacher-attendance-columns:${document.body.dataset.userId || 'local'}:register-v3`);
   const today = new Date();
   const toInputDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   dateTo.value = toInputDate(today);
@@ -52,20 +83,23 @@
     body.replaceChildren();
     $('#attendanceCount').textContent = query ? `${rows.length} of ${report.students.length} students` : `${rows.length} students`;
     if (!rows.length) {
-      const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 10; td.className = 'activity-empty'; td.textContent = report.students.length ? 'No students match this search.' : 'No students found for this class or lab.'; tr.append(td); body.append(tr);
+      const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 7; td.className = 'activity-empty'; td.textContent = report.students.length ? 'No students match this search.' : 'No students found for this class or lab.'; tr.append(td); body.append(tr);
     } else rows.forEach((student) => {
       const tr = document.createElement('tr');
       const studentCell = document.createElement('td'); studentCell.className = 'activity-student'; const name = document.createElement('strong'); name.textContent = student.studentName; studentCell.append(name); const id = document.createElement('small'); id.textContent = student.studentNumber || ''; studentCell.append(id);
-      const present = document.createElement('td'); present.textContent = `${student.presentDays} / ${student.eligibleDays}`;
-      const absent = document.createElement('td'); absent.textContent = student.absentDays;
-      const percent = document.createElement('td'); percent.className = 'attendance-percent'; percent.textContent = `${student.attendancePercent}%`;
-      const first = document.createElement('td'); first.textContent = formatTime(student.firstLogin);
-      const logout = document.createElement('td'); logout.textContent = student.openSession ? 'Session open' : `${formatTime(student.lastLogout)}${student.logoutEstimated && student.lastLogout ? ' · estimated' : ''}`;
+      const presentPercent = document.createElement('td'); presentPercent.className = 'attendance-days-percent';
+      const present = document.createElement('div'); present.textContent = `${student.presentDays} / ${student.eligibleDays}`;
+      const percent = document.createElement('div'); percent.className = 'attendance-percent'; percent.textContent = `${student.attendancePercent}%`;
+      presentPercent.append(present, percent);
+      const loginLogout = document.createElement('td'); loginLogout.className = 'attendance-login-logout';
+      const login = document.createElement('div'); login.textContent = formatTime(student.lastLogin);
+      const logout = document.createElement('div'); logout.textContent = student.openSession ? 'Session open' : `${formatTime(student.lastLogout)}${student.logoutEstimated && student.lastLogout ? ' · estimated' : ''}`;
+      loginLogout.append(login, logout);
       const arrival = document.createElement('td'); arrival.textContent = student.arrivalStatus === 'late' ? 'Late' : student.arrivalStatus === 'on_time' ? 'On time' : 'Set start time';
       const counts = document.createElement('td'); counts.textContent = `${student.onTimeDays} / ${student.lateDays}`;
       const duration = document.createElement('td'); duration.textContent = formatDuration(student.durationSeconds);
       const last = document.createElement('td'); last.textContent = student.lastPresent || '—';
-      tr.append(studentCell, present, absent, percent, first, logout, arrival, counts, duration, last); body.append(tr);
+      tr.append(studentCell, presentPercent, loginLogout, arrival, counts, duration, last); body.append(tr);
     });
     $('#attendanceUpdated').textContent = `${report.scope || 'Selected scope'} · ${report.from} to ${report.to} · ${report.eligibleDays} weekdays · ${report.scheduledStartTime ? `arrival time ${report.scheduledStartTime} (${report.scheduleLevel} schedule)` : 'expected start time not set'}`;
     const timeInput = $('#attendanceStartTime');
@@ -77,11 +111,13 @@
     if (classFilter.value) params.set('class', classFilter.value);
     if (labFilter.value) params.set('lab', labFilter.value);
     try { report = await readJson(await fetch(`/api/teacher/attendance-report?${params}`, { credentials: 'same-origin', cache: 'no-store' })); render(); }
-    catch (error) { body.replaceChildren(); const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 10; td.className = 'activity-empty error'; td.textContent = error.message; tr.append(td); body.append(tr); $('#attendanceUpdated').textContent = 'Attendance could not be loaded.'; }
+    catch (error) { body.replaceChildren(); const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 7; td.className = 'activity-empty error'; td.textContent = error.message; tr.append(td); body.append(tr); $('#attendanceUpdated').textContent = 'Attendance could not be loaded.'; }
   }
   document.querySelectorAll('[data-attendance-sort]').forEach((button) => button.addEventListener('click', () => {
     if (sort.key === button.dataset.attendanceSort) sort.direction *= -1; else sort = { key: button.dataset.attendanceSort, direction: 1 };
     document.querySelectorAll('[data-attendance-sort]').forEach((item) => { const active = item === button; item.closest('th').setAttribute('aria-sort', active ? (sort.direction > 0 ? 'ascending' : 'descending') : 'none'); });
+    const statsHeader = button.closest('.attendance-days-percent-header');
+    if (statsHeader) statsHeader.setAttribute('aria-sort', sort.direction > 0 ? 'ascending' : 'descending');
     render();
   }));
   $('#saveAttendanceSchedule').addEventListener('click', async () => {
@@ -104,7 +140,7 @@
   $('#attendanceRefresh').addEventListener('click', async () => { try { await loadLabs(); } catch {} await refresh(); });
   $('#attendanceExport').addEventListener('click', () => {
     if (!report) return;
-    const lines = [['Student','Student ID','Present days','Eligible weekdays','Absent weekdays','Attendance %','First login','Last logout','Arrival','On time days','Late days','Duration seconds','Last present'], ...(report.students || []).map((student) => [student.studentName,student.studentNumber,student.presentDays,student.eligibleDays,student.absentDays,student.attendancePercent,student.firstLogin,student.lastLogout,student.arrivalStatus,student.onTimeDays,student.lateDays,student.durationSeconds,student.lastPresent])];
+    const lines = [['Student','Student ID','Present days','Eligible weekdays','Attendance %','Last login','Last logout','Arrival','On time days','Late days','Duration seconds','Last present'], ...(report.students || []).map((student) => [student.studentName,student.studentNumber,student.presentDays,student.eligibleDays,student.attendancePercent,student.lastLogin,student.lastLogout,student.arrivalStatus,student.onTimeDays,student.lateDays,student.durationSeconds,student.lastPresent])];
     const csv = lines.map((line) => line.map((value) => `"${String(value ?? '').replaceAll('"','""')}"`).join(',')).join('\r\n');
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); link.download = `student-attendance-${dateFrom.value}-${dateTo.value}.csv`; link.click(); URL.revokeObjectURL(link.href);
   });

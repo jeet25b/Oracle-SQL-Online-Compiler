@@ -20,7 +20,18 @@
   <section class="content-card" id="announcements"><div class="section-heading"><div><p class="section-kicker">FROM YOUR TEACHERS</p><h2>Announcements</h2></div><span class="count-pill">Latest</span></div>
     {% if announcements %}<div class="announcement-list">{% for announcement in announcements %}<article class="announcement"><span class="announcement-dot"></span><div><strong>{{ announcement.title }}</strong><p>{{ announcement.message|truncatechars:150 }}</p><span class="announcement-meta">{{ announcement.created_by.get_full_name|default:announcement.created_by.username }} · {{ announcement.created_at|date:"M j" }}</span></div></article>{% endfor %}</div>
     {% else %}<div class="empty-state"><span>✦</span><strong>You’re all caught up</strong><p>New class announcements will appear here.</p></div>{% endif %}
+    <div class="subsection-heading" id="shared-code"><h3>Code shared by teachers</h3><span>{{ shared_code|length }} available</span></div>
+    {% if shared_code %}<div class="shared-code-list">{% for item in shared_code %}<article class="shared-code-card"><div class="shared-code-heading"><div><strong>{{ item.title }}</strong><span>{{ item.get_editor_kind_display }} · {{ item.created_by.get_full_name|default:item.created_by.username }} · {{ item.created_at|date:"M j" }}</span></div><button class="dashboard-help-button" type="button" data-copy-shared-code>Copy code</button></div><details><summary>View code</summary><pre>{{ item.code }}</pre></details></article>{% endfor %}</div>
+    {% else %}<p class="muted-note">Code shared for your class or lab will appear here.</p>{% endif %}
     <div class="practice-card"><div class="practice-top"><span>SQL PRACTICE</span><span class="practice-status"><i></i> Workspace ready</span></div><h3>Small queries, big progress.</h3><p>Use your Oracle workspace to put new concepts into practice.</p><div class="practice-code"><span>01</span><code><b>SELECT</b> learning_progress</code></div><div class="practice-code"><span>02</span><code><b>FROM</b> your_next_step;</code></div><span class="practice-soon">Workspace access can be enabled by your administrator.</span></div>
   </section>
 </div>
+<style>
+  .shared-code-list{display:grid;gap:8px}.shared-code-card{padding:10px;border:1px solid var(--border,#2a3d56);border-radius:9px;background:var(--surface,#0e1a2a)}
+  .shared-code-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.shared-code-heading>div{display:grid;gap:3px}.shared-code-heading strong{font-size:12px}.shared-code-heading span{color:var(--muted,#91a3bd);font-size:10px}.shared-code-heading button{font-size:10px;padding:7px 10px}
+  .shared-code-card details{margin-top:8px}.shared-code-card summary{cursor:pointer;color:var(--accent,#7c5cff);font-size:10px}.shared-code-card pre{max-height:280px;overflow:auto;padding:10px;border-radius:7px;background:#081321;color:var(--text,#dce6f4);font:11px/1.55 "Cascadia Code",Consolas,monospace;white-space:pre-wrap}
+</style>
+<script>
+  document.querySelectorAll('[data-copy-shared-code]').forEach(button=>button.addEventListener('click',async()=>{const code=button.closest('.shared-code-card')?.querySelector('pre')?.textContent||'';try{await navigator.clipboard.writeText(code);button.textContent='Copied';setTimeout(()=>button.textContent='Copy code',1600)}catch{button.textContent='Copy unavailable';setTimeout(()=>button.textContent='Copy code',1800)}}));
+</script>
 {% endblock %}

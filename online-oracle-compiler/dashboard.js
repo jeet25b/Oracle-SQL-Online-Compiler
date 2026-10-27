@@ -19,6 +19,8 @@
     });
   });
   const dashboardLinks = [...document.querySelectorAll('[data-dashboard-link]')];
+  const normalizePath = (path) => path.replace(/\/+$/, '') || '/';
+  const currentPath = normalizePath(window.location.pathname);
   const setActiveDashboardLink = (activeLink) => {
     document.querySelectorAll('.side-nav .side-link').forEach((link) => {
       const active = link === activeLink;
@@ -30,6 +32,8 @@
   dashboardLinks.forEach((link) => {
     link.addEventListener('click', (event) => {
       if (!link.hash) return;
+      const linkPath = normalizePath(new URL(link.href, window.location.href).pathname);
+      if (linkPath !== currentPath) return;
       const target = document.getElementById(decodeURIComponent(link.hash.slice(1)));
       if (!target) {
         event.preventDefault();
@@ -40,13 +44,40 @@
       setActiveDashboardLink(link);
     });
   });
-  const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
   const initialDashboardLink = dashboardLinks.find((link) => {
     if (link.hash) return link.hash === window.location.hash;
     const targetPath = new URL(link.href, window.location.href).pathname.replace(/\/+$/, '') || '/';
     return targetPath === currentPath;
   });
   if (initialDashboardLink) setActiveDashboardLink(initialDashboardLink);
+  if (document.body.dataset.userRole === 'STUDENT') {
+    const requestKey = 'compiler-edit-permission-prompt-seen';
+    const pollEditPermissionRequest = async () => {
+      if (document.hidden) return;
+      try {
+        const response = await fetch('/api/compiler/editor-share', { credentials: 'same-origin', cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        const request = data.editPermissionRequest;
+        if (!request?.id || sessionStorage.getItem(requestKey) === request.id) return;
+        sessionStorage.setItem(requestKey, request.id);
+        const approved = window.confirm(`${request.teacherName} is requesting permission to edit your SQLCL and SQL WorkSheet editors for this session. Allow access?`);
+        const token = sessionStorage.getItem('compiler-editor-share-session') || (crypto.randomUUID ? crypto.randomUUID().replaceAll('-', '') : `${Date.now()}${Math.random().toString(36).slice(2)}`);
+        sessionStorage.setItem('compiler-editor-share-session', token);
+        const result = await fetch('/api/compiler/editor-share', {
+          method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'respond_edit_permission', requestId: request.id, approved, sessionToken: token }),
+        });
+        if (!result.ok) sessionStorage.removeItem(requestKey);
+        else if (approved && toast) {
+          toast.textContent = 'Your teacher can edit your shared editors for this session.';
+          toast.hidden = false;
+        }
+      } catch { sessionStorage.removeItem(requestKey); /* Retry the permission prompt check on the next interval. */ }
+    };
+    pollEditPermissionRequest();
+    window.setInterval(pollEditPermissionRequest, 5000);
+  }
   window.addEventListener('hashchange', () => {
     const link = dashboardLinks.find((item) => item.hash && item.hash === window.location.hash);
     if (link) setActiveDashboardLink(link);

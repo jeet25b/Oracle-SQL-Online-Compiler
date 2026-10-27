@@ -30,6 +30,12 @@ def normalize_mobile_number(value):
 def default_registration_required_fields():
     return ["first_name", "email", "mobile_number"]
 
+def default_compiler_tab_appearance():
+    return {
+        "sqlplus": {"label": "SQLCL", "visible": True, "order": 1},
+        "compiler": {"label": "SQL WorkSheet", "visible": False, "order": 2},
+    }
+
 class PortalUser(AbstractUser):
     class Role(models.TextChoices):
         ADMIN = "ADMIN", "Admin"
@@ -196,6 +202,16 @@ class TeacherAssignment(models.Model):
     subject = models.CharField(max_length=120, blank=True)
     class Meta: unique_together = [("teacher", "class_section", "subject")]
 
+
+class TeacherActivityPreference(models.Model):
+    """Per-teacher live monitor preferences."""
+    teacher = models.OneToOneField(
+        PortalUser, on_delete=models.CASCADE, related_name="activity_preference",
+        limit_choices_to={"role": PortalUser.Role.TEACHER},
+    )
+    presence_offline_timeout_seconds = models.PositiveSmallIntegerField(default=90)
+    updated_at = models.DateTimeField(auto_now=True)
+
 class Enrollment(models.Model):
     student = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="enrollments", limit_choices_to={"role": PortalUser.Role.STUDENT})
     class_section = models.ForeignKey(ClassSection, on_delete=models.CASCADE, related_name="enrollments")
@@ -277,14 +293,25 @@ class SQLQuestion(models.Model):
     is_active = models.BooleanField(default=True)
 
 class SQLTest(models.Model):
+    class ScheduleFrequency(models.TextChoices):
+        ANYTIME = "anytime", "Anytime"
+        DAILY = "daily", "Daily"
+        WEEKLY = "weekly", "Weekly"
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="tests")
     created_by = models.ForeignKey(PortalUser, on_delete=models.PROTECT)
+    class_section = models.ForeignKey(ClassSection, on_delete=models.CASCADE, related_name="sql_tests", null=True, blank=True)
+    lab = models.ForeignKey(CompilerLab, on_delete=models.CASCADE, related_name="sql_tests", null=True, blank=True)
     title = models.CharField(max_length=200)
+    instructions = models.TextField(blank=True)
     starts_at = models.DateTimeField(null=True, blank=True)
     ends_at = models.DateTimeField(null=True, blank=True)
     duration_minutes = models.PositiveIntegerField(default=60)
     total_marks = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     published = models.BooleanField(default=False)
+    schedule_frequency = models.CharField(max_length=8, choices=ScheduleFrequency.choices, default=ScheduleFrequency.ANYTIME)
+    schedule_start_time = models.TimeField(null=True, blank=True)
+    schedule_end_time = models.TimeField(null=True, blank=True)
+    schedule_weekdays = models.JSONField(default=list, blank=True)
 
 class TestAttempt(models.Model):
     test = models.ForeignKey(SQLTest, on_delete=models.CASCADE, related_name="attempts")
@@ -294,6 +321,22 @@ class TestAttempt(models.Model):
     score = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=20, default="in_progress")
     class Meta: unique_together = [("test", "student")]
+
+class SQLTestQuestion(models.Model):
+    test = models.ForeignKey(SQLTest, on_delete=models.CASCADE, related_name="questions")
+    position = models.PositiveIntegerField(default=1)
+    prompt = models.TextField()
+    marks = models.DecimalField(max_digits=7, decimal_places=2, default=1)
+
+    class Meta:
+        ordering = ("position", "id")
+
+class TestAnswer(models.Model):
+    attempt = models.ForeignKey(TestAttempt, on_delete=models.CASCADE, related_name="answers")
+    question = models.ForeignKey(SQLTestQuestion, on_delete=models.CASCADE, related_name="answers")
+    answer = models.TextField(blank=True)
+    class Meta:
+        unique_together = [("attempt", "question")]
 
 class Submission(models.Model):
     class Status(models.TextChoices):
@@ -319,11 +362,33 @@ class StudyMaterial(models.Model):
 
 class Announcement(models.Model):
     class_section = models.ForeignKey(ClassSection, on_delete=models.CASCADE, related_name="announcements", null=True, blank=True)
+    lab = models.ForeignKey(CompilerLab, on_delete=models.CASCADE, related_name="announcements", null=True, blank=True)
+    student = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="student_announcements", null=True, blank=True, limit_choices_to={"role": PortalUser.Role.STUDENT})
     created_by = models.ForeignKey(PortalUser, on_delete=models.PROTECT)
     title = models.CharField(max_length=200)
     message = models.TextField()
     created_at = models.DateTimeField(default=timezone.now)
     published = models.BooleanField(default=True)
+
+
+class SharedCompilerCode(models.Model):
+    class EditorKind(models.TextChoices):
+        SQLCL = "sqlplus", "SQLCL"
+        WORKSHEET = "worksheet", "SQL WorkSheet"
+
+    class_section = models.ForeignKey(ClassSection, on_delete=models.CASCADE, related_name="shared_compiler_code", null=True, blank=True)
+    lab = models.ForeignKey(CompilerLab, on_delete=models.CASCADE, related_name="shared_compiler_code", null=True, blank=True)
+    student = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="shared_compiler_code", null=True, blank=True, limit_choices_to={"role": PortalUser.Role.STUDENT})
+    all_students = models.BooleanField(default=False)
+    created_by = models.ForeignKey(PortalUser, on_delete=models.PROTECT, related_name="shared_compiler_code_created")
+    title = models.CharField(max_length=200)
+    editor_kind = models.CharField(max_length=12, choices=EditorKind.choices)
+    code = models.TextField()
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    published = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("-created_at",)
 
 class TeacherMessage(models.Model):
     teacher = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="teacher_messages")
@@ -344,6 +409,7 @@ class PortalSetting(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
     default_accent = models.CharField(max_length=16, default="violet")
     sqlplus_buffer_entries = models.PositiveIntegerField(default=5000)
+    compiler_tab_appearance = models.JSONField(default=default_compiler_tab_appearance, blank=True)
     registration_required_fields = models.JSONField(
         default=default_registration_required_fields, blank=True
     )
@@ -389,6 +455,17 @@ class PortalSetting(models.Model):
 
     def has_whatsapp_access_token(self):
         return bool(self.whatsapp_access_token_encrypted)
+
+
+class CompilerTabAppearanceOverride(models.Model):
+    """Shared SQLCL / SQL WorkSheet tab appearance for an individual student."""
+    student = models.OneToOneField(
+        PortalUser, on_delete=models.CASCADE, related_name="compiler_tab_appearance_override",
+        limit_choices_to={"role": PortalUser.Role.STUDENT},
+    )
+    appearance = models.JSONField(default=default_compiler_tab_appearance)
+    updated_by = models.ForeignKey(PortalUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="compiler_tab_appearance_changes")
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 def registration_otp_expiry():
@@ -533,6 +610,7 @@ class CompilerQueryHistory(models.Model):
     paste_count = models.PositiveIntegerField(null=True, blank=True, default=None)
     edits_after_paste = models.PositiveIntegerField(null=True, blank=True, default=None)
     input_method = models.CharField(max_length=20, blank=True, default="")
+    input_source_map = models.JSONField(default=list, blank=True)
     message = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     executed_at = models.DateTimeField(default=timezone.now)
@@ -557,11 +635,48 @@ class CompilerEditorShare(models.Model):
     sqlplus_text = models.TextField(blank=True)
     session_token = models.CharField(max_length=64, blank=True)
     statement_snapshot_ready = models.BooleanField(default=False)
+    edit_permission_requested_at = models.DateTimeField(null=True, blank=True)
+    edit_permission_requested_by = models.ForeignKey(
+        PortalUser, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="compiler_edit_permission_requests",
+    )
     revision = models.PositiveIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.student} · editor sharing: {self.access_mode}"
+
+
+class CompilerRemoteTerminalCommand(models.Model):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Waiting for student terminal"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        EXPIRED = "expired", "Expired"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="remote_terminal_commands")
+    teacher = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="sent_remote_terminal_commands")
+    request_id = models.UUIDField()
+    command = models.TextField()
+    editor_kind = models.CharField(max_length=12, choices=(("sqlplus", "SQLCL"), ("worksheet", "SQL WorkSheet")), default="sqlplus")
+    run_script = models.BooleanField(default=False)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.QUEUED, db_index=True)
+    output = models.TextField(blank=True)
+    error = models.TextField(blank=True)
+    execution_finished = models.BooleanField(default=False)
+    requested_at = models.DateTimeField(default=timezone.now, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-requested_at",)
+        constraints = [models.UniqueConstraint(fields=("teacher", "request_id"), name="remote_terminal_teacher_request")]
+        indexes = [models.Index(fields=("student", "status", "requested_at"), name="remote_term_student_status")]
+
+    def __str__(self):
+        return f"Remote SQLCL command for {self.student_id} · {self.status}"
 
 class CompilerActivitySlice(models.Model):
     attendance_session = models.ForeignKey(AttendanceSession, on_delete=models.CASCADE, related_name="activity_slices")
