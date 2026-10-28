@@ -4,6 +4,104 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  function installNavigatorPicker(selectId) {
+    const select = $(`#${selectId}`);
+    if (!select || select.dataset.themeSelectEnhanced === 'true') return;
+    const picker = document.createElement('div');
+    picker.className = 'navigator-picker';
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.id = `${selectId}Picker`;
+    trigger.className = 'navigator-picker-trigger';
+    trigger.setAttribute('role', 'combobox');
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-label', select.getAttribute('aria-label') || 'Choose an option');
+    const value = document.createElement('span');
+    value.className = 'navigator-picker-value';
+    const arrow = document.createElement('span');
+    arrow.className = 'navigator-picker-arrow';
+    arrow.setAttribute('aria-hidden', 'true');
+    arrow.textContent = '⌄';
+    trigger.append(value, arrow);
+    const menu = document.createElement('div');
+    menu.className = 'navigator-picker-menu';
+    menu.id = `${selectId}PickerOptions`;
+    menu.setAttribute('role', 'listbox');
+    trigger.setAttribute('aria-controls', menu.id);
+    select.parentNode.insertBefore(picker, select);
+    picker.append(select, trigger, menu);
+    select.classList.add('navigator-picker-native');
+    select.setAttribute('aria-hidden', 'true');
+    select.tabIndex = -1;
+    const label = $(`label[for="${selectId}"]`);
+    if (label) label.htmlFor = trigger.id;
+
+    const close = (restoreFocus = false) => {
+      menu.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+      if (restoreFocus) trigger.focus();
+    };
+    const sync = () => {
+      value.textContent = select.selectedOptions[0]?.textContent?.trim() || '';
+      trigger.disabled = select.disabled;
+      menu.replaceChildren();
+      [...select.options].forEach((option, index) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'navigator-picker-option';
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', String(option.selected));
+        item.disabled = option.disabled;
+        item.dataset.optionIndex = String(index);
+        item.textContent = option.textContent.trim();
+        item.addEventListener('click', () => {
+          select.selectedIndex = index;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          close(true);
+        });
+        menu.append(item);
+      });
+    };
+    const open = (focusSelected = false) => {
+      if (trigger.disabled) return;
+      menu.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+      if (focusSelected) {
+        const selected = $('.navigator-picker-option[aria-selected="true"]', menu);
+        (selected || $('.navigator-picker-option:not(:disabled)', menu))?.focus();
+      }
+    };
+    trigger.addEventListener('click', () => menu.hidden ? open() : close());
+    trigger.addEventListener('keydown', (event) => {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+        event.preventDefault();
+        open(true);
+      }
+    });
+    menu.addEventListener('keydown', (event) => {
+      const options = $$('.navigator-picker-option:not(:disabled)', menu);
+      const current = options.indexOf(document.activeElement);
+      let next = current;
+      if (event.key === 'ArrowDown') next = Math.min(options.length - 1, current + 1);
+      else if (event.key === 'ArrowUp') next = Math.max(0, current - 1);
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = options.length - 1;
+      else if (event.key === 'Escape') { event.preventDefault(); close(true); return; }
+      else if (event.key === 'Tab') { close(); return; }
+      else return;
+      event.preventDefault();
+      options[next]?.focus();
+    });
+    document.addEventListener('pointerdown', (event) => {
+      if (!picker.contains(event.target)) close();
+    });
+    select.addEventListener('change', sync);
+    new MutationObserver(sync).observe(select, { childList: true, subtree: true, attributes: true });
+    sync();
+  }
+  installNavigatorPicker('navSchema');
+  installNavigatorPicker('objectTypeFilter');
   const shell = $('#ideShell');
   const main = $('#ideMain');
   const workspaceResumeKey = `oracle-workspace-resume:${document.body.dataset.userId || 'local'}`;
@@ -23,8 +121,8 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   const plsqlCleanCode = $('#plsqlCleanCode');
   const plsqlAutoCommit = $('#plsqlAutoCommit');
   const editMetrics = {
-    plsql: { typedChars: 0, pastedChars: 0, pasteCount: 0, editsAfterPaste: 0, hasExternalInput: false, inputMethods: new Set() },
-    sqlplus: { typedChars: 0, pastedChars: 0, pasteCount: 0, editsAfterPaste: 0, hasExternalInput: false, inputMethods: new Set() },
+    plsql: { typedChars: 0, pastedChars: 0, pasteCount: 0, pasteTexts: [], editsAfterPaste: 0, hasExternalInput: false, inputMethods: new Set() },
+    sqlplus: { typedChars: 0, pastedChars: 0, pasteCount: 0, pasteTexts: [], editsAfterPaste: 0, hasExternalInput: false, inputMethods: new Set() },
   };
   let internalClipboard = null;
   const normalizeClipboardText = value => String(value || '').replace(/\r\n?/g, '\n').trim();
@@ -102,10 +200,11 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     if (methods.includes('internal_copy')) return 'internal_copy';
     return methods.length > 1 ? 'mixed' : methods[0] || '';
   }
-  function recordPaste(source, characterCount) {
+  function recordPaste(source, characterCount, pastedText) {
     const metrics = editMetrics[source];
     metrics.pasteCount += 1;
     metrics.pastedChars += Math.max(0, Number(characterCount) || 0);
+    if (typeof pastedText === 'string' && pastedText && metrics.pasteTexts.length < 100) metrics.pasteTexts.push(pastedText);
     metrics.hasExternalInput = true;
     markInputMethod(source, 'pasted');
   }
@@ -125,8 +224,9 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   function takeEditMetrics(sqlplus, inputSourceMap = null) {
     const metrics = editMetrics[sqlplus ? 'sqlplus' : 'plsql'];
     const source = sqlplus ? 'sqlplus' : 'plsql';
-    const snapshot = { typedChars: metrics.typedChars, pastedChars: metrics.pastedChars, pasteCount: metrics.pasteCount, editsAfterPaste: metrics.editsAfterPaste, inputMethod: currentInputMethod(source), inputSourceMap: inputSourceMap || inputSourceRuns(source, sqlplus ? terminalInput.value : editor.value) };
+    const snapshot = { typedChars: metrics.typedChars, pastedChars: metrics.pastedChars, pasteCount: metrics.pasteCount, pasteTexts: metrics.pasteTexts.slice(0, 100), editsAfterPaste: metrics.editsAfterPaste, inputMethod: currentInputMethod(source), inputSourceMap: inputSourceMap || inputSourceRuns(source, sqlplus ? terminalInput.value : editor.value) };
     metrics.typedChars = metrics.pastedChars = metrics.pasteCount = metrics.editsAfterPaste = 0;
+    metrics.pasteTexts = [];
     metrics.hasExternalInput = false;
     metrics.inputMethods.clear();
     return snapshot;
@@ -207,6 +307,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   const objectCacheKey = `oracle-navigator-cache-${document.body.dataset.userId || 'local'}`;
   let navigatorCacheId = '';
   let objectRows = [];
+  const objectSearchSuggestions = window.PortalSearchSuggestions?.register($('#objectSearch'));
   let currentSchema = '';
   let currentView = 'sqlplus';
   let sharedCompilerTabAppearance = {
@@ -257,12 +358,10 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     showToast.timer = setTimeout(() => { toast.hidden = true; }, 3200);
   }
 
-  let lastCompilerInteraction = Date.now();
   function compilerCsrfToken() {
     const cookie = document.cookie.split('; ').find((part) => part.startsWith('ora_csrf='));
     return cookie ? decodeURIComponent(cookie.slice('ora_csrf='.length)) : '';
   }
-  function markCompilerInteraction() { lastCompilerInteraction = Date.now(); }
   function reportCompilerClientEvent(kind, source = 'Workspace') {
     if (!isStudent) return;
     fetch('/api/compiler/activity-events', {
@@ -301,14 +400,14 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       reportCompilerClientEvent('window_focus');
     });
   }
-  ['pointerdown', 'keydown', 'touchstart', 'input'].forEach((name) => document.addEventListener(name, markCompilerInteraction, { passive: true }));
   async function sendCompilerHeartbeat() {
     const csrfToken = compilerCsrfToken();
     try {
-      await fetch('/api/portal/activity/heartbeat', {
+      const response = await fetch('/api/portal/activity/heartbeat', {
         method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ page: 'compiler', visible: document.visibilityState === 'visible', active: document.visibilityState === 'visible' && Date.now() - lastCompilerInteraction < 60000, labId: $('#compilerLabSelect')?.value || '' })
+        body: JSON.stringify({ page: 'compiler', visible: document.visibilityState === 'visible', active: Date.now() - (window.portalLastActivityAt || Date.now()) < 30000, labId: $('#compilerLabSelect')?.value || '' })
       });
+      if (response.status === 401) window.location.replace('/portal/');
     } catch { /* The next heartbeat will restore live presence. */ }
   }
   async function loadCompilerLabs() {
@@ -329,7 +428,6 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }
   $('#compilerLabSelect')?.addEventListener('change', () => {
     localStorage.setItem('compiler-lab-context', $('#compilerLabSelect').value);
-    markCompilerInteraction();
     sendCompilerHeartbeat();
   });
   if (isStudent) loadCompilerLabs();
@@ -409,6 +507,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   function renderDatabaseObjects() {
     tree.replaceChildren();
     if (!objectRows.length) {
+      objectSearchSuggestions?.setItems([]);
       const empty = document.createElement('div');
       empty.className = 'navigator-empty';
       empty.textContent = $('#connectionDot').classList.contains('connected') ? 'No objects found in the selected schema.' : 'Connect to Oracle to browse database objects.';
@@ -424,6 +523,12 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       const type = String(objectField(item, 'OBJECT_TYPE', 'object_type')).toUpperCase();
       return (!schema || owner === schema) && (!selectedType || type === selectedType) && (!query || name.toLowerCase().includes(query) || owner.toLowerCase().includes(query) || type.toLowerCase().includes(query));
     });
+    objectSearchSuggestions?.setItems(visible.map((item) => {
+      const owner = String(objectField(item, 'OWNER', 'owner'));
+      const name = String(objectField(item, 'OBJECT_NAME', 'object_name'));
+      const type = String(objectField(item, 'OBJECT_TYPE', 'object_type'));
+      return { label: name, detail: `${owner} · ${type}`, value: name };
+    }));
     if (!visible.length) {
       const empty = document.createElement('div');
       empty.className = 'navigator-empty';
@@ -554,14 +659,21 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     } catch { return false; }
   }
 
+  let navigatorRefreshGeneration = 0;
+  let navigatorRefreshBusy = false;
   async function refreshDatabaseNavigator(plan = null) {
-    const names=plan?.names || [];
-    const partial=!plan?.full && names.length>0;
+    const overlappingRefresh = navigatorRefreshBusy;
+    navigatorRefreshBusy = true;
+    const generation = ++navigatorRefreshGeneration;
+    const refreshPlan = overlappingRefresh ? { full: true, names: [] } : plan;
+    const names=refreshPlan?.names || [];
+    const partial=!refreshPlan?.full && names.length>0;
     try {
       $('#navigatorStatus').textContent = 'Loading objects…';
       const response = await fetch('/api/objects'+(partial?'?names='+encodeURIComponent(JSON.stringify(names)):''), { credentials: 'same-origin' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not load database objects.');
+      if (generation !== navigatorRefreshGeneration) return;
       objectRows = partial ? window.CompilerMergeObjects(objectRows,data.objects||[],names) : data.objects || [];
       applyNavigatorObjects(data);
       if (navigatorCacheId) {
@@ -569,7 +681,18 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       }
     } catch (error) {
       // Keep the last usable navigator when metadata refresh fails.
-      $('#navigatorStatus').textContent = error.message || 'Could not load objects';
+      if (generation === navigatorRefreshGeneration) {
+        const message = error.message || 'Could not load objects';
+        $('#navigatorStatus').textContent = message;
+        if (!objectRows.length) {
+          const empty = document.createElement('div');
+          empty.className = 'navigator-empty';
+          empty.textContent = `Could not load database objects: ${message}`;
+          tree.replaceChildren(empty);
+        }
+      }
+    } finally {
+      if (generation === navigatorRefreshGeneration) navigatorRefreshBusy = false;
     }
   }
 
@@ -929,7 +1052,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       }
       const refreshPlan=data.metadataRefresh;
       if (refreshPlan?.full || refreshPlan?.names?.length) {
-        const refresh=refreshDatabaseNavigator(refreshPlan);
+        const refresh = refreshDatabaseNavigator(refreshPlan);
         if ($('#waitNavigatorRefresh')?.checked) await refresh;
       }
       return data;
@@ -1349,7 +1472,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     const internal = consumeInternalCopy(pastedText);
     if (!internal) {
       reportCompilerPaste('PL/SQL', pastedText);
-      recordPaste('plsql', pastedText.length);
+      recordPaste('plsql', pastedText.length, pastedText);
     } else markInputMethod('plsql', 'internal_copy');
     if (internal) inputProvenance.plsql.pending = 'internal';
     if (!plsqlCleanCode.checked) return;
@@ -1394,7 +1517,8 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     $('#editorFontValue').textContent = String(editorFontSize);
   }
   function changeEditorFont(delta) {
-    editorFontSize = Math.max(10, Math.min(30, editorFontSize + delta));
+    const maxFontSize = shell.classList.contains('fullscreen-mode') ? 36 : 30;
+    editorFontSize = Math.max(10, Math.min(maxFontSize, editorFontSize + delta));
     applyEditorFontSize();
     localStorage.setItem('ora-plsql-font-size', String(editorFontSize));
   }
@@ -1402,7 +1526,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   $('#editorFontUp').addEventListener('click', () => changeEditorFont(1));
   try {
     const savedEditorFontSize = Number(localStorage.getItem('ora-plsql-font-size'));
-    if (Number.isFinite(savedEditorFontSize) && savedEditorFontSize >= 10 && savedEditorFontSize <= 30) editorFontSize = savedEditorFontSize;
+    if (Number.isFinite(savedEditorFontSize) && savedEditorFontSize >= 10 && savedEditorFontSize <= 36) editorFontSize = savedEditorFontSize;
   } catch { /* Use the default editor font size. */ }
   applyEditorFontSize();
 
@@ -1970,6 +2094,13 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     const response = await fetch(url, { credentials: 'same-origin', ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) } });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Could not access editor sharing.');
+    if (isStudent && typeof data.syncConnected === 'boolean') {
+      for (const indicator of document.querySelectorAll('[data-remote-sync-indicator]')) {
+        indicator.hidden = !data.syncConnected;
+        indicator.textContent = data.syncConnected ? `● Synced with teacher: ${(data.syncTeachers || []).join(', ')}` : '';
+        indicator.style.color = data.syncConnected ? 'var(--accent)' : 'var(--muted)';
+      }
+    }
     return data;
   }
   function selectedEditorStudent() { return $('#historyStudentFilter')?.value || ''; }
@@ -2248,7 +2379,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   if (isStudent) {
     sharePollTimer = setInterval(pollTeacherEditorChanges, 4000);
     setInterval(syncStudentEditorSharing, 25000);
-    setInterval(pollRemoteTerminalCommand, 1200);
+    setInterval(pollRemoteTerminalCommand, 500);
     loadStudentEditorSharing();
   }
 
@@ -2277,35 +2408,47 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     return !remainder || isSqlPlusClientInput(remainder);
   }
   let remoteTerminalPolling = false;
+  let pendingRemoteResult = null;
+  async function deliverRemoteResult() {
+    if (!pendingRemoteResult) return;
+    const { job, payload } = pendingRemoteResult;
+    await editorShareRequest(`/api/compiler/remote-terminal/${encodeURIComponent(job.id)}/complete`, {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+    if (job.editor !== 'worksheet' && terminalInput.value.trim() === job.text.trim()) {
+      terminalInput.value = '';
+      terminalInput.style.height = '';
+      terminalInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    pendingRemoteResult = null;
+  }
   async function pollRemoteTerminalCommand() {
-    if (!isStudent || document.hidden || remoteTerminalPolling || executionBusy || terminalQueue || !terminalInput || $('#openConnection').dataset.connected !== 'true') return;
+    if (!isStudent || remoteTerminalPolling || !terminalInput) return;
+    if (!pendingRemoteResult && (executionBusy || terminalQueue || $('#openConnection').dataset.connected !== 'true')) return;
     remoteTerminalPolling = true;
     try {
+      if (pendingRemoteResult) { await deliverRemoteResult(); return; }
       const pending = await editorShareRequest('/api/compiler/remote-terminal/pending');
       const job = pending.command;
       if (!job) return;
       let executionFinished = false;
       try {
         const sqlplus = job.editor !== 'worksheet';
-        const result = await execute(job.text, { sqlplus, script: Boolean(job.script) });
-        if (!result || result.retryPending) throw new Error('The student Oracle connection was lost before a result was returned.');
-        executionFinished = true;
-        const output = sqlplus ? window.CompilerWorkspace.outputText(job.text, result) : JSON.stringify(result, null, 2);
-        const error = result.error || (result.executionErrors?.length ? result.executionErrors.map(item => item.error || item.message || String(item)).join('\n') : '');
-        await editorShareRequest(`/api/compiler/remote-terminal/${encodeURIComponent(job.id)}/complete`, {
-          method: 'POST', body: JSON.stringify({ output, error, executed: executionFinished }),
-        });
         if (sqlplus && terminalInput.value.trim() === job.text.trim()) {
           terminalInput.value = '';
           terminalInput.style.height = '';
           terminalInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
+        const result = await execute(job.text, { sqlplus, script: Boolean(job.script) });
+        if (!result || result.retryPending) throw new Error('The student Oracle connection was lost before a result was returned.');
+        executionFinished = true;
+        const output = sqlplus ? window.CompilerWorkspace.outputText(job.text, result) : JSON.stringify(result, null, 2);
+        const error = result.error || (result.executionErrors?.length ? result.executionErrors.map(item => item.error || item.message || String(item)).join('\n') : '');
+        pendingRemoteResult = { job, payload: { output, error, executed: executionFinished } };
+        await deliverRemoteResult();
       } catch (error) {
-        try {
-          await editorShareRequest(`/api/compiler/remote-terminal/${encodeURIComponent(job.id)}/complete`, {
-            method: 'POST', body: JSON.stringify({ error: error.message || 'Remote SQLCL execution failed.', executed: executionFinished }),
-          });
-        } catch { /* Teacher will see the command expire if its result cannot be reported. */ }
+        if (!pendingRemoteResult) pendingRemoteResult = { job, payload: { error: error.message || 'Remote SQLCL execution failed.', executed: executionFinished } };
+        // Retain the original output when delivery fails; retry without executing again.
       }
     } catch { /* Retry after the next student heartbeat if the portal is briefly unavailable. */ }
     finally { remoteTerminalPolling = false; }
@@ -2318,8 +2461,26 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   async function runTerminalCommand() {
     const submitted = terminalInput.value.trim();
     let command = submitted;
-    if (!command || $('#terminalRun').disabled) return;
-    if (window.CompilerWorkspace.pastedBatch(command).commands.length || terminalInputIsComplete(command)) {
+    if (!command) return;
+    if (terminalQueue) {
+      const queuedBatch = window.CompilerWorkspace.pastedBatch(command);
+      const queuedCommands = queuedBatch.commands.length ? queuedBatch.commands : (terminalInputIsComplete(command) ? [command] : []);
+      if (!queuedCommands.length) {
+        showToast('Finish the SQL statement with ; before running it.');
+        return;
+      }
+      const inputMethod = currentInputMethod('sqlplus');
+      terminalQueue.commands.push(...queuedCommands);
+      terminalQueue.inputMethods ||= Array(terminalQueue.commands.length - queuedCommands.length).fill(terminalQueue.inputMethod || '');
+      terminalQueue.inputMethods.push(...queuedCommands.map(() => inputMethod));
+      terminalQueue.remaining = queuedBatch.remaining || terminalQueue.remaining || '';
+      terminalInput.value = '';
+      terminalInput.dispatchEvent(new Event('input', { bubbles: true }));
+      saveTerminalQueue();
+      return;
+    }
+    if ($('#terminalRun').disabled && !executionBusy) return;
+    if (window.CompilerWorkspace.pastedBatch(command).commands.length || terminalInputIsComplete(command) || executionBusy) {
       await runPastedTerminalBatch(command);
       return;
     }
@@ -2406,7 +2567,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   const sqlplusCleanPaste = $('#sqlplusCleanPaste');
   const sqlplusAutoCommit = $('#sqlplusAutoCommit');
   sqlplusCleanPaste.checked = localStorage.getItem('ora-sqlplus-clean-paste') !== 'false';
-  sqlplusAutoCommit.checked = localStorage.getItem('ora-sqlplus-autocommit') !== 'OFF';
+  sqlplusAutoCommit.checked = localStorage.getItem('ora-sqlplus-autocommit') === 'ON';
   sqlplusStarterToggle.checked = localStorage.getItem('ora-show-sql-starters') === 'true';
   sqlplusCleanPaste.addEventListener('change', () => { localStorage.setItem('ora-sqlplus-clean-paste', String(sqlplusCleanPaste.checked)); if (sqlplusCleanPaste.checked) cleanEditorNow(terminalInput); });
   sqlplusAutoCommit.addEventListener('change', () => localStorage.setItem('ora-sqlplus-autocommit', sqlplusAutoCommit.checked ? 'ON' : 'OFF'));
@@ -2422,6 +2583,20 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     if (highlight) { highlight.scrollTop = terminalInput.scrollTop; highlight.scrollLeft = terminalInput.scrollLeft; }
   });
   async function runPastedTerminalBatch(snapshot, recovered = null, sourceMapOverride = null) {
+    if (terminalQueue && !recovered) {
+      const queued = window.CompilerWorkspace.pastedBatch(snapshot);
+      const commands = queued.commands.length ? queued.commands : (terminalInputIsComplete(snapshot) ? [snapshot.trim()] : []);
+      if (!commands.length) return;
+      const inputMethod = currentInputMethod('sqlplus');
+      terminalQueue.commands.push(...commands);
+      terminalQueue.inputMethods ||= Array(terminalQueue.commands.length - commands.length).fill(terminalQueue.inputMethod || '');
+      terminalQueue.inputMethods.push(...commands.map(() => inputMethod));
+      terminalQueue.remaining = queued.remaining || terminalQueue.remaining || '';
+      terminalInput.value = '';
+      terminalInput.dispatchEvent(new Event('input', { bubbles: true }));
+      saveTerminalQueue();
+      return;
+    }
     terminalBatchCancelled = false;
     const batch = recovered || window.CompilerWorkspace.pastedBatch(snapshot);
     const batchSourceMap = sourceMapOverride || inputSourceRuns('sqlplus', snapshot);
@@ -2432,36 +2607,49 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     if (!batch.commands.length) return;
     let remaining = batch.remaining;
     if (remaining.trim() && terminalInputIsComplete(remaining)) { batch.commands.push(remaining.trim()); remaining = ''; }
-    terminalInput.readOnly = true;
     terminalInput.compilerPendingDraft = snapshot;
     terminalInput.value = '';
     terminalInput.dispatchEvent(new Event('input', { bubbles:true }));
     let nextIndex = 0;
     try {
+      terminalQueue = recovered || {
+        commands: batch.commands,
+        remaining,
+        index: 0,
+        request: null,
+        inputMethod: batchInputMethod,
+        inputMethods: batch.commands.map(() => batchInputMethod),
+      };
+      terminalQueue.inputMethods ||= terminalQueue.commands.map(() => terminalQueue.inputMethod || '');
+      saveTerminalQueue();
       // Keep pasted work out of the input even while another execution or
-      // navigator refresh is finishing. Never fall back to painting the batch.
+      // navigator refresh is finishing. The input stays editable; Enter appends
+      // new statements to this queue so they run after the current batch.
       while(executionBusy || $('#terminalRun').disabled) {
         if (terminalBatchCancelled) return;
         await new Promise(resolve=>setTimeout(resolve,50));
       }
       $('#terminalRun').disabled = true;
-      terminalQueue = recovered || { commands: batch.commands, remaining, index: 0, request: null, inputMethod: batchInputMethod };
       saveTerminalQueue();
       let provenanceSearchOffset = 0;
-      for (let index=terminalQueue.index; index<batch.commands.length; index++) {
+      for (let index=terminalQueue.index; index<terminalQueue.commands.length; index++) {
         if (terminalBatchCancelled) { remaining=''; break; }
         nextIndex = index;
-        terminalInput.compilerPendingDraft = batch.commands.slice(index).join('\n')+'\n'+remaining;
-        const command=advanceTerminalComments(batch.commands[index]);
+        terminalInput.compilerPendingDraft = terminalQueue.commands.slice(index).join('\n')+'\n'+remaining;
+        const command=advanceTerminalComments(terminalQueue.commands[index]);
         if(!command){nextIndex=index+1;continue;}
         const commandOffset = snapshot.indexOf(command, provenanceSearchOffset);
         if (commandOffset >= 0) provenanceSearchOffset = commandOffset + command.length;
-        if (await waitForTerminalConnection() === false) { remaining=''; break; }
-        if (batchInputMethod) editMetrics.sqlplus.inputMethods.add(batchInputMethod);
+        if (await waitForTerminalConnection() === false) {
+          remaining = terminalQueue.commands.slice(index).join('\n') + (remaining ? `\n${remaining}` : '');
+          break;
+        }
+        const commandInputMethod = terminalQueue.inputMethods[index] || batchInputMethod;
+        if (commandInputMethod) editMetrics.sqlplus.inputMethods.add(commandInputMethod);
         const result=await execute(command, { sqlplus:true, inputSourceMap: commandOffset >= 0 ? sliceInputSourceRuns(batchSourceMap, commandOffset, commandOffset + command.length) : [] });
         if (terminalBatchCancelled) { remaining=''; break; }
         if (result?.retryPending) { saveTerminalQueue(); index--; await new Promise(resolve=>setTimeout(resolve,1000)); continue; }
-        if (result === null) { remaining=batch.commands.slice(index).join('\n')+'\n'+remaining; break; }
+        if (result === null) { remaining=terminalQueue.commands.slice(index).join('\n')+'\n'+remaining; break; }
         terminalCommandHistory.push(command);
         nextIndex = index + 1;
         terminalQueue.index = nextIndex;
@@ -2471,12 +2659,16 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       }
       terminalHistoryIndex=terminalCommandHistory.length;
       terminalHistoryDraft='';
-      terminalInput.value=remaining;
+      remaining = terminalQueue.remaining || remaining;
+      terminalInput.value=[remaining, terminalInput.value].filter(value => value && value.trim()).join('\n');
       terminalQueue = null;
       saveTerminalQueue();
       terminalInput.dispatchEvent(new Event('input', { bubbles:true }));
     } catch (error) {
-      terminalInput.value = batch.commands.slice(nextIndex).join('\n')+'\n'+remaining;
+      const pendingCommands = terminalQueue?.commands.slice(nextIndex).join('\n') || '';
+      terminalInput.value = [pendingCommands, remaining, terminalInput.value].filter(value => value && value.trim()).join('\n');
+      terminalQueue = null;
+      try { sessionStorage.removeItem(terminalQueueKey); } catch {}
       throw error;
     } finally {
       if (terminalBatchCancelled) {
@@ -2488,7 +2680,6 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       }
       delete terminalInput.compilerPendingDraft;
       terminalInput.dispatchEvent(new Event('input', { bubbles:true }));
-      terminalInput.readOnly=false;
       $('#terminalRun').disabled=false;
       terminalInput.focus();
     }
@@ -2501,7 +2692,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     const internal = consumeInternalCopy(pastedText);
     if (!internal) {
       reportCompilerPaste('SQL*Plus', pastedText);
-      recordPaste('sqlplus', pastedText.length);
+      recordPaste('sqlplus', pastedText.length, pastedText);
     } else markInputMethod('sqlplus', 'internal_copy');
     const transcriptSql = window.CompilerWorkspace.cleanSqlPlusTranscript(pastedText);
     const withoutPrompts = window.CompilerWorkspace.stripSqlPlusPrompts(transcriptSql);
@@ -2561,7 +2752,27 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     $('#terminalFontValue').textContent = terminalFontSize;
     $('#fontValue').textContent = terminalFontSize;
   }
-  function adjustFont(delta) { terminalFontSize = Math.max(10, Math.min(22, terminalFontSize + delta)); applyTerminalFont(); localStorage.setItem(`${settingPrefix}font`, String(terminalFontSize)); }
+  function adjustFont(delta) {
+    const maxFontSize = shell.classList.contains('fullscreen-mode') ? 36 : 22;
+    terminalFontSize = Math.max(10, Math.min(maxFontSize, terminalFontSize + delta));
+    applyTerminalFont();
+    localStorage.setItem(`${settingPrefix}font`, String(terminalFontSize));
+  }
+  function syncFontSizeBounds() {
+    const fullscreen = shell.classList.contains('fullscreen-mode');
+    const maxTerminalFont = fullscreen ? 36 : 22;
+    const maxEditorFont = fullscreen ? 36 : 30;
+    if (terminalFontSize > maxTerminalFont) {
+      terminalFontSize = maxTerminalFont;
+      localStorage.setItem(`${settingPrefix}font`, String(terminalFontSize));
+      applyTerminalFont();
+    }
+    if (editorFontSize > maxEditorFont) {
+      editorFontSize = maxEditorFont;
+      localStorage.setItem('ora-plsql-font-size', String(editorFontSize));
+      applyEditorFontSize();
+    }
+  }
   $('#terminalFontDown').addEventListener('click', () => adjustFont(-1));
   $('#terminalFontUp').addEventListener('click', () => adjustFont(1));
   $('#fontDown').addEventListener('click', () => adjustFont(-1));
@@ -2588,6 +2799,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   shell.append(exitFullscreenButton);
   exitFullscreenButton.addEventListener('click', toggleFullscreen);
   function syncFullscreenControl() {
+    syncFontSizeBounds();
     syncNavExpandControl();
     const active = shell.classList.contains('fullscreen-mode');
     exitFullscreenButton.hidden = !active;
@@ -2646,7 +2858,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   $('#navSchema').addEventListener('change', renderDatabaseObjects);
   $('#objectTypeFilter').addEventListener('change', renderDatabaseObjects);
   const waitForNavigatorRefresh = $('#waitNavigatorRefresh');
-  waitForNavigatorRefresh.checked = localStorage.getItem(`${settingPrefix}wait-navigator-refresh`) !== 'false';
+  waitForNavigatorRefresh.checked = localStorage.getItem(`${settingPrefix}wait-navigator-refresh`) === 'true';
   waitForNavigatorRefresh.addEventListener('change', () => localStorage.setItem(`${settingPrefix}wait-navigator-refresh`, String(waitForNavigatorRefresh.checked)));
   $('#refreshObjects').addEventListener('click', refreshDatabaseNavigator);
 
@@ -2699,13 +2911,14 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
 
   try {
     const saved = Number(localStorage.getItem(`${settingPrefix}font`));
-    if (Number.isFinite(saved) && saved >= 10 && saved <= 22) terminalFontSize = saved;
+    if (Number.isFinite(saved) && saved >= 10 && saved <= 36) terminalFontSize = saved;
     const iconNav = localStorage.getItem(`${settingPrefix}icon-nav`) === 'true';
     const defaultFullscreen = localStorage.getItem(`${settingPrefix}default-fullscreen`) === 'true';
     $('#iconNavigation').checked = iconNav;
     $('#defaultFullscreen').checked = defaultFullscreen;
     syncNavigationMode(iconNav);
     shell.classList.toggle('fullscreen-mode', typeof workspaceResume?.fullscreen === 'boolean' ? workspaceResume.fullscreen : defaultFullscreen);
+    syncFontSizeBounds();
     applyTerminalFont();
   } catch { applyTerminalFont(); }
 
@@ -2890,6 +3103,11 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     if (!isStudent || !list || !status) return;
     try {
       const response = await fetch('/api/compiler/shared-code', { credentials: 'same-origin', cache: 'no-store' });
+      if (!response.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+        throw new Error(response.ok
+          ? 'The server returned an unexpected response while loading shared code.'
+          : `Could not load shared code (server returned HTTP ${response.status}).`);
+      }
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not load code shared with you.');
       list.replaceChildren();
@@ -2982,8 +3200,14 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     }
   } catch { /* Leave ordinary draft recovery available if queue storage is unreadable. */ }
   refreshStatus().then(connected => { if (connected === false) reconnectSavedCredentials(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    refreshStatus().then(connected => {
+      if (connected === false && !manualOracleDisconnect) reconnectSavedCredentials();
+    });
+  });
   window.setInterval(async () => {
-    if(document.hidden || executionBusy || reconnectPromise)return;
+    if(executionBusy || reconnectPromise)return;
     const connected=await refreshStatus();
     if (connected === false && !manualOracleDisconnect && Date.now() - lastReconnectAttempt >= 30000) {
       await reconnectSavedCredentials();

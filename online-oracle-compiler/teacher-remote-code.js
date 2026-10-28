@@ -8,9 +8,92 @@
   const worksheetRunStatement = $('#remoteWorksheetRunStatement');
   const worksheetRunScript = $('#remoteWorksheetRunScript');
   const status = $('#remoteCodeStatus');
+  const remoteCodeCard = $('.remote-code-card');
+  const fullscreenButton = $('#remoteCodeFullscreen');
+  const studentSearch = $('#remoteCodeStudentSearch');
+  const studentSearchSuggestions = window.PortalSearchSuggestions?.register(studentSearch);
   if (!studentSelect || !textarea) return;
 
+  function syncStudentSearch() {
+    if (studentSearch) studentSearch.value = studentSelect.value ? (studentSelect.selectedOptions[0]?.textContent.trim() || '') : '';
+  }
+  studentSelect.addEventListener('change', syncStudentSearch);
+  studentSearchSuggestions?.setItems([...studentSelect.options].filter((option) => option.value).map((option) => {
+    const label = option.textContent.trim();
+    const [name, ...numberParts] = label.split(' · ');
+    return { label: name, detail: numberParts.join(' · '), value: label };
+  }));
+  studentSearch?.addEventListener('focus', () => {
+    if (!studentSelect.value && studentSearch.value.trim() === 'Choose a student') studentSearch.value = '';
+  });
+  studentSearch?.addEventListener('input', () => {
+    const query = studentSearch.value.trim();
+    if (!query) {
+      if (studentSelect.value) {
+        studentSelect.value = '';
+        studentSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      return;
+    }
+    const match = [...studentSelect.options].find(option => option.value && option.textContent.trim() === query);
+    if (match && studentSelect.value !== match.value) {
+      studentSelect.value = match.value;
+      studentSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  syncStudentSearch();
+
+  function updateFullscreenButton() {
+    const active = document.fullscreenElement === remoteCodeCard || remoteCodeCard?.classList.contains('remote-code-fullscreen-fallback');
+    if (!fullscreenButton) return;
+    fullscreenButton.setAttribute('aria-pressed', String(active));
+    fullscreenButton.textContent = active ? '⤢ Exit full screen' : '⛶ Full screen';
+    fullscreenButton.title = active ? 'Return to the teacher portal' : 'Show only the Remote Code panel full screen';
+  }
+  fullscreenButton?.addEventListener('click', async () => {
+    if (!remoteCodeCard) return;
+    if (document.fullscreenElement === remoteCodeCard) {
+      await document.exitFullscreen?.();
+      return;
+    }
+    if (remoteCodeCard.classList.contains('remote-code-fullscreen-fallback')) {
+      remoteCodeCard.classList.remove('remote-code-fullscreen-fallback');
+      updateFullscreenButton();
+      return;
+    }
+    try {
+      if (!remoteCodeCard.requestFullscreen) throw new Error('Fullscreen API unavailable');
+      await remoteCodeCard.requestFullscreen();
+    } catch {
+      remoteCodeCard.classList.add('remote-code-fullscreen-fallback');
+    }
+    updateFullscreenButton();
+  });
+  document.addEventListener('fullscreenchange', updateFullscreenButton);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && remoteCodeCard?.classList.contains('remote-code-fullscreen-fallback')) {
+      remoteCodeCard.classList.remove('remote-code-fullscreen-fallback');
+      updateFullscreenButton();
+    }
+  });
+
   let activeEditor = 'sqlplus';
+  let syncPaused = false;
+  const syncToggle = $('#remoteCodeSyncToggle');
+  syncToggle.addEventListener('click', async () => {
+    if (!studentSelect.value) return;
+    if (!syncPaused) {
+      syncPaused = true;
+      clearTimeout(saveTimer);
+      while (saving || sendingRemoteCommand) await new Promise(resolve => window.setTimeout(resolve, 40));
+      try {
+        await request(`/api/compiler/editor-share/${encodeURIComponent(studentSelect.value)}`, { method: 'POST', body: JSON.stringify({ action: 'disconnect_sync' }) });
+      } catch (error) { syncPaused = false; status.textContent = error.message; setEditorContent(); return; }
+      ++loadSequence;
+      status.textContent = 'Remote sync disconnected.';
+    } else { syncPaused = false; load({ discard: true }); }
+    setEditorContent();
+  });
   let shared = null;
   let drafts = { sqlplus: '', plsql: '' };
   let dirty = false;
@@ -26,6 +109,10 @@
   let terminalStatementHistory = [];
   let terminalHistoryIndex = 0;
   let terminalHistoryDraft = '';
+  let remoteCommandPollBusy = false;
+  let editorPollBusy = false;
+  let commandPending = false;
+  let lastCommandCheck = 0;
 
   async function request(url, options = {}) {
     const response = await fetch(url, {
@@ -40,16 +127,19 @@
   }
 
   function hasAccess(data) {
+    if (syncPaused) return false;
     if (!data) return false;
     if (data.mode === 'always') return true;
     if (data.mode === 'statement') return Boolean(data.statementSnapshotReady && Date.now() - Date.parse(data.updatedAt) <= 120000);
     return data.mode === 'session' && Date.now() - Date.parse(data.updatedAt) <= 120000;
   }
   function setEditorContent() {
+    syncToggle.textContent = syncPaused ? 'Connect sync' : 'Disconnect sync';
+    syncToggle.disabled = !studentSelect.value;
     const selectedName = studentSelect.selectedOptions[0]?.textContent.split(' · ')[0] || 'Student editor';
     const terminal = activeEditor === 'sqlplus';
     textarea.value = drafts[activeEditor] || '';
-    textarea.disabled = !shared || loading;
+    textarea.disabled = !shared || loading || syncPaused;
     textarea.readOnly = !hasAccess(shared) || loading;
     textarea.setAttribute('aria-label', `${selectedName} ${terminal ? 'SQLCL terminal' : 'SQL WorkSheet editor'} code`);
     $('#remoteCodeLabel').textContent = terminal ? 'SQLCL Terminal code' : 'SQL WorkSheet Editor code';
@@ -62,7 +152,7 @@
       button.classList.toggle('active', active);
       button.setAttribute('aria-selected', String(active));
     });
-    refreshButton.disabled = !studentSelect.value || loading;
+    refreshButton.disabled = !studentSelect.value || loading || syncPaused;
     if (requestButton) {
       const canEdit = hasAccess(shared);
       requestButton.hidden = !shared || canEdit;
@@ -78,6 +168,7 @@
 
   function showRemoteCommand(command) {
     if (!command) return;
+    commandPending = command.status === 'queued' || command.status === 'running';
     $('#remoteTerminalCommandText').textContent = command.text || '';
     $('#remoteTerminalResultTitle').textContent = `Last remote ${command.editor === 'worksheet' ? 'SQL WorkSheet' : 'SQLCL'} ${command.script ? 'script' : 'command'}`;
     const labels = { queued: 'Waiting for student terminal', running: 'Running in student compiler', completed: 'Completed', failed: 'Failed', expired: 'Expired' };
@@ -111,13 +202,15 @@
   }
 
   async function pollRemoteCommand(studentId = studentSelect.value) {
-    if (!studentId || switching) return;
+    if (!studentId || switching || syncPaused || remoteCommandPollBusy) return;
+    remoteCommandPollBusy = true;
+    lastCommandCheck = Date.now();
     try {
       const data = await request(`/api/compiler/remote-terminal/${encodeURIComponent(studentId)}`);
-      if (studentSelect.value === studentId && data.command) showRemoteCommand(data.command);
+      if (!syncPaused && studentSelect.value === studentId && data.command) showRemoteCommand(data.command);
     } catch (error) {
       if (error.message.includes('permission')) status.textContent = error.message;
-    }
+    } finally { remoteCommandPollBusy = false; }
   }
 
   async function loadTerminalStatementHistory(studentId) {
@@ -176,9 +269,15 @@
   async function executeRemoteCommand(command, editor = 'sqlplus', script = false) {
     const studentId = studentSelect.value;
     command = String(command || '').trim();
-    if (!studentId || !command || !hasAccess(shared) || loading || saving || sendingRemoteCommand) return false;
+    if (!studentId || !command || !hasAccess(shared) || loading || sendingRemoteCommand) return false;
     clearTimeout(saveTimer);
     sendingRemoteCommand = true;
+    // Enter must not be dropped while the debounced editor save is in flight.
+    while (saving) await new Promise(resolve => window.setTimeout(resolve, 40));
+    if (studentSelect.value !== studentId || !hasAccess(shared)) {
+      sendingRemoteCommand = false;
+      return false;
+    }
     const requestId = crypto.randomUUID();
     $('#remoteTerminalResultTitle').textContent = `Last remote ${editor === 'worksheet' ? 'SQL WorkSheet' : 'SQLCL'} ${script ? 'script' : 'command'}`;
     $('#remoteTerminalCommandText').textContent = command;
@@ -190,6 +289,7 @@
         method: 'POST', body: JSON.stringify({ command, requestId, editor, script }),
       });
       showRemoteCommand(data.command);
+      pollRemoteCommand(studentId);
       status.textContent = `Sent to the student’s ${editor === 'worksheet' ? 'SQL WorkSheet' : 'SQLCL terminal'}. It will run when their compiler is connected to Oracle.`;
       return true;
     } catch (error) {
@@ -230,6 +330,7 @@
   }
 
   async function load({ discard = false } = {}) {
+    if (syncPaused) return;
     const studentId = studentSelect.value;
     const sequence = ++loadSequence;
     if (dirty && !discard) {
@@ -281,11 +382,13 @@
   }
 
   async function poll() {
-    if (!studentSelect.value || !shared || loading || switching) return;
+    if (syncPaused) return;
+    if (!studentSelect.value || !shared || loading || switching || editorPollBusy) return;
+    editorPollBusy = true;
     try {
       const pollingStudentId = studentSelect.value;
       const data = await request(`/api/compiler/editor-share/${encodeURIComponent(pollingStudentId)}`);
-      if (studentSelect.value !== pollingStudentId) return;
+      if (syncPaused || studentSelect.value !== pollingStudentId) return;
       if (!shared) return;
       if (data.revision === shared.revision) {
         const requestWasPending = Boolean(shared.editPermissionRequest);
@@ -313,7 +416,7 @@
         status.textContent = error.message;
         setEditorContent();
       }
-    }
+    } finally { editorPollBusy = false; }
   }
 
   async function saveDraft(studentId = currentStudentId) {
@@ -356,12 +459,14 @@
   }
 
   studentSelect.addEventListener('change', () => {
+    if (switching) { studentSelect.value = currentStudentId; syncStudentSearch(); return; }
+    syncPaused = false;
     const nextStudentId = studentSelect.value;
     const previousStudentId = currentStudentId;
     clearTimeout(saveTimer);
     const switchStudent = async () => {
       switching = true;
-      while (saving) await new Promise(resolve => window.setTimeout(resolve, 40));
+      while (saving || sendingRemoteCommand) await new Promise(resolve => window.setTimeout(resolve, 40));
       if (dirty && conflict) {
         studentSelect.value = previousStudentId;
         switching = false;
@@ -372,6 +477,19 @@
         if (!saved) {
           studentSelect.value = previousStudentId;
           switching = false;
+          return;
+        }
+      }
+      if (previousStudentId && previousStudentId !== nextStudentId) {
+        try {
+          await request(`/api/compiler/editor-share/${encodeURIComponent(previousStudentId)}`, {
+            method: 'POST', body: JSON.stringify({ action: 'disconnect_sync' }),
+          });
+        } catch (error) {
+          studentSelect.value = previousStudentId;
+          syncStudentSearch();
+          switching = false;
+          status.textContent = `Could not disconnect the previous student: ${error.message}`;
           return;
         }
       }
@@ -442,5 +560,8 @@
   worksheetRunScript.addEventListener('click', runWorksheetScript);
 
   setEditorContent();
-  window.setInterval(() => { poll(); pollRemoteCommand(); }, 1500);
+  window.setInterval(poll, 1500);
+  window.setInterval(() => {
+    if (commandPending || Date.now() - lastCommandCheck >= 5000) pollRemoteCommand();
+  }, 500);
 })();

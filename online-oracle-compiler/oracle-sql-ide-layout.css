@@ -9,8 +9,8 @@
 .navigator-heading>span{display:flex;align-items:center;gap:9px}.database-icon{color:var(--ide-accent);font-size:17px}
 .navigator-heading button{width:27px;height:27px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--ide-muted);font-size:19px;cursor:pointer}.navigator-heading button:hover{border-color:var(--ide-border);color:#fff;background:#1b2940}
 .navigator-connection{min-height:37px;display:flex;align-items:center;gap:8px;padding:0 10px;margin:4px 0 13px;border:1px solid var(--ide-border);border-radius:8px;background:#111f32;color:#d5e0ee;font-size:11px}.navigator-connection small{margin-left:auto;color:var(--ide-muted);font-size:9px}.navigator-connection .connection-dot{width:7px;height:7px}
-.navigator-schema-label{margin:0 0 5px 2px;color:#8396b0;font-size:9px;letter-spacing:1.2px}.navigator-select,.navigator-search input{width:100%;min-width:0;height:36px;border:1px solid #2a3d57;border-radius:8px;background:#101d2f;color:#dce6f4;font-size:11px}.navigator-select{padding:0 9px;margin-bottom:11px}.navigator-search{height:36px;display:flex;align-items:center;gap:7px;padding:0 9px;border:1px solid #2a3d57;border-radius:8px;background:#101d2f;color:#96a8c1}.navigator-search span{font-size:20px;line-height:1}.navigator-search input{height:32px;padding:0;border:0;outline:0;background:transparent}.navigator-search input::placeholder{color:#8092ac}
-.object-tree{min-height:0;flex:1;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#40536d transparent;margin:9px -3px 7px;padding-right:3px}.object-tree::-webkit-scrollbar{width:8px}.object-tree::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:8px;background:#40536d;background-clip:padding-box}.navigator-empty{padding:18px 9px;color:#8395ad;font-size:11px;line-height:1.5}.object-group{margin:0 0 2px}.object-group-toggle{width:100%;height:34px;display:flex;align-items:center;gap:8px;padding:0 7px;border:0;border-radius:7px;background:transparent;color:#b8c6d9;text-align:left;font-size:11px;cursor:pointer}.object-group-toggle:hover{background:#14243a;color:#fff}.object-group-toggle .group-chevron{width:12px;color:#879ab4;font-size:12px}.object-group-toggle .group-icon{width:16px;color:#8da9d5;font-size:14px}.object-group-toggle .group-count{color:#7f91a9}.object-group-items{padding:0 0 3px 24px}.object-tree-item{width:100%;height:31px;display:flex;align-items:center;gap:9px;padding:0 9px;border:1px solid transparent;border-radius:6px;background:transparent;color:#cad5e4;text-align:left;font-size:10px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.object-tree-item:hover,.object-tree-item.selected{background:#162b45;color:#f5f8fc}.object-tree-item.selected{border-color:#2b4668}.object-tree-item .object-symbol{flex:none;color:#67b8ee}.object-tree-item small{margin-left:auto;color:#71849e;font-size:9px}.navigator-footer{min-height:27px;display:flex;align-items:center;justify-content:space-between;padding:4px 3px 0;border-top:1px solid #1c2c40;color:#8598b0;font-size:9px}.navigator-footer>span{display:flex;align-items:center;gap:7px}.navigator-footer button{width:25px;height:25px;border:0;border-radius:6px;background:transparent;color:#9bacc2;font-size:16px;cursor:pointer}.navigator-footer button:hover{background:#1c2c40;color:#fff}.navigator-footer .status-led{width:6px;height:6px}
+.navigator-schema-label{margin:0 0 5px 2px;color:#8396b0;font-size:10px;letter-spacing:1.2px}.navigator-select,.navigator-search input{width:100%;min-width:0;height:36px;border:1px solid #2a3d57;border-radius:8px;background:#101d2f;color:#dce6f4;font-size:12px}.navigator-select{padding:0 9px;margin-bottom:11px}.navigator-search{height:36px;display:flex;align-items:center;gap:7px;padding:0 9px;border:1px solid #2a3d57;border-radius:8px;background:#101d2f;color:#96a8c1}.navigator-search span{font-size:20px;line-height:1}.navigator-search input{height:32px;padding:0;border:0;outline:0;background:transparent}.navigator-search input::placeholder{color:#8092ac}
+.object-tree{min-height:0;flex:1;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#40536d transparent;margin:9px -3px 7px;padding-right:3px}.object-tree::-webkit-scrollbar{width:8px}.object-tree::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:8px;background:#40536d;background-clip:padding-box}.navigator-empty{padding:18px 9px;color:#8395ad;font-size:11px;line-height:1.5}.object-group{margin:0 0 2px}.object-group-toggle{width:100%;height:34px;display:flex;align-items:center;gap:8px;padding:0 7px;border:0;border-radius:7px;background:transparent;color:#b8c6d9;text-align:left;font-size:12px;cursor:pointer}.object-group-toggle:hover{background:#14243a;color:#fff}.object-group-toggle .group-chevron{width:12px;color:#879ab4;font-size:12px}.object-group-toggle .group-icon{width:16px;color:#8da9d5;font-size:14px}.object-group-toggle .group-count{color:#7f91a9}.object-group-items{padding:0 0 3px 24px}.object-tree-item{width:100%;height:32px;display:flex;align-items:center;gap:9px;padding:0 9px;border:1px solid transparent;border-radius:6px;background:transparent;color:#cad5e4;text-align:left;font-size:11px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.object-tree-item:hover,.object-tree-item.selected{background:#162b45;color:#f5f8fc}.object-tree-item.selected{border-color:#2b4668}.object-tree-item .object-symbol{flex:none;color:#67b8ee}.object-tree-item small{margin-left:auto;color:#71849e;font-size:10px}.navigator-footer{min-height:27px;display:flex;align-items:center;justify-content:space-between;padding:4px 3px 0;border-top:1px solid #1c2c40;color:#8598b0;font-size:9px}.navigator-footer>span{display:flex;align-items:center;gap:7px}.navigator-footer button{width:25px;height:25px;border:0;border-radius:6px;background:transparent;color:#9bacc2;font-size:16px;cursor:pointer}.navigator-footer button:hover{background:#1c2c40;color:#fff}.navigator-footer .status-led{width:6px;height:6px}
 .ide-panels{min-width:0;min-height:0;display:flex;overflow:hidden}.ide-view{min-width:0;min-height:0;width:100%;height:100%;overflow:auto}.sqlplus-view{padding:13px;overflow:hidden}.sqlplus-view .terminal-frame{min-height:0;height:100%}.terminal-output{max-height:none}.compiler-view{padding:13px;overflow:hidden}.compiler-layout{min-height:0;height:100%;grid-template-rows:minmax(180px,1.12fr) minmax(150px,.88fr)}.history-view,.settings-view{padding:22px;overflow:auto}.ide-main[data-view="history"] .database-navigator,.ide-main[data-view="settings"] .database-navigator{display:none}.ide-main[data-view="history"] .ide-content,.ide-main[data-view="settings"] .ide-content{grid-template-columns:minmax(0,1fr)}
 .result-tabs button[data-result="history"]{margin-left:4px}.editor-card-head{min-height:46px}.editor-file-meta>span:first-child{font-size:11px}.terminal-titlebar .tool-button{white-space:nowrap}.terminal-titlebar .terminal-lights{margin-right:2px}.terminal-titlebar>span:nth-child(2){white-space:nowrap}
 .ide-shell.icon-nav-left .ide-workspace{grid-template-columns:68px minmax(0,1fr)}.ide-shell.icon-nav-left .ide-nav{display:flex}.ide-shell.fullscreen-mode .ide-workspace{grid-template-columns:68px minmax(0,1fr)}.ide-shell.fullscreen-mode .ide-nav{display:flex}.ide-shell.fullscreen-mode .ide-main[data-view="history"] .ide-content,.ide-shell.fullscreen-mode .ide-main[data-view="settings"] .ide-content{grid-template-columns:minmax(0,1fr)}.ide-shell.fullscreen-mode .ide-viewbar{display:none}
@@ -21,7 +21,6 @@
 .code-editor{position:relative}.code-editor .code-highlight{position:absolute;z-index:1;left:43px;right:0;top:0;bottom:0;margin:0;padding:15px 16px;overflow:hidden;border:0;color:#d8e2f0;text-align:left;font:13px/1.65 "Cascadia Code",Consolas,monospace;white-space:pre;pointer-events:none}.code-editor textarea{position:relative;z-index:2;grid-column:2;grid-row:1;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#edf3ff}.code-editor textarea::placeholder{color:#7b8ea8;-webkit-text-fill-color:#7b8ea8;opacity:1}.sql-keyword{color:#43b5ff;font-weight:650}.sql-string{color:#83d39a}.sql-number{color:#ffb85c}.sql-comment{color:#8191a7;font-style:italic}html[data-theme="light"] .code-editor .code-highlight{color:#26374f}html[data-theme="light"] .code-editor textarea{caret-color:#20314b}
 html[data-theme="light"] .database-navigator{background:#f5f8fc}html[data-theme="light"] .navigator-connection,html[data-theme="light"] .navigator-select,html[data-theme="light"] .navigator-search{background:#fff;color:#34445b}html[data-theme="light"] .navigator-heading{color:#28374d}html[data-theme="light"] .object-group-toggle,html[data-theme="light"] .object-tree-item{color:#475870}html[data-theme="light"] .object-group-toggle:hover,html[data-theme="light"] .object-tree-item:hover,html[data-theme="light"] .object-tree-item.selected{background:#e5edf7;color:#1d3048}html[data-theme="light"] .navigator-footer{border-color:#d8e0eb}
 .navigator-refresh-option{min-height:30px;display:flex;align-items:center;gap:8px;padding:2px 6px 5px;color:#cbd7e7;font-size:9px;font-weight:650;letter-spacing:.25px;text-transform:uppercase;cursor:pointer}
-.navigator-refresh-option input{width:15px;height:15px;margin:0;accent-color:#43dba5;cursor:pointer}
 html[data-theme="light"] .navigator-refresh-option{color:#42536b}
 
 .sqlplus-toolbar{min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 12px;border-bottom:1px solid #263950;background:#0d1828}
@@ -30,7 +29,7 @@ html[data-theme="light"] .navigator-refresh-option{color:#42536b}
 .sqlplus-toolbar .tool-button{white-space:nowrap;padding:6px 8px;font-size:10px}
 .sqlplus-toolbar .terminal-font-value{min-width:18px;text-align:center;color:#c8d5e7;font-size:10px;font-variant-numeric:tabular-nums}
 .sqlplus-toolbar-check{display:inline-flex;align-items:center;gap:5px;color:#d5dfed;font-size:9px;font-weight:650;text-transform:uppercase;white-space:nowrap;cursor:pointer}
-.sqlplus-toolbar-check input{width:14px;height:14px;margin:0;accent-color:#43dba5;cursor:pointer}
+.sqlplus-toolbar-check input{width:14px;height:14px;margin:0;accent-color:var(--ide-accent);cursor:pointer}
 .sqlplus-toolbar-actions{margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
 .terminal-prompt{position:relative}
 .sqlplus-starter-menu{position:absolute;z-index:8;left:42px;bottom:calc(100% + 7px);width:min(280px,calc(100vw - 100px));display:grid;gap:3px;padding:8px;border:1px solid #2a3c55;border-radius:9px;background:#142236;box-shadow:0 12px 30px #0008}
@@ -71,7 +70,7 @@ html[data-theme="light"] .sqlplus-starter-menu button{color:#34445c}
 }
 .plsql-toolbar .tool-button{padding:6px 8px;font-size:10px;white-space:nowrap}
 .plsql-toolbar-check{display:inline-flex;align-items:center;gap:5px;color:#d5dfed;font-size:9px;font-weight:650;text-transform:uppercase;white-space:nowrap;cursor:pointer}
-.plsql-toolbar-check input{width:14px;height:14px;margin:0;accent-color:#43dba5;cursor:pointer}
+.plsql-toolbar-check input{width:14px;height:14px;margin:0;accent-color:var(--ide-accent);cursor:pointer}
 .plsql-font-value{min-width:18px;text-align:center;color:#c8d5e7;font-size:10px;font-variant-numeric:tabular-nums}
 .plsql-case-anchor{position:relative;display:inline-flex}
 .plsql-case-menu{position:absolute;z-index:12;top:calc(100% + 6px);left:0;min-width:155px;display:grid;gap:3px;padding:6px;border:1px solid #2a3c55;border-radius:8px;background:#142236;box-shadow:0 12px 30px #0008}
@@ -180,6 +179,57 @@ html[data-theme="light"] .compiler-layout .code-editor textarea::-webkit-scrollb
 .history-pagination{display:flex;align-items:center;justify-content:space-between;color:#879ab3;font-size:9px}.history-pagination>div{display:flex;align-items:center;gap:7px}.history-pagination .tool-button{min-width:28px;padding:5px 8px}.history-pagination .tool-button:disabled{opacity:.4;cursor:default}
 @media(max-width:900px){.history-table{min-width:720px}}
 @media(max-width:560px){.history-view{padding:12px}.history-heading{align-items:flex-start}.history-heading h1{font-size:19px}.history-heading p{max-width:250px}.history-heading>.tool-button{padding:6px 8px;font-size:10px}}
+
+/* Keep SQL History surfaces aligned with the selected light theme. */
+html[data-theme="light"] .history-export-button{color:var(--ide-muted)}
+html[data-theme="light"] .history-export-button:hover,
+html[data-theme="light"] .history-export-button:focus-visible{color:var(--ide-accent)}
+html[data-theme="light"] .history-filters,
+html[data-theme="light"] .history-table-wrap{background:var(--ide-panel-2)}
+html[data-theme="light"] .history-filters label{color:var(--ide-muted)}
+html[data-theme="light"] .history-filters select,
+html[data-theme="light"] .history-filters input{border-color:var(--ide-border);background:var(--ide-panel);color:var(--ide-text);color-scheme:light}
+html[data-theme="light"] .history-table th,
+html[data-theme="light"] .history-table td{border-color:var(--ide-border)}
+html[data-theme="light"] .history-table th{background:var(--ide-panel-2);color:var(--ide-muted)}
+html[data-theme="light"] .history-table th[data-history-sort]:hover,
+html[data-theme="light"] .history-table th[data-history-sort]:focus-visible{background:color-mix(in srgb,var(--ide-accent) 10%,var(--ide-panel));color:var(--ide-text)}
+html[data-theme="light"] .history-table th[data-history-sort][aria-sort="none"]::after{color:var(--ide-muted)}
+html[data-theme="light"] .history-table tbody tr:hover{background:color-mix(in srgb,var(--ide-accent) 6%,var(--ide-panel))}
+html[data-theme="light"] .history-table td time,
+html[data-theme="light"] .history-query-preview{color:var(--ide-text)}
+html[data-theme="light"] .history-table td time small,
+html[data-theme="light"] .history-table td>small,
+html[data-theme="light"] .history-pagination{color:var(--ide-muted)}
+html[data-theme="light"] .history-icon-action{color:var(--ide-muted)}
+html[data-theme="light"] .history-icon-action:hover{background:color-mix(in srgb,var(--ide-accent) 10%,var(--ide-panel));color:var(--ide-text)}
+
+/* Native checkboxes follow the active portal palette in every compiler panel. */
+.oracle-ide-page input[type="checkbox"]{accent-color:var(--ide-accent)}
+/* Schema and object-type pickers use the same theme surfaces as the workspace. */
+.oracle-ide-page .database-navigator .navigator-schema-label{color:var(--ide-muted)}
+.oracle-ide-page .database-navigator select.navigator-select{border-color:var(--ide-border);background:var(--ide-panel-2);color:var(--ide-text);color-scheme:dark}
+.oracle-ide-page .database-navigator select.navigator-select option{background:var(--ide-panel);color:var(--ide-text)}
+.oracle-ide-page .database-navigator select.navigator-select option:checked{background:var(--ide-accent);color:#fff}
+.oracle-ide-page .database-navigator select.navigator-select:focus-visible{outline:2px solid var(--ide-accent);outline-offset:2px}
+html[data-theme="light"] .oracle-ide-page .database-navigator select.navigator-select{color-scheme:light}
+.navigator-picker{position:relative;width:100%;margin:0 0 11px;flex:none}
+.navigator-picker select.navigator-picker-native{position:absolute!important;width:1px!important;height:1px!important;min-width:0!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+.navigator-picker-trigger{width:100%;height:36px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px;border:1px solid var(--ide-border);border-radius:8px;background:var(--ide-panel-2);color:var(--ide-text);font:500 12px/1.3 Inter,"Segoe UI",Arial,sans-serif;text-align:left;cursor:pointer}
+.navigator-picker-trigger:hover{border-color:var(--ide-accent);background:color-mix(in srgb,var(--ide-accent) 7%,var(--ide-panel-2))}
+.navigator-picker-trigger:focus-visible{outline:2px solid var(--ide-accent);outline-offset:2px}
+.navigator-picker-trigger:disabled{opacity:.6;cursor:not-allowed}
+.navigator-picker-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.navigator-picker-arrow{flex:none;color:var(--ide-muted);font-size:17px;line-height:1}
+.navigator-picker-menu{position:absolute;z-index:50;top:calc(100% + 4px);left:0;right:0;max-height:min(320px,55vh);overflow:auto;padding:4px;border:1px solid var(--ide-border);border-radius:9px;background:var(--ide-panel);color:var(--ide-text);box-shadow:var(--ide-shadow);scrollbar-color:var(--ide-muted) transparent;overscroll-behavior:contain}
+.navigator-picker-menu[hidden]{display:none!important}
+.navigator-picker-option{width:100%;min-height:34px;display:flex;align-items:center;padding:7px 10px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--ide-text);font:400 12px/1.3 Inter,"Segoe UI",Arial,sans-serif;text-align:left;cursor:pointer}
+.navigator-picker-option[aria-selected="true"]{border-left:3px solid var(--ide-accent);background:color-mix(in srgb,var(--ide-accent) 20%,var(--ide-panel));font-weight:650}
+.navigator-picker-option:is(:hover,:focus-visible){background:color-mix(in srgb,var(--ide-accent) 13%,var(--ide-panel));color:var(--ide-text)}
+.navigator-picker-option[aria-selected="true"]:is(:hover,:focus-visible){background:color-mix(in srgb,var(--ide-accent) 29%,var(--ide-panel))}
+:root[data-theme] .oracle-ide-page .navigator-picker-option:not(:disabled):hover{background:color-mix(in srgb,var(--ide-accent) 13%,var(--ide-panel));color:var(--ide-text);border-color:transparent;outline:none;box-shadow:none;transform:none}
+:root[data-theme] .oracle-ide-page .navigator-picker-option[aria-selected="true"]:not(:disabled):hover{background:color-mix(in srgb,var(--ide-accent) 29%,var(--ide-panel))}
+:root[data-theme] .oracle-ide-page .navigator-picker-option:not(:disabled):focus-visible{outline:2px solid var(--ide-accent);outline-offset:-2px;box-shadow:none;transform:none}
 
 
 /* Teacher student-history and consented editor sharing */
@@ -431,3 +481,45 @@ html[data-theme="light"] .syntax-color-legend .sql-number{color:#a54800}
 .history-query-text.input-typed{color:#34d399}.history-query-text.input-pasted{color:#fb7185}.history-query-text.input-mixed{color:#cbd5e1}.history-query-input-legend{display:inline-flex;gap:5px;margin-right:7px;font:8px/1.2 system-ui,sans-serif}.history-query-input-legend .input-typed{color:#34d399}.history-query-input-legend .input-pasted{color:#fb7185}html[data-theme="light"] .history-query-text.input-typed{color:#087f5b}html[data-theme="light"] .history-query-text.input-pasted{color:#c24154}html[data-theme="light"] .history-query-text.input-mixed{color:#475569}
 .history-query-text .input-typed{color:#34d399}.history-query-text .input-pasted{color:#fb7185}html[data-theme="light"] .history-query-text .input-typed{color:#087f5b}html[data-theme="light"] .history-query-text .input-pasted{color:#c24154}
 .ide-nav-item[hidden]{display:none!important}
+.ide-nav-item[href]{text-decoration:none}
+/* Light-mode controls and hover states share the IDE surface palette. */
+html[data-theme="light"] .oracle-ide-page :is(input:not(#sqlEditor, #terminalInput, [type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="color"]), select, textarea:not(#sqlEditor, #terminalInput)) {background-color:var(--ide-panel);color:var(--ide-text);border-color:var(--ide-border);color-scheme:light}
+html[data-theme="light"] .oracle-ide-page :is(input,textarea)::placeholder{color:var(--ide-muted);opacity:1}
+html[data-theme="light"] :is(.sqlplus-starter-menu,.plsql-starter-menu,.plsql-case-menu) button:is(:hover,:focus-visible),html[data-theme="light"] .navigator-heading button:hover,html[data-theme="light"] .navigator-footer button:hover,html[data-theme="light"] .ide-main.navigator-collapsed .navigator-heading button,html[data-theme="light"] .history-buttons button{background:var(--ide-panel-2);color:var(--ide-text);border-color:var(--ide-border)}
+html[data-theme="light"] .compiler-layout .code-editor textarea::-webkit-scrollbar-track,html[data-theme="light"] .compiler-layout .code-editor textarea::-webkit-scrollbar-corner,html[data-theme="light"] .object-details-dialog-body::-webkit-scrollbar-track,html[data-theme="light"] .object-details-dialog-body::-webkit-scrollbar-corner{background:var(--ide-panel-2)}
+/* All compiler navigation items share hover/focus behavior, including Shared Code. */
+.oracle-ide-page .ide-nav .ide-nav-item:is(:hover, :focus-visible) {
+  background:color-mix(in srgb,var(--ide-accent) 12%,var(--ide-panel));
+  color:var(--ide-text);
+  border-color:var(--ide-accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--ide-accent) 14%,transparent);
+  transform:none;
+  outline:none;
+}
+.oracle-ide-page .ide-nav .ide-nav-item:is(:hover, :focus-visible) span {color:var(--ide-accent)}
+/* Center every footer label and status dot within balanced vertical spacing. */
+.oracle-ide-page .terminal-foot {
+  align-items:center;
+  align-content:center;
+  min-height:32px;
+  padding-block:8px;
+  line-height:1.4;
+}
+.oracle-ide-page .terminal-foot > span {
+  display:inline-flex;
+  align-items:center;
+}
+.oracle-ide-page .terminal-foot .status-led {flex-shrink:0}
+/* Selected navigation follows the current theme rather than a fixed dark base. */
+.oracle-ide-page .ide-nav .ide-nav-item.active {
+  background:color-mix(in srgb,var(--ide-accent) 26%,var(--ide-panel));
+  border-color:color-mix(in srgb,var(--ide-accent) 55%,var(--ide-border));
+  color:var(--ide-text);
+  box-shadow:inset 3px 0 0 var(--ide-accent);
+}
+.oracle-ide-page .ide-nav .ide-nav-item.active span {color:var(--ide-accent)}
+.oracle-ide-page .ide-nav .ide-nav-item.active:is(:hover,:focus-visible) {
+  background:color-mix(in srgb,var(--ide-accent) 30%,var(--ide-panel));
+  border-color:var(--ide-accent);
+  box-shadow:inset 3px 0 0 var(--ide-accent),0 0 0 3px color-mix(in srgb,var(--ide-accent) 14%,transparent);
+}

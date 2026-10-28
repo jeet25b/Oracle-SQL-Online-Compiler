@@ -96,8 +96,9 @@ def password_reset_api(request, action):
     if not user_id or timezone.now().timestamp() - request.session.get("password_reset_started", 0) > 600:
         return JsonResponse({"error": "Start password reset again."}, status=410)
     with transaction.atomic():
-        user = PortalUser.objects.select_for_update().filter(pk=user_id, is_active=True).first()
-        if not user:
+        try:
+            user = PortalUser.objects.select_for_update().get(pk=user_id, is_active=True)
+        except PortalUser.DoesNotExist:
             return JsonResponse({"error": ADMIN_MESSAGE}, status=400)
         channels = _channels(user)
         if action == "send":
@@ -127,7 +128,12 @@ def password_reset_api(request, action):
                 return JsonResponse({"error": "The code could not be sent. Try again later or contact your administrator."}, status=503)
             request.session["password_reset_challenge"] = str(challenge.pk)
             return JsonResponse({"message": "Verification code sent. It expires in 10 minutes."})
-        challenge = PasswordResetChallenge.objects.select_for_update().filter(pk=request.session.get("password_reset_challenge"), user=user).first()
+        try:
+            challenge = PasswordResetChallenge.objects.select_for_update().get(
+                pk=request.session.get("password_reset_challenge"), user=user,
+            )
+        except PasswordResetChallenge.DoesNotExist:
+            challenge = None
         if (not challenge or challenge.used or challenge.attempts >= 5 or challenge.expires_at <= timezone.now()
                 or challenge.password_snapshot != user.password or channels.get(challenge.channel) != challenge.destination):
             return JsonResponse({"error": "This reset code is no longer valid. Start password reset again."}, status=410)

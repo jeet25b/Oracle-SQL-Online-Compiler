@@ -55,6 +55,7 @@ class ObjectRefreshTests(SimpleTestCase):
             self.assertIn(':name0', query)
             self.assertNotIn("T'X", query)
             self.assertEqual(binds, {"name0": "T'X"})
+        self.assertEqual(conn.call_timeout, 30000)
         conn.close.assert_called_once()
 
     def test_invalid_scope_does_not_open_connection(self):

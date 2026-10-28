@@ -95,3 +95,87 @@
     if (event.key === 'Escape') { setOpen(false); button.focus(); }
   });
 })();
+
+// Shared theme-aware tooltips replace browser/OS title bubbles on every page.
+(() => {
+  if (document.getElementById('siteThemeTooltip')) return;
+  const tip = document.createElement('div');
+  tip.id = 'siteThemeTooltip';
+  tip.className = 'site-theme-tooltip';
+  tip.setAttribute('role', 'tooltip');
+  tip.hidden = true;
+  const popover = typeof tip.showPopover === 'function';
+  if (popover) tip.setAttribute('popover', 'manual');
+  document.body.append(tip);
+  let anchor = null;
+  let timer = 0;
+  function convert(element) {
+    if (!(element instanceof Element)) return;
+    const title = element.getAttribute('title');
+    if (title !== null) {
+      if (title.trim()) element.dataset.themeTooltip = title;
+      else delete element.dataset.themeTooltip;
+      element.removeAttribute('title');
+    }
+  }
+  function scan(element) {
+    convert(element);
+    element.querySelectorAll?.('[title]').forEach(convert);
+  }
+  scan(document.documentElement);
+  new MutationObserver(records => {
+    for (const record of records) {
+      if (record.type === 'attributes') convert(record.target);
+      else record.addedNodes.forEach(scan);
+    }
+    if (anchor && !anchor.isConnected) hide();
+  }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['title'] });
+  function hide() {
+    clearTimeout(timer);
+    if (anchor) {
+      const ids = (anchor.getAttribute('aria-describedby') || '').split(/\s+/).filter(id => id && id !== tip.id);
+      if (ids.length) anchor.setAttribute('aria-describedby', ids.join(' '));
+      else anchor.removeAttribute('aria-describedby');
+    }
+    anchor = null;
+    if (popover && tip.matches(':popover-open')) tip.hidePopover();
+    tip.hidden = true;
+  }
+  function show(element, delay = 350) {
+    if (!element || !element.dataset.themeTooltip) return;
+    if (anchor === element) return;
+    hide();
+    anchor = element;
+    timer = setTimeout(() => {
+      if (!anchor?.isConnected) return hide();
+      (anchor.closest('dialog[open]') || document.fullscreenElement || document.body).append(tip);
+      tip.textContent = anchor.dataset.themeTooltip;
+      tip.hidden = false;
+      if (popover) tip.showPopover();
+      const ids = (anchor.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+      anchor.setAttribute('aria-describedby', [...new Set([...ids, tip.id])].join(' '));
+      const rect = anchor.getBoundingClientRect();
+      const width = tip.offsetWidth, height = tip.offsetHeight;
+      let left;
+      let top;
+      if (anchor.closest('.ide-nav')) {
+        left = rect.right + width + 6 <= innerWidth ? rect.right + 6 : rect.left - width - 6;
+        left = Math.max(8, Math.min(left, innerWidth - width - 8));
+        top = Math.max(8, Math.min(rect.top + rect.height / 2 - height / 2, innerHeight - height - 8));
+      } else {
+        left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, innerWidth - width - 8));
+        top = rect.bottom + height + 8 <= innerHeight ? rect.bottom + 6 : Math.max(8, rect.top - height - 6);
+      }
+      tip.style.left = `${left}px`;
+      tip.style.top = `${top}px`;
+    }, delay);
+  }
+  document.addEventListener('pointerover', event => show(event.target.closest?.('[data-theme-tooltip]')));
+  document.addEventListener('pointerout', event => { if (anchor && !anchor.contains(event.relatedTarget)) hide(); });
+  document.addEventListener('focusin', event => show(event.target.closest?.('[data-theme-tooltip]'), 0));
+  document.addEventListener('focusout', hide);
+  document.addEventListener('pointerdown', hide);
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') hide(); });
+  document.addEventListener('scroll', hide, true);
+  window.addEventListener('resize', hide);
+})();

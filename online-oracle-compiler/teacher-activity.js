@@ -13,9 +13,21 @@
   const dialog = $('#createLabDialog');
   let latestData = null;
   let latestAttendance = null;
+  const activitySearchSuggestions = window.PortalSearchSuggestions?.register($('#activityStudentSearch'));
   let refreshTimer = 0;
   let rosterSort = { key: 'lastActivity', direction: -1 };
   let attendanceSort = { key: 'studentName', direction: 1 };
+
+  function refreshStudentSearchSuggestions() {
+    const combined = [...(latestData?.students || []), ...(latestAttendance?.students || [])];
+    const unique = new Map();
+    combined.forEach((student) => {
+      const label = String(student.studentName || student.name || '');
+      const number = String(student.studentNumber || student.number || '');
+      if (label) unique.set(`${label.toLocaleLowerCase()}|${number.toLocaleLowerCase()}`, { label, detail: number, value: label });
+    });
+    activitySearchSuggestions?.setItems([...unique.values()]);
+  }
 
   function enableColumnResizing(table, storageKey) {
     if (!table?.tHead?.rows[0]) return;
@@ -258,6 +270,7 @@
   }
   function renderAttendance(data) {
     latestAttendance = data;
+    refreshStudentSearchSuggestions();
     const query = ($('#activityStudentSearch')?.value || '').trim().toLocaleLowerCase();
     const students = [...(data.students || [])].filter((student) => !query || `${student.studentName || ''} ${student.studentNumber || ''}`.toLocaleLowerCase().includes(query));
     students.sort((a, b) => {
@@ -316,6 +329,7 @@
       const response = await fetch(`/api/teacher/compiler-activity?${params}`, { credentials: 'same-origin', cache: 'no-store' });
       const data = await readJsonResponse(response, 'Could not load activity data.');
       latestData = data;
+      refreshStudentSearchSuggestions();
       updateSummary(data);
       renderRoster(data);
     } catch (error) {

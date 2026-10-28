@@ -37,6 +37,9 @@ def default_compiler_tab_appearance():
     }
 
 class PortalUser(AbstractUser):
+    unrestricted_session_time = models.BooleanField(default=False, help_text='Exempt this account from daily session allowances and the 30-minute inactivity timeout. Single-session security still applies.')
+    active_student_session_token = models.CharField(max_length=64, blank=True, default='')
+    active_student_session_key = models.CharField(max_length=40, blank=True, default='')
     class Role(models.TextChoices):
         ADMIN = "ADMIN", "Admin"
         TEACHER = "TEACHER", "Teacher"
@@ -187,6 +190,7 @@ class Course(models.Model):
     def __str__(self): return f"{self.code} — {self.name}"
 
 class ClassSection(models.Model):
+    daily_session_minutes = models.PositiveIntegerField(default=120)
     course = models.ForeignKey(Course, on_delete=models.PROTECT, related_name="classes")
     name = models.CharField(max_length=80)
     academic_year = models.CharField(max_length=20, blank=True)
@@ -219,6 +223,16 @@ class Enrollment(models.Model):
     active = models.BooleanField(default=True)
     class Meta: unique_together = [("student", "class_section")]
 
+class StudentDailyAccessReset(models.Model):
+    student = models.ForeignKey(PortalUser, on_delete=models.CASCADE)
+    day = models.DateField()
+    reset_at = models.DateTimeField(default=timezone.now)
+    reset_by = models.ForeignKey(PortalUser, null=True, on_delete=models.SET_NULL, related_name="student_access_resets")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("student", "day"), name="student_daily_access_reset")]
+
+
 class AttendanceSession(models.Model):
     user = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="attendance_sessions")
     class_section = models.ForeignKey("ClassSection", on_delete=models.SET_NULL, null=True, blank=True, related_name="attendance_sessions")
@@ -238,6 +252,7 @@ class AttendanceSession(models.Model):
 
 
 class CompilerLab(models.Model):
+    daily_session_minutes = models.PositiveIntegerField(null=True, blank=True)
     class_section = models.ForeignKey(ClassSection, on_delete=models.CASCADE, related_name="compiler_labs")
     created_by = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="created_compiler_labs")
     name = models.CharField(max_length=120)
@@ -265,6 +280,7 @@ class CompilerExecutionEvent(models.Model):
     typed_chars = models.PositiveIntegerField(null=True, blank=True, default=None)
     pasted_chars = models.PositiveIntegerField(null=True, blank=True, default=None)
     paste_count = models.PositiveIntegerField(null=True, blank=True, default=None)
+    pasted_texts = models.JSONField(default=list, blank=True)
     edits_after_paste = models.PositiveIntegerField(null=True, blank=True, default=None)
     executed_at = models.DateTimeField(default=timezone.now, db_index=True)
 
@@ -405,6 +421,7 @@ class AuditEvent(models.Model):
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
 
 class PortalSetting(models.Model):
+    restrict_student_session_time = models.BooleanField(default=True, help_text='Apply daily allowances and the 30-minute inactivity timeout to students. Admin accounts and the Admin group are always exempt.')
     """Single-row settings shared across the learning portal."""
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
     default_accent = models.CharField(max_length=16, default="violet")

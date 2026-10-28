@@ -1,4 +1,69 @@
+:root {
+  --muted: #586a80;
+  --on-accent: #fff;
+  --surface: var(--paper);
+  --surface-2: var(--canvas);
+  --text: var(--ink);
+  --border: var(--line);
+  --status-success: #126c4c;
+  --status-warning: #815000;
+  --status-error: #b4233d;
+}
+
+/* Portal form surfaces must follow the selected theme on every page. */
+.dashboard-page :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="color"]), select, textarea) {
+  background-color: var(--paper);
+  color: var(--ink);
+  border-color: var(--line);
+  color-scheme: inherit;
+}
+.dashboard-page :is(input, textarea)::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+.dashboard-page :is(input, select, textarea):disabled {
+  background-color: var(--canvas);
+  color: var(--muted);
+}
+
+/* Native checkboxes and radios use the active portal palette across modules. */
+:root :is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--accent-strong, var(--accent, #6d28d9));
+  color-scheme: inherit;
+}
+
+/* Shared toolbars stay in view while content scrolls beneath them. */
+.dashboard-topbar,
+.ide-topbar,
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-shrink: 0;
+  background: var(--paper, #fff);
+}
+.ide-topbar { background: var(--ide-panel, var(--paper, #fff)); }
+.dashboard-topbar {
+  height: auto;
+  min-height: 66px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-block: 10px;
+}
+.dashboard-topbar .top-actions {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+@media (max-width: 650px) {
+  .dashboard-topbar { min-height: 52px; }
+}
 :root[data-theme="dark"] {
+  --on-accent: #111c2d;
+  --status-success: #4bd1a4;
+  --status-warning: #ffcf82;
+  --status-error: #ff7b8b;
   color-scheme: dark;
   --ink: #e7edf6;
   --muted: #a2b0c1;
@@ -42,6 +107,98 @@
 :root[data-theme="dark"] .registration-success { border-color:#2c7355; color:#b7ebd1; background:#142b25; }
 :root[data-theme="dark"] .registration-success-icon { border-color:#2c7355; color:#75ddb0; background:#142b25; }
 :root[data-theme="dark"] .registration-success-message { color:#c3cfdb; }
+
+/* Keep dashboard navigation and secondary cards in the selected light palette. */
+:root[data-theme="light"] .page-shell .topbar .help-button,
+:root[data-theme="light"] .page-shell .topbar .page-brightness > .help-button {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: #40536b;
+  background: #ffffffa6;
+}
+:root[data-theme="light"] .dashboard-page .top-actions > .mode-toggle,
+:root[data-theme="light"] .dashboard-page .top-actions .page-brightness > .mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font: 600 11px/1.2 "DM Sans", system-ui, sans-serif;
+  white-space: nowrap;
+  color: #32465b;
+  background: var(--paper);
+  box-shadow: none;
+  outline: none;
+  transform: none;
+  transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+:root[data-theme="light"] .dashboard-page .top-actions > .mode-toggle:hover,
+:root[data-theme="light"] .dashboard-page .top-actions > .mode-toggle:focus-visible,
+:root[data-theme="light"] .dashboard-page .top-actions .page-brightness > .mode-toggle:hover,
+:root[data-theme="light"] .dashboard-page .top-actions .page-brightness > .mode-toggle:focus-visible {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .18);
+  transform: translateY(-1px);
+}
+:root[data-theme="light"] .dashboard-page .sidebar {
+  border-right: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+}
+:root[data-theme="light"] .dashboard-page .sidebar .brand,
+:root[data-theme="light"] .dashboard-page .sidebar .profile-name strong { color: var(--ink); }
+:root[data-theme="light"] .dashboard-page .sidebar .brand-mark {
+  border-color: var(--line);
+  background: var(--canvas);
+  color: var(--accent-strong);
+}
+:root[data-theme="light"] .dashboard-page .sidebar-label { color: var(--muted); }
+:root[data-theme="light"] .dashboard-page .side-link { color: var(--muted); }
+:root[data-theme="light"] .dashboard-page .side-link > span { color: var(--muted); }
+:root[data-theme="light"] .dashboard-page .side-link:hover,
+:root[data-theme="light"] .dashboard-page .side-link:focus-visible {
+  color: var(--accent-strong) !important;
+  background: color-mix(in srgb, var(--accent-soft) 58%, var(--paper)) !important;
+}
+:root[data-theme="light"] .dashboard-page .side-link.active,
+:root[data-theme="light"] .dashboard-page .side-link.active:hover,
+:root[data-theme="light"] .dashboard-page .side-link.active:focus-visible {
+  color: var(--accent-strong) !important;
+  background: var(--accent-soft) !important;
+  box-shadow: inset 3px 0 var(--accent-strong) !important;
+}
+:root[data-theme="light"] .dashboard-page .side-link.active > span,
+:root[data-theme="light"] .dashboard-page .side-link:hover > span,
+:root[data-theme="light"] .dashboard-page .side-link:focus-visible > span { color: var(--accent-strong) !important; }
+:root[data-theme="light"] .dashboard-page .help-card {
+  border-color: var(--line);
+  background: var(--canvas);
+}
+:root[data-theme="light"] .dashboard-page .help-card p,
+:root[data-theme="light"] .dashboard-page .sidebar .profile-name small { color: var(--muted); }
+:root[data-theme="light"] .dashboard-page .sidebar-profile { border-color: var(--line); }
+:root[data-theme="light"] .dashboard-page .logout-button {
+  border-color: var(--line);
+  color: var(--muted);
+  background: var(--paper);
+}
+:root[data-theme="light"] .dashboard-page .practice-card {
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: linear-gradient(135deg, var(--paper), var(--canvas));
+}
+:root[data-theme="light"] .dashboard-page .practice-top,
+:root[data-theme="light"] .dashboard-page .practice-status,
+:root[data-theme="light"] .dashboard-page .practice-card > p,
+:root[data-theme="light"] .dashboard-page .practice-soon { color: var(--muted); }
+:root[data-theme="light"] .dashboard-page .practice-code { color: var(--ink); }
+:root[data-theme="light"] .dashboard-page .practice-code span { color: var(--muted); }
+:root[data-theme="light"] .dashboard-page .practice-code b { color: var(--accent-strong); }
+:root[data-theme="light"] .dashboard-page .practice-soon { border-color: var(--line); }
 
 :root[data-theme="dark"] body.dashboard-page { color: #e7edf6; background: #0b1422; }
 :root[data-theme="dark"] .dashboard-topbar,:root[data-theme="dark"] .content-card,:root[data-theme="dark"] .metric-card,:root[data-theme="dark"] .course-card,:root[data-theme="dark"] .today-badge { border-color: #29394d; background: #111d2c; }
@@ -131,7 +288,7 @@
 :root[data-theme="dark"] .activity-view-tab{color:#aab8c7}
 :root[data-theme="dark"] .activity-view-tab.active{color:var(--accent);background:rgba(var(--accent-rgb),.16)}
 :root[data-theme="dark"] .attendance-range label{color:#aab8c7}
-:root[data-theme="dark"] .attendance-range input{border-color:#34465b;color:#dce5ef;background:#0d1929;color-scheme:dark}
+:root[data-theme="dark"] .attendance-range input,:root[data-theme="dark"] .attendance-range select{border-color:#34465b;color:#dce5ef;background:#0d1929;color-scheme:dark}
 :root[data-theme="dark"] .attendance-percent{color:#70ddb6}
 :root[data-theme="dark"] .attendance-schedule{border-color:#29394d;background:#0d1929}
 :root[data-theme="dark"] .attendance-schedule>strong{color:#dce5ef}
@@ -182,3 +339,32 @@
   box-shadow: 0 0 0 3px #0b1422, 0 0 0 5px var(--accent), 0 0 16px rgba(var(--accent-rgb), .28);
 }
 @media(max-width:520px) { .theme-mode-button { padding:7px 8px; font-size:10px; } }
+
+/* Hover labels use the same surface, foreground and accent as their page. */
+.site-theme-tooltip {
+  position:fixed;inset:auto;margin:0;padding:7px 10px;
+  max-width:min(320px,calc(100vw - 16px));width:max-content;
+  border:1px solid var(--ide-accent,var(--accent-strong));border-radius:8px;
+  background:color-mix(in srgb,var(--ide-accent,var(--accent)) 16%,var(--ide-panel,var(--paper)));color:var(--ide-text,var(--ink));
+  box-shadow:0 4px 16px #0002;font:12px/1.4 "DM Sans","Segoe UI",sans-serif;
+  white-space:normal;overflow-wrap:anywhere;pointer-events:none;z-index:10050;
+}
+.site-theme-tooltip[hidden]{display:none!important}
+
+/* Student accounts can view the profile-photo action but cannot activate it. */
+:root[data-theme] .dashboard-page .profile-menu-list button:disabled{
+  color:var(--muted);
+  background:transparent;
+  opacity:.52;
+  cursor:not-allowed;
+  box-shadow:none;
+  transform:none;
+}
+:root[data-theme] .dashboard-page .profile-menu-list button:disabled:is(:hover,:focus-visible){
+  color:var(--muted);
+  background:transparent;
+  border-color:transparent;
+  outline:none;
+  box-shadow:none;
+  transform:none;
+}

@@ -8,7 +8,7 @@
   <form class="profile-form profile-edit-form" data-profile-form enctype="multipart/form-data">
     <div class="profile-avatar-editor profile-form-wide">
       <img class="profile-photo-preview" data-profile-avatar-preview alt="Profile photo preview" {% if user.avatar_image %}src="/api/portal/avatar?v={{ user.avatar_image.name|urlencode }}"{% else %}hidden{% endif %}>
-      <div><label class="field-label profile-photo-label">Profile photo<input class="avatar-file-input" name="avatar" type="file" accept="image/jpeg,image/png,image/webp"><span class="avatar-file-control"><span data-avatar-file-name>No photo selected</span><span class="avatar-file-button">Choose photo</span></span></label><small>JPG, PNG, or WebP. Maximum 2 MB.</small></div>
+      <div><label class="field-label profile-photo-label">Profile photo<input class="avatar-file-input" name="avatar" type="file" accept="image/jpeg,image/png,image/webp" {% if portal_role == "STUDENT" %}disabled aria-label="Profile photo upload, unavailable to students"{% endif %}><span class="avatar-file-control{% if portal_role == "STUDENT" %} is-disabled{% endif %}"{% if portal_role == "STUDENT" %} aria-disabled="true"{% endif %}><span data-avatar-file-name>No photo selected</span><span class="avatar-file-button">{% if portal_role == "STUDENT" %}Unavailable{% else %}Choose photo{% endif %}</span></span></label><small>{% if portal_role == "STUDENT" %}Profile photo changes are disabled for student accounts.{% else %}JPG, PNG, or WebP. Maximum 2 MB.{% endif %}</small></div>
     </div>
     <div class="profile-form-grid">
       <label class="field-label">First name<div class="input-wrap"><input name="firstName" maxlength="150" value="{{ user.first_name }}" required></div></label>

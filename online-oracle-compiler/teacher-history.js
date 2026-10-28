@@ -8,6 +8,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     from: $('#teacherHistoryFrom'), to: $('#teacherHistoryTo'), search: $('#teacherHistorySearch'),
   };
   let students = [];
+  const searchSuggestions = window.PortalSearchSuggestions?.register(filters.search);
   let page = 1;
   let pagination = { total: 0, pages: 1 };
   let sort = { key: 'executedAt', direction: 'desc' };
@@ -56,7 +57,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     rowsNode.replaceChildren();
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 9;
+    cell.colSpan = 10;
     cell.className = `activity-empty${isError ? ' error' : ''}`;
     cell.textContent = message;
     row.append(cell);
@@ -71,17 +72,9 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Student SQL history could not be loaded.');
       students = data.students || [];
+      searchSuggestions?.setItems(students.map((student) => ({ label: student.name || student.number, detail: student.number, value: student.name || '' })));
       pagination = data.pagination || { page: 1, pageSize, total: (data.records || []).length, pages: 1 };
       page = pagination.page || page;
-      const suggestions = $('#teacherHistoryStudentSuggestions');
-      if (suggestions) {
-        suggestions.replaceChildren(...students.map((student) => {
-          const option = document.createElement('option');
-          option.value = student.name || '';
-          option.label = student.number || '';
-          return option;
-        }).filter((option) => option.value));
-      }
       const selected = filters.student.value;
       filters.student.replaceChildren(new Option(data.studentScope === 'all' ? 'All students' : 'All assigned students', ''));
       students.forEach((student) => filters.student.add(new Option(`${student.name}${student.number ? ` · ${student.number}` : ''}${student.isActive ? '' : ' · Inactive'}`, String(student.id))));
@@ -141,7 +134,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       if (inputLabel.startsWith('Pasted') || ['Typed + pasted', 'Mixed'].includes(inputLabel)) {
         const badge = document.createElement('span'); badge.className = 'paste-badge';
         badge.textContent = inputLabel;
-        badge.title = `${pasteCount} paste event${pasteCount === 1 ? '' : 's'} · ${pastedChars.toLocaleString()} pasted characters${Number(item.editsAfterPaste) ? ` · ${Number(item.editsAfterPaste).toLocaleString()} edits after paste` : ''}. Browser cannot identify the source tab or app.`;
+        badge.title = `${pasteCount} paste event${pasteCount === 1 ? '' : 's'} · ${pastedChars.toLocaleString()} pasted characters${Number(item.editsAfterPaste) ? ` · ${Number(item.editsAfterPaste).toLocaleString()} edits after paste` : ''}.`;
         input.append(badge);
       } else if (inputLabel !== 'Not tracked') {
         const badge = document.createElement('span'); badge.className = 'typed-badge'; badge.textContent = inputLabel;
@@ -151,13 +144,24 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         input.textContent = 'Not tracked';
         input.title = 'Input method was not recorded for this statement.';
       }
+      const pastedText = document.createElement('td'); pastedText.className = 'teacher-history-pasted-text-cell';
+      const pasteTexts = Array.isArray(item.pastedTexts) ? item.pastedTexts.filter((text) => typeof text === 'string' && text.length) : [];
+      if (pasteTexts.length) {
+        pastedText.textContent = pasteTexts.join(', ');
+        pastedText.classList.add('teacher-history-pasted-text');
+      } else if (pasteCount > 0) {
+        pastedText.textContent = 'Not captured for this statement';
+        pastedText.classList.add('teacher-history-pasted-text-unavailable');
+      } else {
+        pastedText.textContent = '—';
+      }
       const result = document.createElement('td'); result.className = `teacher-history-result ${item.status === 'success' ? 'success' : 'error'}`;
       result.textContent = item.status === 'success' ? 'Success' : 'Failed'; result.title = item.message || '';
       const duration = document.createElement('td'); duration.textContent = `${Number(item.durationMs || 0).toLocaleString()} ms`;
       const count = document.createElement('td'); count.textContent = Number(item.rows || 0).toLocaleString();
       const action = document.createElement('td'); const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'teacher-history-copy'; copy.textContent = 'Copy'; copy.title = 'Copy statement';
       copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(item.sql || ''); copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy'; }, 1200); } catch { $('#teacherHistoryUpdated').textContent = 'Clipboard access is unavailable.'; } });
-      action.append(copy); row.append(student, time, source, sql, input, result, duration, count, action); rowsNode.append(row);
+      action.append(copy); row.append(student, time, source, sql, input, pastedText, result, duration, count, action); rowsNode.append(row);
     });
   }
   let searchTimer;
@@ -175,7 +179,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   $('#teacherHistoryNext').addEventListener('click', () => { page += 1; loadHistory(); });
   $('#teacherHistoryRefresh').addEventListener('click', loadHistory);
   $('#teacherHistoryExport').addEventListener('click', async () => {
-    const columns = ['Student', 'Student ID', 'Executed at', 'Compiler', 'Statement', 'Input method', 'Typed characters', 'Pasted characters', 'Paste events', 'Edits after paste', 'Result', 'Duration ms', 'Rows', 'Message'];
+    const columns = ['Student', 'Student ID', 'Executed at', 'Compiler', 'Statement', 'Input method', 'Pasted text', 'Typed characters', 'Pasted characters', 'Paste events', 'Edits after paste', 'Result', 'Duration ms', 'Rows', 'Message'];
     const button = $('#teacherHistoryExport'); button.disabled = true;
     try {
       const base = requestParams(); base.set('page', '1'); base.set('pageSize', '1000');
@@ -188,7 +192,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         if (!response.ok) throw new Error(data.error || 'Could not export student SQL history.');
         records.push(...(data.records || [])); pages = data.pagination?.pages || 1;
       }
-      const rows = records.map((item) => [item.studentName, item.studentNumber, item.executedAt, compilerSourceLabel(item.source), item.sql, inputMethodLabel(item), item.typedChars, item.pastedChars, item.pasteCount, item.editsAfterPaste, item.status, item.durationMs, item.rows, item.message]);
+      const rows = records.map((item) => [item.studentName, item.studentNumber, item.executedAt, compilerSourceLabel(item.source), item.sql, inputMethodLabel(item), (Array.isArray(item.pastedTexts) ? item.pastedTexts : []).join(', '), item.typedChars, item.pastedChars, item.pasteCount, item.editsAfterPaste, item.status, item.durationMs, item.rows, item.message]);
       const csv = [columns, ...rows].map((values) => values.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\r\n');
       const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); link.download = 'student-sql-history.csv'; link.click(); URL.revokeObjectURL(link.href);
     } catch (error) { showMessage(error.message || 'Could not export student SQL history.', true); }

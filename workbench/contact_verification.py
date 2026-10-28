@@ -65,7 +65,12 @@ def contact_verification_api(request):
             return JsonResponse({"message": "Code sent. It expires in 10 minutes."})
         if data.get("action") != "complete":
             return JsonResponse({"error": "Unknown verification action."}, status=400)
-        challenge = ProfileUpdateChallenge.objects.select_for_update().filter(pk=request.session.get(f"verify_contact_{channel}"), user=user).first()
+        try:
+            challenge = ProfileUpdateChallenge.objects.select_for_update().get(
+                pk=request.session.get(f"verify_contact_{channel}"), user=user,
+            )
+        except ProfileUpdateChallenge.DoesNotExist:
+            challenge = None
         destination = getattr(challenge, "email" if channel == "email" else "mobile_number", None)
         if not challenge or challenge.attempts >= 5 or challenge.expires_at <= timezone.now() or destination != contact["value"]:
             return JsonResponse({"error": "This code expired or the contact changed. Request a new code."}, status=410)

@@ -116,6 +116,7 @@ class PortalUserAdmin(UserAdmin):
         UserAdmin.fieldsets[0],
         ("Personal info", {"fields": ("first_name", "middle_name", "last_name", "email")} ),
         *UserAdmin.fieldsets[2:],
+        ('Session time', {'fields': ('unrestricted_session_time',), 'description': 'Admin-role accounts and members of the Admin group are always exempt from time limits.'}),
         ("Portal access", {"fields": ("role", "additional_roles", "registration_status", "mobile_number", "email_verified", "mobile_verified", "teacher_number", "student_number", "profile_data", "can_approve_students", "can_view_all_compiler_activity", "approval_record", "approved_at")}),
         ("Oracle connection credentials", {"fields": ("oracle_username", "oracle_password", "oracle_connect_string", "clear_oracle_credentials"), "description": "The password is stored encrypted and is never displayed here. Leave its field blank to preserve the saved password."}),
     )
@@ -245,7 +246,7 @@ class PortalSettingAdminForm(forms.ModelForm):
     class Meta:
         model = PortalSetting
         fields = (
-            "default_accent", "registration_required_fields",
+            "default_accent", "registration_required_fields", "restrict_student_session_time",
             "email_verification_required", "mobile_verification_required", "auto_approve_students",
             "gmail_login_email", "gmail_sender_email", "gmail_app_password", "whatsapp_default_country_code",
         )
@@ -312,6 +313,7 @@ class PortalSettingAdmin(admin.ModelAdmin):
     form = PortalSettingAdminForm
     fieldsets = (
         ("Website appearance", {"fields": ("default_accent",)}),
+        ('Student session time', {'fields': ('restrict_student_session_time',)}),
         ("Built-in student registration fields", {"fields": ("registration_required_fields",)}),
         ("Registration verification, confirmation and approval", {"fields": ("email_verification_required", "mobile_verification_required", "auto_approve_students")}),
         ("Gmail delivery for verification and account notices", {"fields": ("gmail_login_email", "gmail_sender_email", "gmail_app_password")}),

@@ -16,7 +16,7 @@ from weakref import WeakValueDictionary
 import oracledb
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Subquery
 from django.db import transaction
 from django.http import FileResponse, JsonResponse, HttpResponse
 from django.shortcuts import redirect, render
@@ -58,7 +58,8 @@ def _history_archive_record(record):
         "sql": record.sql, "source": record.source, "status": record.status,
         "durationMs": record.duration_ms, "rows": record.row_count,
         "typedChars": record.typed_chars, "pastedChars": record.pasted_chars,
-        "pasteCount": record.paste_count, "editsAfterPaste": record.edits_after_paste,
+        "pasteCount": record.paste_count, "pastedTexts": record.pasted_texts,
+        "editsAfterPaste": record.edits_after_paste,
         "inputMethod": record.input_method,
         "inputSourceMap": record.input_source_map,
         "message": record.message, "isActive": record.is_active,
@@ -77,6 +78,23 @@ def _validated_input_source_map(value, start=0, end=MAX_BODY):
         if type(left) is not int or type(right) is not int or source not in {"typed", "pasted"}: continue
         left, right = max(left, start), min(right, end)
         if right > left: output.append([left - start, right - start, source])
+    return output
+
+
+def _validated_pasted_texts(value):
+    if not isinstance(value, list):
+        return []
+    output = []
+    total = 0
+    for item in value[:100]:
+        if not isinstance(item, str) or not item:
+            continue
+        remaining = 65536 - total
+        if remaining <= 0:
+            break
+        text = item[:remaining]
+        output.append(text)
+        total += len(text)
     return output
 
 
@@ -517,7 +535,7 @@ def _open_oracle_session(request, user, password, connect_string, save_credentia
         request.session["oracle_connected"] = True
         session_key = request.session.session_key
         with _lock:
-            _oracle_sessions[session_key] = {"settings": {"user": user.strip(), "password": password, "connectString": connect_string.strip()}, "workspace_id": workspace_id, "sqlplus": connection, "editor": None, "status": result, "last_activity": now}
+            _oracle_sessions[session_key] = {"settings": {"user": user.strip(), "password": password, "connectString": connect_string.strip()}, "workspace_id": workspace_id, "sqlplus": connection, "editor": None, "dbms_output_enabled": {"sqlplus": {"enabled": False}, "editor": {"enabled": False}}, "status": result, "last_activity": now}
         connection = None
         response_data = {**result, "saved": True, "user": user, "connectString": connect_string} if expose_saved_details else result
         response = JsonResponse(response_data)
@@ -580,29 +598,40 @@ def oracle_status(request):
         operation_lock.release()
 
 
-def execute_one(connection, sql, binds, auto_commit, serveroutput=True):
+DBMS_OUTPUT_CHUNK_SIZE = 500
+
+
+def execute_one(connection, sql, binds, auto_commit, serveroutput=True, serveroutput_state=None):
     connection.autocommit = auto_commit
     with connection.cursor() as cursor:
         tune_oracle_cursor(cursor)
         from .sql_lexer import is_plsql_statement
         is_plsql = is_plsql_statement(sql)
-        if is_plsql and serveroutput:
-            with connection.cursor() as enable_cursor: enable_cursor.execute("BEGIN DBMS_OUTPUT.ENABLE(NULL); END;")
+        if is_plsql and serveroutput and (serveroutput_state is None or not serveroutput_state.get("enabled")):
+            cursor.execute("BEGIN DBMS_OUTPUT.ENABLE(NULL); END;")
+            if serveroutput_state is not None:
+                serveroutput_state["enabled"] = True
         cursor.execute(sql, driver_binds(sql, binds))
+        execution_warning = getattr(cursor, "warning", None)
         description = cursor.description or []
         columns = [{"name": item[0], "type": getattr(item[1], "name", "")} for item in description]
         rows = [[json_value(value, description[index][1]) for index, value in enumerate(row)] for row in cursor.fetchmany(MAX_ROWS)] if columns else []
         rows_affected = cursor.rowcount if cursor.rowcount >= 0 and not columns else None
         output_lines = []
         if is_plsql and serveroutput:
-            line_var = cursor.var(str, 32767); status_var = cursor.var(int)
+            lines_var = cursor.arrayvar(str, DBMS_OUTPUT_CHUNK_SIZE)
+            num_lines_var = cursor.var(int)
+            num_lines_var.setvalue(0, DBMS_OUTPUT_CHUNK_SIZE)
             while True:
-                cursor.execute("BEGIN DBMS_OUTPUT.GET_LINE(:line, :status); END;", line=line_var, status=status_var)
-                if status_var.getvalue() != 0: break
-                output_lines.append(line_var.getvalue())
+                cursor.callproc("DBMS_OUTPUT.GET_LINES", (lines_var, num_lines_var))
+                line_count = num_lines_var.getvalue()
+                output_lines.extend(line or "" for line in lines_var.getvalue()[:line_count])
+                if line_count < DBMS_OUTPUT_CHUNK_SIZE:
+                    break
+                num_lines_var.setvalue(0, DBMS_OUTPUT_CHUNK_SIZE)
         compilation_errors = []
         create_match = re.match(r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:FORCE\s+)?(?:(?:NON)?EDITIONABLE\s+)?(MATERIALIZED\s+VIEW|PACKAGE\s+BODY|TYPE\s+BODY|PROCEDURE|FUNCTION|PACKAGE|TRIGGER|TYPE|VIEW)\s+(\"(?:\"\"|[^\"])+\"|[\w$#]+)", sql, re.I)
-        if create_match:
+        if create_match and getattr(execution_warning, "full_code", "") == "DPY-7000":
             object_type = re.sub(r"\s+", " ", create_match.group(1).upper())
             raw_name = create_match.group(2)
             object_name = raw_name[1:-1].replace('""', '"') if raw_name.startswith('"') else raw_name.upper()
@@ -689,14 +718,19 @@ def _execute_sql_request(request):
         connection = session.get(connection_key)
         if connection:
             try:
-                with connection.cursor() as cursor: cursor.execute("SELECT 1 FROM dual")
+                healthy = connection.is_healthy()
             except Exception:
+                healthy = False
+            if not healthy:
                 try: connection.close()
                 except Exception: pass
                 connection = None
+                session[connection_key] = None
+                session.setdefault("dbms_output_enabled", {})[connection_key] = {"enabled": False}
         if not connection:
             connection = open_oracle_connection(connect_options(session["settings"]))
             session[connection_key] = connection
+            session.setdefault("dbms_output_enabled", {})[connection_key] = {"enabled": False}
         columns, rows, affected, output, messages, statement_results, execution_errors = [], [], None, [], [], [], []
         for raw in statements:
             display_statement = raw.strip()
@@ -749,6 +783,18 @@ def _execute_sql_request(request):
                 if payload.get("sqlplus"):
                     from .sql_lexer import bind_names
                     declared_binds = session.setdefault('sqlplus_bind_variables', {})
+                    if re.fullmatch(r"SHOW\s+USER", statement, re.I):
+                        with connection.cursor() as cursor:
+                            cursor.execute("SELECT USER FROM dual")
+                            current_user = cursor.fetchone()[0]
+                        result_columns = [{"name": "USER", "type": "VARCHAR2"}]
+                        result_rows = [[current_user]]
+                        columns, rows = result_columns, result_rows
+                        message = f"Current user: {current_user}"
+                        statement_row_count, statement_message = 1, message
+                        messages.append(message)
+                        statement_results.append({"statement": display_statement, "columns": result_columns, "rows": result_rows, "message": message})
+                        continue
                     declaration = re.fullmatch(r'VAR(?:IABLE)?\s+([A-Za-z][A-Za-z0-9_$#]*)\s+(NUMBER|VARCHAR2|CHAR|DATE)(?:\(\d+\))?', statement, re.I)
                     if declaration:
                         declared_binds[declaration.group(1).upper()] = None
@@ -781,7 +827,14 @@ def _execute_sql_request(request):
                         messages.append(message)
                         statement_results.append({"statement": display_statement, "message": message})
                         continue
-                result_columns, result_rows, rows_affected, output_lines, compilation_errors = execute_one(connection, statement, session.get('sqlplus_bind_variables', {}) if payload.get('sqlplus') else payload.get("binds"), sqlplus_settings["autocommit"] if payload.get("sqlplus") else bool(payload.get("autoCommit")), sqlplus_settings["serveroutput"] if payload.get("sqlplus") else True)
+                result_columns, result_rows, rows_affected, output_lines, compilation_errors = execute_one(
+                    connection,
+                    statement,
+                    session.get('sqlplus_bind_variables', {}) if payload.get('sqlplus') else payload.get("binds"),
+                    sqlplus_settings["autocommit"] if payload.get("sqlplus") else bool(payload.get("autoCommit")),
+                    sqlplus_settings["serveroutput"] if payload.get("sqlplus") else True,
+                    session.setdefault("dbms_output_enabled", {}).setdefault(connection_key, {"enabled": False}),
+                )
                 if compilation_errors:
                     error_text = "Oracle compilation failed:\n" + "\n".join(f"{item['message']} (line {item['line']}, column {item['column']})" for item in compilation_errors)
                     if connection_key == "editor":
@@ -801,7 +854,7 @@ def _execute_sql_request(request):
             except Exception as statement_error:
                 statement_status = "error"
                 statement_message = getattr(statement_error, "message", str(statement_error))
-                broken_statement = bool(re.search(r"\b(?:NJS-(?:003|500|511|521)|ORA-(?:03113|03114|03135|12537|12547|12570|12571))\b", str(statement_error)))
+                broken_statement = bool(re.search(r"\b(?:DPY-(?:1001|4011)|NJS-(?:003|500|511|521)|ORA-(?:03113|03114|03135|12537|12547|12570|12571))\b", str(statement_error)))
                 if not payload.get("sqlplus") or broken_statement: raise
                 error_text = getattr(statement_error, "message", str(statement_error))
                 execution_errors.append({"statement": display_statement, "error": error_text})
@@ -831,11 +884,12 @@ def _execute_sql_request(request):
         message = getattr(exc, "message", str(exc)); code = getattr(exc, "code", None); offset = getattr(exc, "offset", None)
         if connection is None and not statement_history_recorded:
             return json_error(message, 503, connectionUnavailable=True)
-        broken = bool(re.search(r"\b(?:NJS-(?:003|500|511|521)|ORA-(?:03113|03114|03135|12537|12547|12570|12571))\b", str(message)))
+        broken = bool(re.search(r"\b(?:DPY-(?:1001|4011)|NJS-(?:003|500|511|521)|ORA-(?:03113|03114|03135|12537|12547|12570|12571))\b", str(message)))
         if broken and connection:
             try: connection.close()
             except Exception: pass
             session[connection_key] = None
+            session.setdefault("dbms_output_enabled", {})[connection_key] = {"enabled": False}
         elif connection and connection_key == "editor":
             try: connection.rollback()
             except Exception: pass
@@ -874,10 +928,12 @@ def _record_compiler_query(request, sql, connection_key, status, duration_ms, ro
         if input_method not in {"typed", "pasted", "file", "history_recall", "mixed", "internal_copy"}:
             input_method = ""
         input_source_map = _validated_input_source_map(edit_source.get("inputSourceMap", []), 0, min(len(str(sql)), MAX_BODY))
+        pasted_texts = _validated_pasted_texts(edit_source.get("pasteTexts", []))
         history_record = CompilerQueryHistory.objects.create(
             student=request.user, source=source, sql=str(sql)[:MAX_BODY], status=status,
             duration_ms=elapsed, row_count=rows, message=str(message or "")[:4000],
-            input_method=input_method, input_source_map=input_source_map, **edit_metrics,
+            input_method=input_method, input_source_map=input_source_map,
+            pasted_texts=pasted_texts, **edit_metrics,
         )
         _history_archive_record(history_record)
         attendance_id = request.session.get("attendance_session_id")
@@ -1019,6 +1075,7 @@ def compiler_history(request):
         if role == "TEACHER":
             item.update({"typedChars": record.typed_chars, "pastedChars": record.pasted_chars,
                          "pasteCount": record.paste_count, "editsAfterPaste": record.edits_after_paste})
+            item["pastedTexts"] = record.pasted_texts
         records_payload.append(item)
     return JsonResponse({
         "classes": _history_classes(request.user) if role == "TEACHER" else [],
@@ -1199,15 +1256,16 @@ def compiler_settings(request):
 def compiler_shared_code(request):
     if not same_origin(request): return json_error("Cross-origin API requests are blocked.", 403)
     if not request.user.is_authenticated: return json_error("Sign in to view code shared with you.", 401)
-    from .models import SharedCompilerCode
+    from .models import Enrollment, SharedCompilerCode
     from .portal_views import _active_portal_role
     if _active_portal_role(request) != "STUDENT": return json_error("Shared student code is available to student accounts.", 403)
+    enrolled_class_ids = Enrollment.objects.filter(student=request.user, active=True).values("class_section_id")
     records = SharedCompilerCode.objects.filter(published=True).filter(
         Q(all_students=True)
         | Q(student=request.user)
-        | Q(class_section__enrollments__student=request.user, class_section__enrollments__active=True)
-        | Q(lab__class_section__enrollments__student=request.user, lab__class_section__enrollments__active=True)
-    ).select_related("created_by").distinct().order_by("-created_at")[:50]
+        | Q(class_section_id__in=Subquery(enrolled_class_ids))
+        | Q(lab__class_section_id__in=Subquery(enrolled_class_ids))
+    ).select_related("created_by").order_by("-created_at")[:50]
     return JsonResponse({"items": [{
         "id": item.pk,
         "title": item.title,
@@ -1259,9 +1317,14 @@ def compiler_history_clear_scope(request):
 
 
 def _editor_share_payload(share, student=None):
+    from django.core.cache import cache
+    viewers = cache.get(f"remote-sync:{share.student_id}", {})
+    active_teachers = [value[0] for value in viewers.values() if value[1] > timezone.now().timestamp() - 15]
     requesting_teacher = share.edit_permission_requested_by
     return {
         "studentId": share.student_id,
+        "syncConnected": bool(active_teachers),
+        "syncTeachers": active_teachers,
         "studentName": (student.get_full_name() or student.username) if student else "",
         "mode": share.access_mode,
         "editorText": share.editor_text,
@@ -1286,6 +1349,7 @@ def compiler_editor_share(request, student_id=None):
     from .portal_views import _active_portal_role
     role = _active_portal_role(request)
     CompilerEditorShare.objects.filter(
+        student_id=request.user.pk if role == 'STUDENT' else student_id,
         access_mode=CompilerEditorShare.AccessMode.STATEMENT,
         updated_at__lt=timezone.now() - timedelta(minutes=2),
     ).update(access_mode=CompilerEditorShare.AccessMode.PRIVATE, statement_snapshot_ready=False)
@@ -1298,6 +1362,10 @@ def compiler_editor_share(request, student_id=None):
         student = PortalUser.objects.filter(pk__in=_teacher_student_ids(request.user), role=PortalUser.Role.STUDENT).filter(pk=student_id).first()
         if not student: return json_error("Student is not available in your activity scope.", 403)
         share, _ = CompilerEditorShare.objects.get_or_create(student=student)
+        from django.core.cache import cache
+        viewers = cache.get(f"remote-sync:{student.pk}", {})
+        viewers[str(request.user.pk)] = (request.user.get_full_name() or request.user.username, timezone.now().timestamp())
+        cache.set(f"remote-sync:{student.pk}", viewers, 30)
         return JsonResponse(_editor_share_payload(share, student))
     try: payload = read_json(request)
     except ValueError as exc: return json_error(exc, 400)
@@ -1398,6 +1466,14 @@ def compiler_editor_share(request, student_id=None):
         student = PortalUser.objects.filter(pk__in=_teacher_student_ids(request.user), role=PortalUser.Role.STUDENT).filter(pk=student_id).first()
         if not student: return json_error("Student is not available in your activity scope.", 403)
         share, _ = CompilerEditorShare.objects.get_or_create(student=student)
+        if payload.get("action") == "disconnect_sync":
+            from django.core.cache import cache
+            viewers = cache.get(f"remote-sync:{student.pk}", {})
+            viewers.pop(str(request.user.pk), None)
+            cache.set(f"remote-sync:{student.pk}", viewers, 30)
+            from .models import CompilerRemoteTerminalCommand
+            CompilerRemoteTerminalCommand.objects.filter(student=student, teacher=request.user, status="queued").update(status="expired", completed_at=timezone.now(), error="Teacher disconnected remote sync.")
+            return JsonResponse({"disconnected": True})
         if payload.get("action") == "request_edit_permission":
             age = timezone.now() - share.updated_at
             has_edit_permission = share.access_mode == CompilerEditorShare.AccessMode.ALWAYS or (share.access_mode == CompilerEditorShare.AccessMode.SESSION and age <= timedelta(minutes=2)) or (share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and share.statement_snapshot_ready and age <= timedelta(minutes=2))
@@ -1451,6 +1527,17 @@ def _remote_terminal_teacher_access(request, student_id, *, require_edit=True):
     return student, share, None
 
 
+def _expire_abandoned_remote_commands(student):
+    from .models import CompilerRemoteTerminalCommand
+    CompilerRemoteTerminalCommand.objects.filter(
+        student=student, status=CompilerRemoteTerminalCommand.Status.RUNNING,
+        started_at__lt=timezone.now() - timedelta(minutes=15),
+    ).update(
+        status=CompilerRemoteTerminalCommand.Status.EXPIRED, completed_at=timezone.now(),
+        error="The student compiler did not return a result. This command was not replayed; check the student terminal before submitting it again.",
+    )
+
+
 def _remote_terminal_payload(command):
     if not command:
         return {"command": None}
@@ -1473,6 +1560,7 @@ def compiler_remote_terminal(request, student_id):
     from .models import CompilerRemoteTerminalCommand
     student, share, error = _remote_terminal_teacher_access(request, student_id, require_edit=request.method == "POST")
     if error: return error
+    _expire_abandoned_remote_commands(student)
     if request.method == "GET":
         CompilerRemoteTerminalCommand.objects.filter(
             student=student, teacher=request.user, status=CompilerRemoteTerminalCommand.Status.QUEUED,
@@ -1522,6 +1610,7 @@ def compiler_remote_terminal_pending(request):
     from .models import CompilerRemoteTerminalCommand
     from .portal_views import _active_portal_role
     if _active_portal_role(request) != "STUDENT": return json_error("Only students can receive remote commands.", 403)
+    _expire_abandoned_remote_commands(request.user)
     now = timezone.now()
     with transaction.atomic():
         CompilerRemoteTerminalCommand.objects.filter(
@@ -1552,10 +1641,16 @@ def compiler_remote_terminal_complete(request, command_id):
     try: payload = read_json(request)
     except ValueError as exc: return json_error(exc, 400)
     with transaction.atomic():
-        command = CompilerRemoteTerminalCommand.objects.select_for_update().filter(
-            pk=command_id, student=request.user, status=CompilerRemoteTerminalCommand.Status.RUNNING,
-        ).first()
-        if not command: return json_error("This remote command is no longer running.", 409)
+        try:
+            command = CompilerRemoteTerminalCommand.objects.select_for_update().get(
+                pk=command_id, student=request.user,
+            )
+        except CompilerRemoteTerminalCommand.DoesNotExist:
+            return json_error("This remote command is no longer running.", 409)
+        if command.status in (CompilerRemoteTerminalCommand.Status.COMPLETED, CompilerRemoteTerminalCommand.Status.FAILED):
+            return JsonResponse(_remote_terminal_payload(command))
+        if command.status != CompilerRemoteTerminalCommand.Status.RUNNING:
+            return json_error("This remote command is no longer running.", 409)
         command.output = str(payload.get("output") or "")[:20000]
         command.error = str(payload.get("error") or "")[:5000]
         command.execution_finished = payload.get("executed") is True
@@ -1592,6 +1687,8 @@ def list_objects(request):
     constraint_scope = (f" AND (table_name IN ({placeholders}) OR constraint_name IN ({placeholders}))" if names else "")
     try:
         connection = open_oracle_connection(connect_options(settings_data))
+        # Dictionary queries can exceed the shorter interactive SQL timeout.
+        connection.call_timeout = ORACLE_METADATA_TIMEOUT_MS
         with connection.cursor() as cursor:
             tune_oracle_cursor(cursor)
             cursor.execute(f"SELECT owner, object_name, object_type, status, created FROM all_objects WHERE object_type IN ('TABLE','VIEW','MATERIALIZED VIEW','INDEX','SEQUENCE','PROCEDURE','FUNCTION','PACKAGE','TRIGGER','TYPE','SYNONYM') AND {owner_filter}{object_scope} ORDER BY CASE WHEN owner = USER THEN 0 ELSE 1 END, owner, object_type, object_name FETCH FIRST 4000 ROWS ONLY", binds)

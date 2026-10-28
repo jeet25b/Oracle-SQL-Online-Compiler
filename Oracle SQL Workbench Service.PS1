@@ -1,6 +1,6 @@
 param(
-  [ValidateSet('EnsureService', 'Status', 'RestartAndOpen', 'StartAndOpen', 'RestartOnly', 'StartOnly', 'Stop', 'Open', 'Logs')]
-  [string]$Action = 'StartAndOpen'
+  [ValidateSet('EnsureService', 'Status', 'Health', 'RestartOnly', 'StartOnly', 'Stop', 'Open', 'Logs')]
+  [string]$Action = 'StartOnly'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -98,6 +98,8 @@ function Stop-Workbench {
   }
   if (-not $ownedProcessIds) { return $false }
   foreach ($processId in ($ownedProcessIds | Select-Object -Unique)) {
+    $monitorStopMarker = Join-Path $projectPath ".server-monitor-stop-$processId"
+    Set-Content -LiteralPath $monitorStopMarker -Value 'intentional shutdown' -Encoding ascii
     try { Stop-Process -Id $processId -Force -ErrorAction Stop } catch {}
   }
   for ($i=0; $i -lt 20; $i++) { Start-Sleep -Milliseconds 250; if (-not (Get-WorkbenchListeners)) { return $true } }
@@ -188,23 +190,30 @@ try {
       if (Test-WorkbenchResponding) { Write-Host 'SERVER STATUS: RUNNING' -ForegroundColor Green }
       else { Write-Host 'SERVER STATUS: STOPPED' -ForegroundColor Red }
     }
+    'Health' {
+      $healthTimer = [Diagnostics.Stopwatch]::StartNew()
+      $healthy = Test-WorkbenchResponding
+      $healthTimer.Stop()
+      $listenerIds = @(Get-WorkbenchListenerProcessIds | Select-Object -Unique)
+      Write-Host ('Checked at: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))
+      Write-Host "Application: $webUrl"
+      Write-Host "Health endpoint: $probeUrl"
+      if ($healthy) {
+        Write-Host 'SERVER STATUS: RUNNING AND RESPONDING' -ForegroundColor Green
+        Write-Host ('Health check time: {0} ms' -f $healthTimer.ElapsedMilliseconds)
+      } elseif ($listenerIds.Count -gt 0) {
+        Write-Host 'SERVER STATUS: PORT OPEN, HEALTH CHECK FAILED' -ForegroundColor Yellow
+        Write-Host 'A process is listening, but the portal did not return a valid health response. Check Logs.'
+      } else {
+        Write-Host 'SERVER STATUS: STOPPED / NO LISTENER' -ForegroundColor Red
+      }
+      if ($listenerIds.Count -gt 0) { Write-Host ('Listening process ID(s): ' + ($listenerIds -join ', ')) }
+      if ($scheme -eq 'https') { Write-Host 'HTTPS probe uses the local address and skips certificate trust validation.' }
+      Write-Host 'This checks the web service; it does not test a student Oracle login.'
+    }
     'EnsureService' {
       Start-Workbench
       Write-Host "SERVICE READY at $webUrl (browser not opened)" -ForegroundColor Green
-    }
-    'RestartAndOpen' {
-      Write-Host 'Restarting Oracle SQL Workbench service...' -ForegroundColor Yellow
-      if (Get-WorkbenchListeners) {
-        if (-not (Stop-Workbench)) { throw 'Could not stop the service process owned by this project.' }
-      }
-      Start-Workbench
-      Write-Host "SERVICE RESTARTED at $webUrl" -ForegroundColor Green
-      Open-WorkbenchPage
-    }
-    'StartAndOpen' {
-      Start-Workbench
-      Write-Host "SERVICE RUNNING at $webUrl" -ForegroundColor Green
-      Open-WorkbenchPage
     }
     'RestartOnly' {
       Write-Host 'Restarting Oracle SQL Workbench service...' -ForegroundColor Yellow

@@ -3,12 +3,8 @@
 {% block page_heading %}Remote code{% endblock %}
 {% block page_intro %}View or update a student’s shared SQLCL terminal and SQL WorkSheet editor.{% endblock %}
 {% block dashboard_content %}
-<section class="activity-toolbar content-card remote-code-toolbar" aria-label="Remote code controls">
-  <label>Student<select id="remoteCodeStudent"><option value="">Choose a student</option>{% for student in remote_code_students %}<option value="{{ student.id }}">{{ student.get_full_name|default:student.username }}{% if student.student_number %} · {{ student.student_number }}{% endif %}</option>{% endfor %}</select></label>
-  <button class="dashboard-help-button" id="remoteCodeRefresh" type="button" title="Sync pending teacher edits, or refresh from the student editor" disabled>↻ Refresh / sync</button>
-</section>
 <section class="content-card remote-code-card">
-  <div class="section-heading"><div><p class="section-kicker">REMOTE CODE</p><h2 id="remoteCodeStudentHeading">Student editor</h2><p class="activity-footnote" id="remoteCodeAccess">Select a student. Editors are viewable; student permission is required to edit.</p></div><span class="count-pill" id="remoteCodeRevision"></span></div>
+  <div class="section-heading"><div><p class="section-kicker">REMOTE CODE</p><h2 id="remoteCodeStudentHeading">Student editor</h2><p class="activity-footnote" id="remoteCodeAccess">Select a student. Editors are viewable; student permission is required to edit.</p></div><div class="remote-code-heading-actions"><label class="remote-code-student-search" for="remoteCodeStudentSearch">Choose or search student<input id="remoteCodeStudentSearch" type="search" data-search-suggestions placeholder="Type a student name or ID…" autocomplete="off"></label><select id="remoteCodeStudent" aria-hidden="true" tabindex="-1" hidden><option value="">Choose a student</option>{% for student in remote_code_students %}<option value="{{ student.id }}">{{ student.get_full_name|default:student.username }}{% if student.student_number %} · {{ student.student_number }}{% endif %}</option>{% endfor %}</select><button class="dashboard-help-button" id="remoteCodeRefresh" type="button" title="Sync pending teacher edits, or refresh from the student editor" disabled>↻ Refresh / sync</button><button class="dashboard-help-button" id="remoteCodeSyncToggle" type="button" disabled>Disconnect sync</button><span class="count-pill" id="remoteCodeRevision"></span><button class="mode-toggle" type="button" data-theme-toggle aria-pressed="false" aria-label="Switch to dark mode">☾ Dark</button><button class="dashboard-help-button" id="remoteCodeFullscreen" type="button" aria-pressed="false" title="Show only the Remote Code panel full screen">⛶ Full screen</button></div></div>
   <div class="remote-code-editor-bar"><div class="remote-code-tabs" role="tablist" aria-label="Student editors"><button class="active" type="button" role="tab" aria-selected="true" data-remote-editor="sqlplus">SQLCL Terminal</button><button type="button" role="tab" aria-selected="false" data-remote-editor="plsql">SQL WorkSheet Editor</button></div><button class="dashboard-help-button remote-code-request" id="remoteCodeRequest" type="button" hidden title="Request permission to edit both student editors">Request edit access for both editors</button></div>
   <label class="remote-code-label" for="remoteCodeText" id="remoteCodeLabel">SQLCL Terminal code</label>
   <textarea id="remoteCodeText" spellcheck="false" aria-label="Student SQLCL terminal code" placeholder="Choose a student to view their editor." readonly disabled></textarea>
@@ -40,37 +36,45 @@
   {% if shared_code_records %}<div class="remote-shared-list"><h3>Recently shared</h3>{% for item in shared_code_records %}<article><strong>{{ item.title }}</strong><span>{% if item.all_students %}All students{% elif item.student_id %}{{ item.student.get_full_name|default:item.student.username }}{% elif item.lab_id %}{{ item.lab.class_section.course.code }} · {{ item.lab.class_section.name }} · {{ item.lab.name }}{% else %}{{ item.class_section.course.code }} · {{ item.class_section.name }}{% endif %} · {{ item.get_editor_kind_display }} · {{ item.created_at|date:"M j, Y g:i A" }}</span></article>{% endfor %}</div>{% endif %}
 </section>
 <style>
-  .remote-code-toolbar{display:flex;align-items:flex-end;gap:10px;margin-bottom:14px;padding:14px 16px}
-  .remote-code-toolbar label{display:grid;gap:5px;color:#6f8191;font-size:10px;font-weight:600;min-width:min(360px,100%)}
-  .remote-code-toolbar select{height:36px;padding:0 10px;border:1px solid #dce5eb;border-radius:8px;color:#33495e;background:#fff;font:11px "DM Sans",sans-serif}
+  .remote-code-toolbar{display:flex;align-items:flex-end;gap:10px;margin:0 0 14px;padding:0;border:0;background:transparent;box-shadow:none}
+  .remote-code-toolbar label{display:grid;gap:5px;color:var(--muted,#91a3bd);font-size:10px;font-weight:600;min-width:min(360px,100%)}
+  .remote-code-toolbar input{height:36px;width:100%;padding:0 10px;border:1px solid var(--border,#2a3d56);border-radius:8px;color:var(--text,#edf3ff);background:var(--surface,#0e1a2a);font:11px "DM Sans",sans-serif}
   .remote-code-toolbar button{height:36px;padding:0 11px;font-size:10px}
   .remote-code-card{padding:16px}.remote-code-card .section-heading{margin-bottom:14px}
+  .remote-code-heading-actions{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}.remote-code-heading-actions button{white-space:nowrap}
+  .remote-code-student-search{display:grid;gap:4px;color:var(--muted,#91a3bd);font-size:9px;font-weight:600}
+  .remote-code-student-search input{width:min(240px,24vw);height:36px;padding:0 10px;border:1px solid var(--line,#dce4eb);border-radius:8px;color:var(--ink,#16243a);background:var(--paper,#fff);font:11px "DM Sans",sans-serif}
+  .remote-code-card:fullscreen{width:100vw;height:100vh;max-height:100vh;overflow:auto;padding:20px;border:0;border-radius:0;background:var(--canvas,#f5f7fa);color:var(--ink,#16243a)}
+  .remote-code-card:fullscreen #remoteCodeText{min-height:0;height:clamp(180px,30vh,420px);resize:vertical}
+  .remote-code-card.remote-code-fullscreen-fallback{position:fixed;inset:0;z-index:10000;overflow:auto;padding:20px;border:0;border-radius:0;background:var(--canvas,#f5f7fa);color:var(--ink,#16243a)}
+  .remote-code-card.remote-code-fullscreen-fallback #remoteCodeText{min-height:0;height:clamp(180px,30vh,420px);resize:vertical}
   .remote-code-tabs{display:flex;gap:8px;border-bottom:1px solid var(--border,#2a3d56);margin-bottom:12px}
   .remote-code-editor-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border,#2a3d56);margin-bottom:12px}.remote-code-editor-bar .remote-code-tabs{border:0;margin:0}.remote-code-request{white-space:nowrap;font-size:10px;padding:8px 10px}
   .remote-code-tabs button{border:0;border-bottom:2px solid transparent;padding:10px 12px;background:transparent;color:var(--muted,#91a3bd);cursor:pointer;font:600 11px "DM Sans",sans-serif}
-  .remote-code-tabs button.active{border-color:var(--accent,#7c5cff);color:var(--text,#edf3ff)}
+  .remote-code-tabs button.active{border-color:var(--accent-strong);color:var(--text,#edf3ff)}
   .remote-code-label{display:block;margin:0 0 7px;color:var(--muted,#91a3bd);font-size:10px}
-  #remoteCodeText{display:block;width:100%;min-height:min(58vh,640px);resize:vertical;padding:14px;border:1px solid var(--border,#2a3d56);border-radius:9px;background:#081321;color:var(--text,#dce6f4);font:12px/1.65 "Cascadia Code",Consolas,monospace;tab-size:2;white-space:pre;overflow:auto}
+  #remoteCodeText{display:block;width:100%;box-sizing:border-box;min-height:180px;height:clamp(180px,30vh,420px);resize:vertical;padding:14px;border:1px solid var(--line,#dce4eb);border-radius:9px;background:var(--paper,#fff);color:var(--ink,#16243a);font:12px/1.65 "Cascadia Code",Consolas,monospace;tab-size:2;white-space:pre;overflow:auto}
   #remoteCodeText:read-only{opacity:.82}#remoteCodeText:disabled{cursor:not-allowed}
-  .remote-terminal-result{margin-top:12px;padding:12px;border:1px solid var(--border,#2a3d56);border-radius:9px;background:rgba(8,19,33,.55)}
+  .remote-terminal-result{box-sizing:border-box;min-height:180px;height:clamp(180px,30vh,420px);overflow:auto;resize:vertical;margin-top:12px;padding:12px;border:1px solid var(--line,#dce4eb);border-radius:9px;background:var(--paper,#fff)}
   .remote-worksheet-actions{display:flex;gap:8px;margin-top:10px}.remote-worksheet-actions[hidden]{display:none}
   .remote-worksheet-actions button{height:34px;padding:0 12px;font-size:10px}
-  .remote-terminal-result-heading{display:flex;justify-content:space-between;gap:12px;color:var(--text,#edf3ff);font-size:11px}
-  .remote-terminal-result-heading span{color:var(--muted,#91a3bd)}
-  .remote-terminal-result pre{margin:9px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text,#dce6f4);font:11px/1.5 "Cascadia Code",Consolas,monospace}
-  #remoteTerminalCommandOutput{color:var(--muted,#91a3bd)}
+  .remote-terminal-result-heading{display:flex;justify-content:space-between;gap:12px;color:var(--ink,#16243a);font-size:11px}
+  .remote-terminal-result-heading span{color:var(--muted,#697990)}
+  .remote-terminal-result pre{margin:9px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink,#16243a);font:11px/1.5 "Cascadia Code",Consolas,monospace}
+  #remoteTerminalCommandOutput{color:var(--muted,#697990)}
   .remote-share-code-card{margin-top:14px}.remote-share-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .remote-share-form label{display:grid;gap:5px;color:var(--muted,#91a3bd);font-size:10px;font-weight:600}
   .remote-share-form input,.remote-share-form select,.remote-share-form textarea{width:100%;padding:9px 10px;border:1px solid var(--border,#2a3d56);border-radius:8px;background:var(--surface,#0e1a2a);color:var(--text,#edf3ff);font:11px "DM Sans",sans-serif}
   .remote-share-form textarea{font:12px/1.6 "Cascadia Code",Consolas,monospace;resize:vertical}.remote-share-wide{grid-column:1/-1}
-  .remote-share-status{font-size:11px}.remote-share-status.success{color:#28c89a}.remote-share-status.error{color:#ff7b8b}
+  .remote-share-status{font-size:11px}.remote-share-status.success{color:var(--status-success)}.remote-share-status.error{color:var(--status-error)}
   .remote-shared-list{margin-top:14px}.remote-shared-list h3{font-size:12px}.remote-shared-list article{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--border,#2a3d56);font-size:11px}.remote-shared-list article span{color:var(--muted,#91a3bd)}
   .remote-code-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}
   .remote-code-footer p{margin:0;color:var(--muted,#91a3bd);font-size:10px}.remote-code-toolbar button:disabled{opacity:.55;cursor:not-allowed}
-  @media(max-width:650px){.remote-code-footer{align-items:flex-start;flex-direction:column}.remote-code-toolbar label{flex:1}}
+  @media(max-width:850px){.remote-code-heading-actions{justify-content:flex-start}.remote-code-student-search input{width:min(240px,55vw)}}
+  @media(max-width:650px){.remote-code-footer{align-items:flex-start;flex-direction:column}.remote-code-card>.section-heading{align-items:flex-start;flex-direction:column}.remote-code-heading-actions{width:100%;align-items:flex-start}.remote-code-student-search{flex:1}.remote-code-student-search input{width:100%}}
   @media(max-width:650px){.remote-code-editor-bar{align-items:flex-start;flex-direction:column}.remote-code-editor-bar .remote-code-tabs{width:100%;overflow:auto}.remote-code-request{margin-bottom:8px}}
 </style>
-<script src="/portal/assets/editor-assist.js" defer></script><script src="/portal/assets/workspace-core.js" defer></script><script src="/portal/assets/teacher-remote-code.js?v=20261027-terminal-history-recall" defer></script>
+<script src="/portal/assets/editor-assist.js" defer></script><script src="/portal/assets/workspace-core.js" defer></script><script src="/portal/assets/teacher-remote-code.js?v=20261028-search-suggestions" defer></script>
 <script>
   (()=>{const audience=document.querySelector('#remoteCodeAudience');if(!audience)return;const sync=()=>document.querySelectorAll('[data-code-audience]').forEach(group=>{const active=group.dataset.codeAudience===audience.value;group.hidden=!active;const select=group.querySelector('select');select.disabled=!active;select.required=active;});audience.addEventListener('change',sync);sync();})();
 </script>

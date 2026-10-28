@@ -27,9 +27,9 @@
   </section>
 </div>
 <style>
-  .shared-code-list{display:grid;gap:8px}.shared-code-card{padding:10px;border:1px solid var(--border,#2a3d56);border-radius:9px;background:var(--surface,#0e1a2a)}
+  .shared-code-list{display:grid;gap:8px}.shared-code-card{padding:10px;border:1px solid var(--border,#2a3d56);border-radius:9px;background:var(--surface);color:var(--text)}
   .shared-code-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.shared-code-heading>div{display:grid;gap:3px}.shared-code-heading strong{font-size:12px}.shared-code-heading span{color:var(--muted,#91a3bd);font-size:10px}.shared-code-heading button{font-size:10px;padding:7px 10px}
-  .shared-code-card details{margin-top:8px}.shared-code-card summary{cursor:pointer;color:var(--accent,#7c5cff);font-size:10px}.shared-code-card pre{max-height:280px;overflow:auto;padding:10px;border-radius:7px;background:#081321;color:var(--text,#dce6f4);font:11px/1.55 "Cascadia Code",Consolas,monospace;white-space:pre-wrap}
+  .shared-code-card details{margin-top:8px}.shared-code-card summary{cursor:pointer;color:var(--accent-strong);font-size:10px}.shared-code-card pre{max-height:280px;overflow:auto;padding:10px;border-radius:7px;background:var(--surface-2);color:var(--text);font:11px/1.55 "Cascadia Code",Consolas,monospace;white-space:pre-wrap}
 </style>
 <script>
   document.querySelectorAll('[data-copy-shared-code]').forEach(button=>button.addEventListener('click',async()=>{const code=button.closest('.shared-code-card')?.querySelector('pre')?.textContent||'';try{await navigator.clipboard.writeText(code);button.textContent='Copied';setTimeout(()=>button.textContent='Copy code',1600)}catch{button.textContent='Copy unavailable';setTimeout(()=>button.textContent='Copy code',1800)}}));

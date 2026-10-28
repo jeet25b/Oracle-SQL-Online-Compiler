@@ -6,8 +6,73 @@
   const dateFrom = $('#attendanceDateFrom');
   const dateTo = $('#attendanceDateTo');
   const search = $('#attendanceSearch');
+  const searchSuggestions = window.PortalSearchSuggestions?.register(search);
   const body = $('#attendanceTable');
   let report = null;
+  async function loadSessionLimit() {
+    const params = new URLSearchParams({ classId: classFilter.value, labId: labFilter.value });
+    const target = $('#sessionResetStudent');
+    const previous = target.value;
+    target.replaceChildren(new Option('Choose student', ''));
+    (report?.students || []).forEach(student => target.add(new Option(`${student.studentName} · ${student.studentNumber || ''}`, student.studentId)));
+    target.value = previous;
+    if (!classFilter.value && !labFilter.value) { $('#sessionLimitStatus').textContent = 'Choose a class or lab above.'; return; }
+    try {
+      const data = await readJson(await fetch(`/api/teacher/session-limits?${params}`, { credentials: 'same-origin', cache: 'no-store' }));
+      $('#sessionLimitMinutes').value = data.limitMinutes;
+      $('#sessionLimitStatus').textContent = `${data.limitMinutes} minutes per day${data.inherited ? ' · inherited from class' : ''}.`;
+    } catch (error) { $('#sessionLimitStatus').textContent = error.message; }
+  }
+  async function changeSessionLimit(action) {
+    const scope = $('#sessionResetScope').value;
+    const payload = { action, classId: classFilter.value || labFilter.selectedOptions[0]?.dataset.classId, labId: labFilter.value, limitMinutes: $('#sessionLimitMinutes').value };
+    if (action === 'reset') {
+      payload.scope = scope;
+      if (scope === 'lab' && !payload.labId) { $('#sessionLimitStatus').textContent = 'Choose a lab first.'; return; }
+      if (scope === 'class') payload.labId = '';
+      if (scope === 'student') payload.studentId = $('#sessionResetStudent').value;
+    }
+    try {
+      const data = await readJson(await fetch('/api/teacher/session-limits', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() }, body: JSON.stringify(payload) }));
+      $('#sessionLimitStatus').textContent = action === 'reset' ? `Today's allowance restored for ${data.resetCount} student(s).` : `Daily allowance saved: ${data.limitMinutes} minutes.`;
+    } catch (error) { $('#sessionLimitStatus').textContent = error.message; }
+  }
+  $('#saveSessionLimit').addEventListener('click', () => changeSessionLimit('save'));
+  $('#resetSessionLimit').addEventListener('click', () => changeSessionLimit('reset'));
+  const view = $('#attendanceView');
+  let dailySort = { key: 'date', direction: -1 };
+  function filteredStudents() {
+    const query = search.value.trim().toLocaleLowerCase();
+    return (report?.students || []).filter((student) => !query || `${student.studentName} ${student.studentNumber || ''}`.toLocaleLowerCase().includes(query));
+  }
+  function dailyRows() {
+    return filteredStudents().flatMap((student) => (student.dailyAttendance || []).map((day) => ({ ...day, studentName: student.studentName, studentNumber: student.studentNumber })))
+      .sort((a, b) => {
+        const left = a[dailySort.key] ?? ''; const right = b[dailySort.key] ?? '';
+        const order = typeof left === 'number' ? left - right : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
+        return order * dailySort.direction || b.date.localeCompare(a.date) || a.studentName.localeCompare(b.studentName);
+      });
+  }
+  function renderDaily() {
+    const dailyBody = $('#attendanceDailyTable');
+    dailyBody.replaceChildren();
+    const fragment = document.createDocumentFragment();
+    for (const row of dailyRows()) {
+      const tr = document.createElement('tr');
+      const values = [row.date, `${row.studentName} ${row.studentNumber || ''}`, row.status,
+        formatTime(row.firstLogin), row.openSession ? 'Session open' : `${formatTime(row.lastLogout)}${row.logoutEstimated ? ' · estimated' : ''}`,
+        row.status === 'Absent' ? '—' : row.arrivalStatus === 'late' ? 'Late' : row.arrivalStatus === 'on_time' ? 'On time' : 'Set start time',
+        row.status === 'Absent' ? '—' : formatDuration(row.durationSeconds)];
+      values.forEach((value) => { const td = document.createElement('td'); td.textContent = value; tr.append(td); });
+      fragment.append(tr);
+    }
+    if (!fragment.childNodes.length) {
+      const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 7; td.textContent = 'No attendance records match the selected dates and students.'; tr.append(td); fragment.append(tr);
+    }
+    dailyBody.append(fragment);
+    $('#attendanceDailyWrap').hidden = view.value !== 'daily';
+    $('#attendanceSummaryWrap').hidden = view.value === 'daily';
+  }
   let sort = { key: 'studentName', direction: 1 };
   function enableColumnResizing(table, storageKey) {
     if (!table?.tHead?.rows[0]) return;
@@ -73,6 +138,7 @@
   }
   function render() {
     if (!report) return;
+    renderDaily();
     const query = search.value.trim().toLocaleLowerCase();
     const rows = [...(report.students || [])].filter((student) => !query || `${student.studentName} ${student.studentNumber || ''}`.toLocaleLowerCase().includes(query));
     rows.sort((a, b) => {
@@ -110,8 +176,8 @@
     const params = new URLSearchParams({ from: dateFrom.value || toInputDate(today), to: dateTo.value || toInputDate(today) });
     if (classFilter.value) params.set('class', classFilter.value);
     if (labFilter.value) params.set('lab', labFilter.value);
-    try { report = await readJson(await fetch(`/api/teacher/attendance-report?${params}`, { credentials: 'same-origin', cache: 'no-store' })); render(); }
-    catch (error) { body.replaceChildren(); const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 7; td.className = 'activity-empty error'; td.textContent = error.message; tr.append(td); body.append(tr); $('#attendanceUpdated').textContent = 'Attendance could not be loaded.'; }
+    try { report = await readJson(await fetch(`/api/teacher/attendance-report?${params}`, { credentials: 'same-origin', cache: 'no-store' })); searchSuggestions?.setItems((report.students || []).map((student) => ({ label: student.studentName, detail: student.studentNumber, value: student.studentName }))); render(); await loadSessionLimit(); }
+    catch (error) { report = null; for (const target of [body, $('#attendanceDailyTable')]) { target.replaceChildren(); const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 7; td.className = 'activity-empty error'; td.textContent = error.message; tr.append(td); target.append(tr); } $('#attendanceUpdated').textContent = 'Attendance could not be loaded.'; }
   }
   document.querySelectorAll('[data-attendance-sort]').forEach((button) => button.addEventListener('click', () => {
     if (sort.key === button.dataset.attendanceSort) sort.direction *= -1; else sort = { key: button.dataset.attendanceSort, direction: 1 };
@@ -137,10 +203,23 @@
   labFilter.addEventListener('change', refresh);
   dateFrom.addEventListener('change', refresh); dateTo.addEventListener('change', refresh);
   search.addEventListener('input', render);
+  view.addEventListener('change', render);
+  document.querySelectorAll('[data-attendance-daily-sort]').forEach((button) => button.addEventListener('click', () => {
+    const key = button.dataset.attendanceDailySort;
+    dailySort = { key, direction: dailySort.key === key ? -dailySort.direction : 1 };
+    document.querySelectorAll('[data-attendance-daily-sort]').forEach((item) => {
+      const active = item === button;
+      item.closest('th').setAttribute('aria-sort', active ? (dailySort.direction > 0 ? 'ascending' : 'descending') : 'none');
+      item.textContent = `${item.dataset.label}${active ? (dailySort.direction > 0 ? ' ↑' : ' ↓') : ''}`;
+    });
+    render();
+  }));
   $('#attendanceRefresh').addEventListener('click', async () => { try { await loadLabs(); } catch {} await refresh(); });
   $('#attendanceExport').addEventListener('click', () => {
     if (!report) return;
-    const lines = [['Student','Student ID','Present days','Eligible weekdays','Attendance %','Last login','Last logout','Arrival','On time days','Late days','Duration seconds','Last present'], ...(report.students || []).map((student) => [student.studentName,student.studentNumber,student.presentDays,student.eligibleDays,student.attendancePercent,student.lastLogin,student.lastLogout,student.arrivalStatus,student.onTimeDays,student.lateDays,student.durationSeconds,student.lastPresent])];
+    const lines = view.value === 'daily'
+      ? [['Date','Student','Student ID','Status','First login','Last logout','Session open','Logout estimated','Arrival','Duration seconds'], ...dailyRows().map((row) => [row.date,row.studentName,row.studentNumber,row.status,row.firstLogin,row.lastLogout,row.openSession,row.logoutEstimated,row.arrivalStatus,row.durationSeconds])]
+      : [['Student','Student ID','Present days','Eligible weekdays','Attendance %','Last login','Last logout','Arrival','On time days','Late days','Duration seconds','Last present'], ...filteredStudents().map((student) => [student.studentName,student.studentNumber,student.presentDays,student.eligibleDays,student.attendancePercent,student.lastLogin,student.lastLogout,student.arrivalStatus,student.onTimeDays,student.lateDays,student.durationSeconds,student.lastPresent])];
     const csv = lines.map((line) => line.map((value) => `"${String(value ?? '').replaceAll('"','""')}"`).join(',')).join('\r\n');
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); link.download = `student-attendance-${dateFrom.value}-${dateTo.value}.csv`; link.click(); URL.revokeObjectURL(link.href);
   });

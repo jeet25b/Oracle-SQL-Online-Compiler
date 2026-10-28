@@ -488,19 +488,17 @@
       }
     });
   });
-  // Keep the login attendance session warm on portal pages and report active vs idle time.
+  // Keep portal presence active while the authenticated page is open, including in the background.
   if (document.body.classList.contains('dashboard-page')) {
-    let lastPortalInteraction = Date.now();
-    const markPortalInteraction = () => { lastPortalInteraction = Date.now(); };
-    ['pointerdown', 'keydown', 'touchstart', 'input'].forEach((name) => document.addEventListener(name, markPortalInteraction, { passive: true }));
     const portalHeartbeat = async () => {
       const csrfCookie = document.cookie.split('; ').find((part) => part.startsWith('ora_csrf='));
       const csrfToken = csrfCookie ? decodeURIComponent(csrfCookie.slice('ora_csrf='.length)) : '';
       try {
-        await fetch('/api/portal/activity/heartbeat', {
+        const response = await fetch('/api/portal/activity/heartbeat', {
           method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-          body: JSON.stringify({ page: 'portal', visible: document.visibilityState === 'visible', active: document.visibilityState === 'visible' && Date.now() - lastPortalInteraction < 60000 })
+          body: JSON.stringify({ page: 'portal', visible: document.visibilityState === 'visible', active: Date.now() - (window.portalLastActivityAt || Date.now()) < 30000 })
         });
+        if (response.status === 401) window.location.replace('/portal/');
       } catch { /* The next heartbeat will restore live presence. */ }
     };
     portalHeartbeat();

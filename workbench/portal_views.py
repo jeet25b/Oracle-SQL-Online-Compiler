@@ -17,7 +17,7 @@ from django.contrib.auth import authenticate, login, logout, password_validation
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.decorators import login_required
 from django.middleware.csrf import get_token
-from django.db.models import Q, Count, Sum, Max
+from django.db.models import Q, Count, Sum, Max, Subquery
 from django.db import IntegrityError, transaction
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -62,10 +62,81 @@ from .models import (
 )
 from .otp_delivery import OTPDeliveryError, send_email_otp, send_whatsapp_otp
 from .account_notifications import notify_account_event
+from .attendance_daily import daily_attendance
+
+
+@login_required(login_url='/portal/')
+@require_http_methods(['GET', 'POST'])
+def teacher_session_limits(request):
+    if _active_portal_role(request) != PortalUser.Role.TEACHER:
+        return JsonResponse({'error': 'Only teachers can manage session limits.'}, status=403)
+    if not _same_origin(request):
+        return JsonResponse({'error': 'Use the portal to manage session limits.'}, status=403)
+    try:
+        data = request.GET if request.method == 'GET' else json.loads(request.body or '{}')
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'error': 'Invalid session limit request.'}, status=400)
+    if not hasattr(data, 'get'):
+        return JsonResponse({'error': 'Invalid session limit request.'}, status=400)
+    try:
+        class_id = int(data.get('classId') or 0)
+        lab_id = int(data.get('labId') or 0)
+        student_id = int(data.get('studentId') or 0)
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'Choose a valid class, lab, or student.'}, status=400)
+    classes = ClassSection.objects.filter(teacher_assignments__teacher=request.user)
+    lab = CompilerLab.objects.filter(pk=lab_id, class_section__in=classes).select_related('class_section').first() if lab_id else None
+    section = lab.class_section if lab else classes.filter(pk=class_id).first()
+    if not section or (lab_id and not lab) or (class_id and section.pk != class_id):
+        return JsonResponse({'error': 'Choose a class or lab assigned to you.'}, status=403)
+    if request.method == 'GET':
+        return JsonResponse({'limitMinutes': lab.daily_session_minutes if lab and lab.daily_session_minutes is not None else section.daily_session_minutes, 'inherited': bool(lab and lab.daily_session_minutes is None)})
+    action = data.get('action')
+    if action == 'save':
+        try:
+            minutes = int(data.get('limitMinutes'))
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'Enter a daily allowance in minutes.'}, status=400)
+        if not 1 <= minutes <= 1440:
+            return JsonResponse({'error': 'Choose between 1 and 1440 minutes.'}, status=400)
+        target = lab or section
+        target.daily_session_minutes = minutes
+        target.save(update_fields=['daily_session_minutes'])
+        AuditEvent.objects.create(actor=request.user, action='session_limit', target=f'{"lab" if lab else "class"}:{target.pk}:{minutes}')
+        return JsonResponse({'ok': True, 'limitMinutes': minutes})
+    if action == 'reset':
+        from .models import StudentDailyAccessReset
+        students = PortalUser.objects.filter(role=PortalUser.Role.STUDENT, pk__in=Enrollment.objects.filter(class_section=section, active=True).values('student_id'))
+        if student_id:
+            students = students.filter(pk=student_id)
+            if not students.exists():
+                return JsonResponse({'error': 'Student is not enrolled in this class.'}, status=403)
+        elif data.get('scope') == 'student':
+            return JsonResponse({'error': 'Choose a student to reset.'}, status=400)
+        now = timezone.now()
+        with transaction.atomic():
+            count = 0
+            for student in students:
+                StudentDailyAccessReset.objects.update_or_create(student=student, day=timezone.localdate(), defaults={'reset_at': now, 'reset_by': request.user})
+                count += 1
+            AuditEvent.objects.create(actor=request.user, action='session_reset', target=f'class:{section.pk}:lab:{lab_id}:student:{student_id}:count:{count}')
+        return JsonResponse({'ok': True, 'resetCount': count})
+    return JsonResponse({'error': 'Choose save or reset.'}, status=400)
+
+
+@require_GET
+def student_session_status(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'sessionExpired': True}, status=401)
+    if hasattr(request, 'student_daily_allowance'):
+        return JsonResponse(request.student_daily_allowance)
+    from .session_policy import daily_allowance
+    attendance = AttendanceSession.objects.filter(pk=request.session.get('attendance_session_id'), user=request.user).select_related('lab__class_section', 'class_section').first()
+    return JsonResponse(daily_allowance(request.user, attendance))
 
 
 PROJECT_DIR = Path(settings.BASE_DIR) / "online-oracle-compiler"
-PORTAL_ASSETS = {"contact-verification.js", "compiler-activity-client.js", "workspace-core.js", "editor-assist.js", "login-autofill.js", "app.js", "styles.css", "dashboard.css", "dashboard.js", "teacher-activity.js", "teacher-attendance.js", "teacher-history.js", "teacher-remote-code.js", "palette.css", "palette.js", "theme.css", "theme.js", "portal-3d.css", "oracle-sql-ide.css", "oracle-sql-ide-extra.css", "oracle-sql-ide-layout.css", "oracle-sql-ide.js", "compiler-icon-controls.css"}
+PORTAL_ASSETS = {"student-session.js", "contact-verification.js", "compiler-activity-client.js", "workspace-core.js", "editor-assist.js", "login-autofill.js", "app.js", "styles.css", "dashboard.css", "dashboard.js", "teacher-activity.js", "teacher-attendance.js", "teacher-history.js", "teacher-remote-code.js", "search-suggestions.js", "palette.css", "palette.js", "theme.css", "theme.js", "theme-controls.css", "theme-controls.js", "portal-3d.css", "oracle-sql-ide.css", "oracle-sql-ide-extra.css", "oracle-sql-ide-layout.css", "oracle-sql-ide.js", "compiler-icon-controls.css"}
 TEMPLATE_ENGINE = Engine(dirs=[str(PROJECT_DIR / "templates")], autoescape=True)
 PORTAL_ROLES = (PortalUser.Role.ADMIN, PortalUser.Role.TEACHER, PortalUser.Role.STUDENT)
 logger = logging.getLogger(__name__)
@@ -121,9 +192,22 @@ def portal_asset(request, asset):
     asset_path = PROJECT_DIR / asset
     if not asset_path.is_file():
         raise Http404
+    from django.utils.cache import get_conditional_response
+    from django.utils.http import http_date
+    stat = asset_path.stat()
+    etag = f'"{stat.st_mtime_ns:x}-{stat.st_size:x}"'
+    conditional = get_conditional_response(request, etag=etag, last_modified=stat.st_mtime)
+    cache_control = 'public, max-age=300' if request.GET.get('v') else 'no-cache'
+    if conditional is not None:
+        conditional['Cache-Control'] = cache_control
+        conditional['ETag'] = etag
+        conditional['Last-Modified'] = http_date(stat.st_mtime)
+        return conditional
     content_type = mimetypes.guess_type(asset)[0] or "application/octet-stream"
     response = FileResponse(asset_path.open("rb"), content_type=content_type)
-    response["Cache-Control"] = "no-cache"
+    response["Cache-Control"] = cache_control
+    response['ETag'] = etag
+    response['Last-Modified'] = http_date(stat.st_mtime)
     return response
 
 
@@ -164,7 +248,13 @@ def portal_login_api(request):
         return JsonResponse({"error": "This account does not have a portal role. Contact your administrator."}, status=403)
 
     old_session_key = request.session.session_key
+    if user.role == PortalUser.Role.STUDENT:
+        from .session_policy import daily_allowance
+        allowance = daily_allowance(user)
+        if allowance['restricted'] and allowance['remainingSeconds'] <= 0:
+            return JsonResponse({'error': 'Your daily portal allowance is used. Ask your teacher to reset it, or return tomorrow.'}, status=403)
     login(request, user)
+    request.session["portal_login_at"] = timezone.now().timestamp()
     request.session.pop("portal_active_role", None)
     request.session.set_expiry(30 * 24 * 60 * 60 if remember else 0)
     if old_session_key and old_session_key != request.session.session_key:
@@ -173,7 +263,34 @@ def portal_login_api(request):
             oracle_state = _oracle_sessions.pop(old_session_key, None)
             if oracle_state:
                 _oracle_sessions[request.session.session_key] = oracle_state
-    attendance = AttendanceSession.objects.create(user=user, source="portal")
+    if user.role == PortalUser.Role.STUDENT:
+        from .models import CompilerActivitySlice
+        with transaction.atomic():
+            locked_user = PortalUser.objects.select_for_update().get(pk=user.pk)
+            previous_key = locked_user.active_student_session_key
+            token = secrets.token_hex(32)
+            locked_user.active_student_session_token = token
+            locked_user.active_student_session_key = request.session.session_key
+            locked_user.save(update_fields=['active_student_session_token', 'active_student_session_key'])
+            now = timezone.now()
+            previous_ids = list(AttendanceSession.objects.filter(user=user, logout_at__isnull=True).values_list('pk', flat=True))
+            AttendanceSession.objects.filter(pk__in=previous_ids).update(logout_at=now, logout_estimated=False, end_reason='replaced_login', compiler_active=False, is_active_now=False)
+            CompilerActivitySlice.objects.filter(attendance_session_id__in=previous_ids, ended_at__isnull=True).update(ended_at=now, compiler_active=False, is_active_now=False)
+            attendance = AttendanceSession.objects.create(user=user, source='portal')
+            request.session['student_session_token'] = token
+        if previous_key and previous_key != request.session.session_key:
+            from .views import _lock, _oracle_sessions
+            with _lock:
+                previous_state = _oracle_sessions.pop(previous_key, None)
+            if previous_state:
+                for kind in ('sqlplus', 'editor'):
+                    if previous_state.get(kind):
+                        try:
+                            previous_state[kind].close()
+                        except Exception:
+                            pass
+    else:
+        attendance = AttendanceSession.objects.create(user=user, source="portal")
     request.session["attendance_session_id"] = attendance.pk
     AuditEvent.objects.create(actor=user, action="login", target=user.username)
     next_page = "/portal/choose-role/" if len(roles) > 1 else _dashboard_path(roles[0])
@@ -414,8 +531,9 @@ def portal_verify_registration_api(request):
     email_code = str(payload.get("emailOtp", "")).strip()
     mobile_code = str(payload.get("mobileOtp", "")).strip()
     with transaction.atomic():
-        challenge = PendingRegistration.objects.select_for_update().filter(pk=challenge_id).first()
-        if not challenge:
+        try:
+            challenge = PendingRegistration.objects.select_for_update().get(pk=challenge_id)
+        except PendingRegistration.DoesNotExist:
             return JsonResponse({"error": "This verification request is no longer available. Start registration again."}, status=404)
         if challenge.expires_at <= timezone.now() or challenge.attempts >= 5:
             challenge.delete()
@@ -472,7 +590,10 @@ def portal_resend_registration_api(request):
     if not isinstance(challenge_id, str):
         return JsonResponse({"error": "Start registration again to request a new code."}, status=400)
     with transaction.atomic():
-        challenge = PendingRegistration.objects.select_for_update().filter(pk=challenge_id).first()
+        try:
+            challenge = PendingRegistration.objects.select_for_update().get(pk=challenge_id)
+        except PendingRegistration.DoesNotExist:
+            challenge = None
         if not challenge or challenge.attempts >= 5:
             return JsonResponse({"error": "This verification request is no longer available. Return to registration and submit your details again."}, status=404)
         # The expiry is refreshed on each send, so it also records when the latest code was sent.
@@ -618,6 +739,8 @@ def portal_avatar_api(request):
 def portal_avatar_update_api(request):
     if not _same_origin(request):
         return JsonResponse({"error": "Profile photo updates must be submitted from the portal."}, status=403)
+    if _active_portal_role(request) == PortalUser.Role.STUDENT:
+        return JsonResponse({"error": "Profile photo updates are disabled for student accounts."}, status=403)
     avatar_upload = request.FILES.get("avatar")
     if not avatar_upload:
         return JsonResponse({"error": "Choose a profile photo to upload."}, status=400)
@@ -656,6 +779,8 @@ def portal_profile_update_api(request):
     if (request.content_type or "").startswith("multipart/form-data"):
         payload = request.POST
         avatar_upload = request.FILES.get("avatar")
+        if avatar_upload and _active_portal_role(request) == PortalUser.Role.STUDENT:
+            return JsonResponse({"error": "Profile photo updates are disabled for student accounts."}, status=403)
         if avatar_upload and avatar_upload.size > 2 * 1024 * 1024:
             return JsonResponse({"error": "Choose a profile image no larger than 2 MB."}, status=413)
     else:
@@ -797,10 +922,11 @@ def portal_profile_verify_api(request):
     email_code = str(payload.get("emailOtp", "")).strip()
     mobile_code = str(payload.get("mobileOtp", "")).strip()
     with transaction.atomic():
-        challenge = ProfileUpdateChallenge.objects.select_for_update().filter(
-            pk=payload["challengeId"], user=request.user,
-        ).first()
-        if not challenge:
+        try:
+            challenge = ProfileUpdateChallenge.objects.select_for_update().get(
+                pk=payload["challengeId"], user=request.user,
+            )
+        except ProfileUpdateChallenge.DoesNotExist:
             return JsonResponse({"error": "This verification request is no longer available. Update your profile again."}, status=404)
         if challenge.expires_at <= timezone.now() or challenge.attempts >= 5:
             challenge.delete()
@@ -1001,15 +1127,17 @@ def teacher_dashboard(request):
 def teacher_announcements(request):
     if _active_portal_role(request) != PortalUser.Role.TEACHER:
         return redirect("/portal/choose-role/" if len(_available_portal_roles(request.user)) > 1 else _dashboard_path(request.user.role))
+    assigned_ids = TeacherAssignment.objects.filter(teacher=request.user).values('class_section_id')
     classes = ClassSection.objects.filter(
-        teacher_assignments__teacher=request.user, is_active=True,
-    ).select_related("course").distinct().order_by("course__name", "name", "section")
+        pk__in=assigned_ids, is_active=True,
+    ).select_related("course").order_by("course__name", "name", "section")
     class_ids = classes.values_list("id", flat=True)
     labs = CompilerLab.objects.filter(class_section_id__in=class_ids, is_active=True).select_related("class_section", "class_section__course").order_by("class_section__course__name", "class_section__name", "name")
+    student_ids = Enrollment.objects.filter(class_section_id__in=class_ids, active=True).values('student_id')
     students = PortalUser.objects.filter(
         role=PortalUser.Role.STUDENT, is_active=True,
-        enrollments__class_section_id__in=class_ids, enrollments__active=True,
-    ).distinct().order_by("first_name", "last_name", "username")
+        pk__in=student_ids,
+    ).order_by("first_name", "last_name", "username")
     message = ""
     error = ""
     if request.method == "POST":
@@ -1063,20 +1191,24 @@ def student_dashboard(request):
     if _active_portal_role(request) != PortalUser.Role.STUDENT:
         return redirect("/portal/choose-role/" if len(_available_portal_roles(request.user)) > 1 else _dashboard_path(request.user.role))
     enrollments = Enrollment.objects.filter(student=request.user, active=True).select_related("class_section", "class_section__course")
-    assignments = Assignment.objects.filter(class_section__enrollments__student=request.user, class_section__enrollments__active=True, published=True).select_related("class_section", "class_section__course").distinct().order_by("due_at")[:6]
+    enrolled_class_ids = Enrollment.objects.filter(student=request.user, active=True).values("class_section_id")
+    enrolled_course_ids = Enrollment.objects.filter(student=request.user, active=True).values("class_section__course_id")
+    # Use ID subqueries instead of JOIN + DISTINCT. Oracle cannot apply DISTINCT
+    # to rows containing CLOB-backed TextFields such as assignment instructions.
+    assignments = Assignment.objects.filter(class_section_id__in=Subquery(enrolled_class_ids), published=True).select_related("class_section", "class_section__course").order_by("due_at")[:6]
     announcements = Announcement.objects.filter(published=True).filter(
         Q(class_section__isnull=True, lab__isnull=True, student__isnull=True)
         | Q(student=request.user)
-        | Q(class_section__enrollments__student=request.user, class_section__enrollments__active=True)
-        | Q(lab__class_section__enrollments__student=request.user, lab__class_section__enrollments__active=True)
-    ).distinct().order_by("-created_at")[:4]
+        | Q(class_section_id__in=Subquery(enrolled_class_ids))
+        | Q(lab__class_section_id__in=Subquery(enrolled_class_ids))
+    ).order_by("-created_at")[:4]
     shared_code = SharedCompilerCode.objects.filter(published=True).filter(
         Q(class_section__isnull=True, lab__isnull=True, student__isnull=True)
         | Q(student=request.user)
-        | Q(class_section__enrollments__student=request.user, class_section__enrollments__active=True)
-        | Q(lab__class_section__enrollments__student=request.user, lab__class_section__enrollments__active=True)
+        | Q(class_section_id__in=Subquery(enrolled_class_ids))
+        | Q(lab__class_section_id__in=Subquery(enrolled_class_ids))
         | Q(all_students=True)
-    ).select_related("created_by", "class_section", "class_section__course", "lab", "lab__class_section").distinct().order_by("-created_at")[:20]
+    ).select_related("created_by", "class_section", "class_section__course", "lab", "lab__class_section").order_by("-created_at")[:20]
     context = {
         "user": request.user,
         "portal_role": PortalUser.Role.STUDENT,
@@ -1086,7 +1218,7 @@ def student_dashboard(request):
         "enrollments": enrollments,
         "course_count": enrollments.values("class_section__course_id").distinct().count(),
         "assignment_count": assignments.count(),
-        "test_count": SQLTest.objects.filter(published=True, course__classes__enrollments__student=request.user, course__classes__enrollments__active=True).distinct().count(),
+        "test_count": SQLTest.objects.filter(published=True, course_id__in=Subquery(enrolled_course_ids)).count(),
         "assignments": assignments,
         "announcements": announcements,
         "shared_code": shared_code,
@@ -1102,7 +1234,8 @@ def portal_tests(request):
         return redirect("/portal/choose-role/" if len(_available_portal_roles(request.user)) > 1 else _dashboard_path(request.user.role))
     message = ""
     if role == PortalUser.Role.TEACHER:
-        teaching_classes = ClassSection.objects.filter(teacher_assignments__teacher=request.user, is_active=True).select_related("course").distinct().order_by("course__name", "name")
+        teaching_class_ids = TeacherAssignment.objects.filter(teacher=request.user).values("class_section_id")
+        teaching_classes = ClassSection.objects.filter(pk__in=teaching_class_ids, is_active=True).select_related("course").order_by("course__name", "name")
         if request.method == "POST":
             if request.POST.get("action") == "setup_class":
                 code = request.POST.get("course_code", "").strip().upper()[:32]
@@ -1190,7 +1323,8 @@ def portal_tests(request):
         enrollment_classes = Enrollment.objects.filter(student=request.user, active=True).values_list("class_section_id", flat=True)
         tests = SQLTest.objects.filter(published=True).filter(
             Q(class_section_id__in=enrollment_classes) | Q(class_section__isnull=True, course__classes__enrollments__student=request.user, course__classes__enrollments__active=True)
-        ).distinct().select_related("class_section", "lab", "course").prefetch_related("questions")
+        ).order_by().values("pk")
+        tests = SQLTest.objects.filter(pk__in=tests).select_related("class_section", "lab", "course").prefetch_related("questions")
         if request.method == "POST":
             test = tests.filter(pk=_safe_int(request.POST.get("test_id"), None)).first()
             now = timezone.now()
@@ -1384,13 +1518,16 @@ def teacher_remote_code_dashboard(request):
             student__role=PortalUser.Role.STUDENT,
         ).values_list("student_id", flat=True)
         students = PortalUser.objects.filter(pk__in=enrolled_ids, role=PortalUser.Role.STUDENT)
-    classes = ClassSection.objects.filter(teacher_assignments__teacher=request.user, is_active=True).select_related("course").distinct().order_by("course__name", "name")
+    # Deduplicate IDs before loading related objects: Oracle cannot DISTINCT NCLOBs.
+    class_ids = ClassSection.objects.filter(teacher_assignments__teacher=request.user, is_active=True).order_by().values("pk")
+    classes = ClassSection.objects.filter(pk__in=class_ids).select_related("course").order_by("course__name", "name")
     labs = CompilerLab.objects.filter(class_section__in=classes, is_active=True).select_related("class_section", "class_section__course").order_by("class_section__course__name", "class_section__name", "name")
     remote_students = students.order_by("first_name", "last_name", "username")
-    share_students = PortalUser.objects.filter(
+    share_student_ids = PortalUser.objects.filter(
         role=PortalUser.Role.STUDENT, is_active=True,
         enrollments__active=True, enrollments__class_section__in=classes,
-    ).distinct().order_by("first_name", "last_name", "username")
+    ).order_by().values("pk")
+    share_students = PortalUser.objects.filter(pk__in=share_student_ids).order_by("first_name", "last_name", "username")
     share_code_message = ""
     share_code_error = ""
     if request.method == "POST":
@@ -1469,7 +1606,7 @@ def compiler_activity_heartbeat(request):
     previous_context = (attendance.class_section_id, attendance.lab_id)
     now = timezone.now()
     page = "compiler" if payload.get("page") == "compiler" else "portal"
-    active = payload.get("active") is True and payload.get("visible") is True
+    active = payload.get("active") is True
     lab_id = payload.get("labId")
     if lab_id not in (None, ""):
         try:
@@ -1560,7 +1697,8 @@ def compiler_labs(request):
                 labs = labs.filter(class_section_id=class_id)
         else:
             return JsonResponse({"error": "Only students and teachers can access compiler labs."}, status=403)
-        labs = labs.select_related("class_section", "class_section__course").distinct().order_by("class_section__name", "name")
+        lab_ids = labs.order_by().values("pk")
+        labs = CompilerLab.objects.filter(pk__in=lab_ids).select_related("class_section", "class_section__course").order_by("class_section__name", "name")
         return JsonResponse({"labs": [{
             "id": lab.pk, "name": lab.name, "classId": lab.class_section_id,
             "className": f"{lab.class_section.course.code} · {lab.class_section.name} {lab.class_section.section}".strip(),
@@ -1729,6 +1867,8 @@ def teacher_attendance_report(request):
     sessions = AttendanceSession.objects.filter(user_id__in=student_ids).filter(
         Q(login_at__date__gte=start_day, login_at__date__lte=end_day)
         | Q(logout_at__date__gte=start_day, logout_at__date__lte=end_day)
+        | Q(login_at__date__lte=end_day, logout_at__date__gte=start_day)
+        | Q(login_at__date__lte=end_day, logout_at__isnull=True, last_heartbeat_at__date__gte=start_day)
     )
     if selected_lab:
         sessions = sessions.filter(lab_id=selected_lab.pk)
@@ -1798,6 +1938,7 @@ def teacher_attendance_report(request):
             "lateDays": late_days,
             "onTimeDays": on_time_days,
             "arrivalStatus": latest_arrival,
+            "dailyAttendance": daily_attendance(session_list, start_day, end_day, scheduled_start),
         })
     rows.sort(key=lambda row: row["studentName"].casefold())
     return JsonResponse({

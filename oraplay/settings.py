@@ -32,6 +32,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "workbench.middleware.StudentSessionLimitMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "workbench.middleware.LoginAutofillPolicyMiddleware",
@@ -53,7 +54,9 @@ if os.environ.get("LMS_DB_ENGINE", "sqlite").lower() == "oracle":
         "NAME": os.environ.get("LMS_ORACLE_DSN", ""),
         "USER": os.environ.get("LMS_ORACLE_USER", ""),
         "PASSWORD": os.environ.get("LMS_ORACLE_PASSWORD", ""),
-        "HOST": "", "PORT": "", "OPTIONS": {"threaded": True},
+        "HOST": "", "PORT": "",
+        "CONN_MAX_AGE": 60,
+        "CONN_HEALTH_CHECKS": True,
     }}
 else:
     DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "lms.sqlite3"}}
@@ -86,11 +89,28 @@ CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"csrf_console": {"class": "logging.StreamHandler"}},
+    "handlers": {
+        "csrf_console": {"class": "logging.StreamHandler"},
+        "request_errors_console": {
+            "class": "logging.StreamHandler",
+            "level": "ERROR",
+            "formatter": "request_error",
+        },
+    },
+    "formatters": {
+        "request_error": {
+            "format": "%(asctime)s %(levelname)s %(name)s: %(message)s",
+        },
+    },
     "loggers": {
         "django.security.csrf": {
             "handlers": ["csrf_console"],
             "level": "WARNING",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["request_errors_console"],
+            "level": "ERROR",
             "propagate": False,
         },
     },

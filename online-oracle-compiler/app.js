@@ -286,8 +286,15 @@
           mobileOtp: document.querySelector('#registrationMobileOtp').value.trim(),
         })
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'The verification code could not be confirmed.');
+      const responseText = await response.text();
+      let data = {};
+      try { data = responseText ? JSON.parse(responseText) : {}; } catch { /* Use the HTTP status below for non-JSON server errors. */ }
+      if (!response.ok) {
+        const fallback = response.status >= 500
+          ? `The server encountered an error (${response.status}) while confirming the code. Please try again; if it continues, contact the portal administrator.`
+          : `The verification code could not be confirmed (HTTP ${response.status}).`;
+        throw new Error(data.error || fallback);
+      }
       registrationOtpForm.reset();
       registerForm.reset();
       registerDialog.close();

@@ -37,6 +37,8 @@ urlpatterns = [
     path("portal/student/", portal_views.student_dashboard, name="student_dashboard"),
     path("portal/tests/", portal_views.portal_tests, name="portal_tests"),
     path("api/portal/login", portal_views.portal_login_api, name="portal_login"),
+    path('api/teacher/session-limits', portal_views.teacher_session_limits),
+    path('api/portal/session-status', portal_views.student_session_status),
     path("api/portal/register", portal_views.portal_register_api, name="portal_register"),
     path("api/portal/registration/verify", portal_views.portal_verify_registration_api, name="portal_registration_verify"),
     path("api/portal/registration/resend", portal_views.portal_resend_registration_api, name="portal_registration_resend"),

@@ -11,6 +11,10 @@ This Django application serves the Oracle SQL*Plus-style compiler and editor. `/
 
 The Windows service launcher opens `https://JEET-PC:3000/online-compiler`. Trust the configured certificate on each client. Do not expose the development WSGI server directly to the public internet.
 
+## Server outage email alerts
+
+`run_server.py` starts a small local watchdog that checks the server health endpoint and samples resource usage every 15 seconds. It emails `SERVER_CRASH_REPORT_EMAIL` after an unexpected process exit or three consecutive failed health checks. Reports include the detection time, process ID, concise failure description, system and workbench process CPU/RAM usage, and free disk space; application logs are not attached. Resource readings are periodic samples, so short spikes between samples may not appear. Intentional stops through the Windows service script do not trigger an alert. Email delivery uses the Gmail sender configured in Admin, so that account must have a login email, sender email, and app password configured. The watchdog writes delivery failures to `server-monitor.log`.
+
 ## Oracle SQL workbench
 
 Oracle credentials remain in server memory for the active browser session, use an HTTP-only session cookie, and expire idle Oracle sessions after 30 minutes. `.sql` files remain isolated by Oracle account, database, and browser workspace in `sql-files/`. The workbench executes statements with the connected Oracle user's database permissions.
