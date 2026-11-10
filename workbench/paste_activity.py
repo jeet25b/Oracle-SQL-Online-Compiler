@@ -25,7 +25,7 @@ def paste_activity(request):
         if CompilerPasteEvent.objects.filter(student=request.user, created_at__gte=timezone.now()-timedelta(hours=1)).count() >= 500:
             return JsonResponse({"error": "Paste recording limit reached."}, status=429)
         attendance = AttendanceSession.objects.filter(pk=request.session.get("attendance_session_id"), user=request.user).first()
-        CompilerPasteEvent.objects.create(student=request.user, attendance_session=attendance, source=source, text=text[:65536], truncated=len(text)>65536 or data.get("truncated") is True)
+        CompilerPasteEvent.objects.create(student=request.user, attendance_session=attendance, source=source, text="*" * min(len(text), 65536), truncated=len(text)>65536 or data.get("truncated") is True)
         return JsonResponse({"ok": True})
     if role not in ("TEACHER", "ADMIN") and not request.user.is_superuser:
         return JsonResponse({"error": "Teacher access required."}, status=403)
@@ -38,7 +38,7 @@ def paste_activity(request):
             return JsonResponse({"error": "Invalid student."}, status=400)
         events = events.filter(student_id=student)
     total = events.count()
-    return JsonResponse({"total":total, "limit":200, "events":[{"student":event.student.username,"source":event.source,"text":event.text,"truncated":event.truncated,"at":event.created_at.isoformat()} for event in events.order_by("-created_at")[:200]]})
+    return JsonResponse({"total":total, "limit":200, "events":[{"student":event.student.username,"source":event.source,"text":"[hidden for privacy]","truncated":event.truncated,"at":event.created_at.isoformat()} for event in events.order_by("-created_at")[:200]]})
 
 
 @login_required(login_url="/portal/")

@@ -1,0 +1,11 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Choose your class{% endblock %}
+{% block page_heading %}Choose your class{% endblock %}
+{% block page_intro %}Before entering the student workspace, select your course, branch, semester, section, and group. Your administrator can correct your class assignment later.{% endblock %}
+{% block dashboard_content %}
+<link rel="stylesheet" href="/portal/assets/class-management.css?v=20261029-1">
+<section class="content-card academic-card"><h2>Class selection is required</h2>
+{% if has_classes %}<form method="post" class="academic-form"><input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">{{ selection_form.non_field_errors }}{% for field in selection_form %}<div class="academic-field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endfor %}<button type="submit" class="academic-button">Confirm class and continue</button></form>
+{% else %}<p class="academic-muted">No complete, active classes are available for your account yet. Ask your administrator to add your class with Course, Branch, Semester, Section, and Group, or update the class already assigned to you.</p><a class="academic-button academic-secondary" href="/portal/choose-class/">Check again</a>{% endif %}
+</section>
+{% endblock %}

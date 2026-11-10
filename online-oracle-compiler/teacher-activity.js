@@ -3,16 +3,52 @@
   const $ = (selector, root = document) => root.querySelector(selector);
   const setText = (selector, value) => { const element = $(selector); if (element) element.textContent = value; };
   const classFilter = $('#activityClass');
-  const labFilter = $('#activityLab');
+  const statusFilter = $('#activityStatus');
   const dateFilter = $('#activityDate');
   const presenceTimeout = $('#presenceOfflineTimeout');
   const presenceTimeoutStatus = $('#presenceTimeoutStatus');
   const attendanceFrom = $('#attendanceDateFrom');
   const attendanceTo = $('#attendanceDateTo');
   const roster = $('#activityRoster');
-  const dialog = $('#createLabDialog');
+  function sortAndUniqueOptions(select, { unique = false } = {}) {
+    if (!select) return;
+    const first = select.options[0];
+    const seen = new Set();
+    const options = [...select.options].slice(first?.value === '' ? 1 : 0).filter((option) => {
+      const key = option.value || option.textContent.trim();
+      if (!unique || !seen.has(key)) { seen.add(key); return true; }
+      return false;
+    }).sort((a, b) => a.textContent.trim().localeCompare(b.textContent.trim(), undefined, { numeric: true, sensitivity: 'base' }));
+    select.replaceChildren();
+    if (first?.value === '') select.append(first);
+    options.forEach((option) => select.append(option));
+  }
+  sortAndUniqueOptions(classFilter);
+  sortAndUniqueOptions($('#activitySubject'), { unique: true });
+  const monitorCard = roster?.closest('.activity-roster-card');
+  if (monitorCard) {
+    const topbar = $('.dashboard-topbar');
+    const updateMonitorViewport = () => {
+      monitorCard.style.setProperty('--monitor-topbar-height', `${topbar?.getBoundingClientRect().height || 0}px`);
+    };
+    const monitorLayoutObserver = new ResizeObserver(updateMonitorViewport);
+    if (topbar) monitorLayoutObserver.observe(topbar);
+    updateMonitorViewport();
+  }
+  const attendanceContext = $('#attendancePanel .attendance-sticky-context');
+  if (attendanceContext) {
+    const card = attendanceContext.closest('.attendance-report-card');
+    const topbar = $('.dashboard-topbar');
+    const updateAttendanceViewport = () => {
+      card.style.setProperty('--attendance-topbar-height', `${topbar?.getBoundingClientRect().height || 0}px`);
+    };
+    const attendanceLayoutObserver = new ResizeObserver(updateAttendanceViewport);
+    if (topbar) attendanceLayoutObserver.observe(topbar);
+    updateAttendanceViewport();
+  }
   let latestData = null;
   let latestAttendance = null;
+  let refreshInFlight = false;
   const activitySearchSuggestions = window.PortalSearchSuggestions?.register($('#activityStudentSearch'));
   let refreshTimer = 0;
   let rosterSort = { key: 'lastActivity', direction: -1 };
@@ -102,6 +138,7 @@
     const query = ($('#activityStudentSearch')?.value || '').trim().toLocaleLowerCase();
     const priority = { active: 0, idle: 1, portal: 2, offline: 3 };
     return [...(data.students || [])]
+      .filter((student) => (!statusFilter?.value || (statusFilter.value === 'logged-in' ? student.status !== 'offline' : statusFilter.value === 'idle' ? ['idle', 'portal'].includes(student.status) : student.status === statusFilter.value)))
       .filter((student) => !query || `${student.studentName || ''} ${student.studentNumber || ''}`.toLocaleLowerCase().includes(query))
       .sort((a, b) => {
         let left, right;
@@ -186,16 +223,6 @@
       loadPresenceTimeout();
     } finally { presenceTimeout.disabled = false; }
   });
-  async function loadLabs() {
-    const params = new URLSearchParams({ activity: '1' });
-    if (classFilter.value) params.set('class', classFilter.value);
-    const response = await fetch(`/api/compiler/labs?${params}`, { credentials: 'same-origin' });
-    const data = await readJsonResponse(response, 'Could not load compiler labs.');
-    const selected = labFilter.value;
-    labFilter.replaceChildren(new Option('All labs', ''));
-    (data.labs || []).forEach((lab) => labFilter.add(new Option(`${lab.name} · ${lab.className}`, String(lab.id))));
-    labFilter.value = [...labFilter.options].some((option) => option.value === selected) ? selected : '';
-  }
   function updateSummary(data) {
     const summary = data.summary || {};
     setText('#metricActive', summary.active ?? 0);
@@ -211,13 +238,20 @@
     setText('#metricActiveTime', formatDuration(summary.activeSeconds));
     setText('#metricIdleTime', formatDuration(summary.idleSeconds));
     setText('#metricAverageTime', formatDuration(summary.present ? Math.round((summary.activeSeconds || 0) / summary.present) : 0));
-    const visibleCount = visibleRosterStudents(data).length;
-    const totalCount = (data.students || []).length;
-    setText('#compilerRosterCount', $('#activityStudentSearch')?.value.trim() ? `${visibleCount} of ${totalCount} students` : `${totalCount} students`);
+    updateRosterCounts(data);
     setText('#activityUpdated', `Updated ${formatDateTime(data.updatedAt)} · live refresh every 10 seconds`);
+  }
+  function updateRosterCounts(data) {
+    const students = visibleRosterStudents(data);
+    const totalCount = (data.students || []).length;
+    const activeCount = students.filter((student) => student.status === 'active').length;
+    setText('#compilerRosterCount', $('#activityStudentSearch')?.value.trim() ? `${students.length} of ${totalCount} students` : `${totalCount} students`);
+    setText('#compilerActiveCount', `${activeCount} active`);
+    setText('#compilerInactiveCount', `${students.length - activeCount} inactive`);
   }
   function renderRoster(data) {
     roster.replaceChildren();
+    updateRosterCounts(data);
     const students = visibleRosterStudents(data);
     if (!students.length) {
       const row = document.createElement('tr');
@@ -244,25 +278,16 @@
         lastActive.append(location);
       }
       const duration = document.createElement('td'); duration.className = 'activity-duration'; duration.textContent = `${formatDuration(student.sessionActiveSeconds)} / ${formatDuration(student.sessionIdleSeconds)}`;
-      const executions = document.createElement('td'); executions.className = 'activity-executions';
-      const executionDetails = document.createElement('span'); executionDetails.className = 'activity-executions-inner';
-      const total = document.createElement('strong'); total.textContent = String(student.totalExecutions || 0); executionDetails.append(total);
-      const successes = document.createElement('span'); successes.textContent = `✓ ${student.successfulExecutions || 0}`; successes.className = 'success';
-      const failures = document.createElement('span'); failures.textContent = `× ${student.failedExecutions || 0}`; failures.className = 'failure'; executionDetails.append(successes, failures); executions.append(executionDetails);
+      const status = document.createElement('td'); status.className = `activity-status-cell status-${student.status}`;
+      status.textContent = student.status === 'active' ? 'Working now' : student.status === 'offline' ? 'Offline' : 'Idle';
       const lastExec = document.createElement('td'); lastExec.className = 'activity-last-execution';
       const lastExecTime = document.createElement('span'); lastExecTime.textContent = student.lastExecution ? formatDateTime(student.lastExecution) : '—'; lastExec.append(lastExecTime);
       const methodLabel = lastExecutionInputLabel(student);
       if (methodLabel) { const method = document.createElement('small'); method.className = 'activity-last-execution-method'; method.textContent = methodLabel; lastExec.append(method); }
       if (student.lastExecutionStatement) { const statement = document.createElement('code'); statement.textContent = student.lastExecutionStatement; statement.title = student.lastExecutionStatement; lastExec.append(statement); }
-      const editSource = document.createElement('td'); editSource.className = 'activity-edit-source';
-      if (student.trackedExecutions || student.historyRecallCount) {
-        editSource.textContent = `T ${formatCount(student.typedChars)} · P ${formatCount(student.pastedChars)} · E ${formatCount(student.editsAfterPaste)} · H ${formatCount(student.historyRecallCount)}`;
-    editSource.title = `Typed characters · pasted characters · edits after paste or history recall · history recall executions; ${formatCount(student.pasteCount)} paste actions across ${formatCount(student.trackedExecutions)} tracked executions`;
-      } else editSource.textContent = 'Not tracked';
-      const clientActivity = document.createElement('td');
-      clientActivity.textContent = `${formatCount(student.pasteEvents)} · ${formatCount(student.pageHiddenEvents)} · ${formatCount(student.windowBlurEvents)}`;
-      clientActivity.title = 'Compiler paste events · times the compiler tab became hidden (tab change or minimized window) · times the browser window lost focus';
-      row.append(name, lastActive, duration, executions, editSource, clientActivity, lastExec);
+      const successful = document.createElement('td'); successful.className = 'activity-statement-count'; successful.textContent = formatCount(student.successfulExecutions);
+      const failed = document.createElement('td'); failed.className = 'activity-statement-count activity-statement-failed'; failed.textContent = formatCount(student.failedExecutions);
+      row.append(name, status, lastActive, duration, successful, failed, lastExec);
       row.addEventListener('click', () => openStudentDetails(student));
       nameButton.addEventListener('click', (event) => { event.stopPropagation(); openStudentDetails(student); });
       roster.append(row);
@@ -310,7 +335,6 @@
   async function refreshAttendance() {
     const params = new URLSearchParams({ from: attendanceFrom.value || localDate(), to: attendanceTo.value || localDate() });
     if (classFilter.value) params.set('class', classFilter.value);
-    if (labFilter.value) params.set('lab', labFilter.value);
     const body = $('#attendanceRoster');
     try {
       const response = await fetch(`/api/teacher/attendance-report?${params}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -324,7 +348,6 @@
   async function refreshActivity() {
     const params = new URLSearchParams({ date: dateFilter.value || localDate() });
     if (classFilter.value) params.set('class', classFilter.value);
-    if (labFilter.value) params.set('lab', labFilter.value);
     try {
       const response = await fetch(`/api/teacher/compiler-activity?${params}`, { credentials: 'same-origin', cache: 'no-store' });
       const data = await readJsonResponse(response, 'Could not load activity data.');
@@ -335,17 +358,23 @@
     } catch (error) {
       roster.innerHTML = '';
       const row = document.createElement('tr'); const cell = document.createElement('td');
-      cell.colSpan = 7; cell.className = 'activity-empty error'; cell.textContent = error.message;
+      cell.colSpan = roster.closest('table').querySelectorAll('thead th').length; cell.className = 'activity-empty error'; cell.textContent = error.message;
       row.append(cell); roster.append(row);
       setText('#activityUpdated', 'Activity update failed');
     }
   }
-  async function refreshAll() { try { await loadLabs(); } catch { /* Activity endpoint will report access errors. */ } await Promise.all([refreshActivity(), refreshAttendance()]); }
+  async function refreshAll() {
+    if (refreshInFlight) return;
+    refreshInFlight = true;
+    try { await Promise.all([refreshActivity(), refreshAttendance()]); }
+    finally { refreshInFlight = false; }
+  }
   function scheduleLiveRefresh() {
     clearInterval(refreshTimer);
-    if ($('#activityLive').checked) refreshTimer = setInterval(() => { refreshActivity(); refreshAttendance(); }, 10000);
+    if ($('#activityLive').checked && !document.hidden) refreshTimer = setInterval(refreshActivity, 15000);
   }
   classFilter.addEventListener('change', refreshAll);
+  statusFilter?.addEventListener('change', () => { refreshActivity(); });
   $('#activityStudentSearch')?.addEventListener('input', () => { if (latestData) { updateSummary(latestData); renderRoster(latestData); } if (latestAttendance) renderAttendance(latestAttendance); });
   document.querySelectorAll('[data-roster-sort]').forEach((button) => button.addEventListener('click', () => {
     if (rosterSort.key === button.dataset.rosterSort) rosterSort.direction *= -1;
@@ -361,31 +390,13 @@
   }));
   updateRosterSortControls();
   loadPresenceTimeout();
-  labFilter.addEventListener('change', refreshAll);
   dateFilter.addEventListener('change', refreshActivity);
   attendanceFrom.addEventListener('change', refreshAttendance);
   attendanceTo.addEventListener('change', refreshAttendance);
   $('#refreshAttendance').addEventListener('click', refreshAttendance);
   $('#refreshActivity').addEventListener('click', refreshAll);
   $('#activityLive').addEventListener('change', scheduleLiveRefresh);
-  $('#showCreateLab').addEventListener('click', () => dialog.showModal());
-  $('#cancelCreateLab').addEventListener('click', () => dialog.close());
-  $('#createLabForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const status = $('#createLabStatus'); status.textContent = 'Saving…';
-    try {
-      const response = await fetch('/api/compiler/labs', {
-        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
-        body: JSON.stringify({ classId: $('#newLabClass').value, name: $('#newLabName').value.trim() })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Could not save the lab.');
-      status.textContent = 'Lab created.';
-      $('#newLabName').value = '';
-      await refreshAll();
-      setTimeout(() => dialog.close(), 500);
-    } catch (error) { status.textContent = error.message; }
-  });
+  document.addEventListener('visibilitychange', scheduleLiveRefresh);
 
   async function openStudentDetails(student) {
     const detailDialog = $('#studentActivityDialog');
@@ -397,10 +408,14 @@
     try {
       const params = new URLSearchParams({ date: dateFilter.value || localDate() });
       if (classFilter.value) params.set('class', classFilter.value);
-      if (labFilter.value) params.set('lab', labFilter.value);
       const response = await fetch(`/api/teacher/compiler-activity/student/${student.studentId}?${params}`, { credentials: 'same-origin', cache: 'no-store' });
       const data = await readJsonResponse(response, 'Could not load student details.');
       target.replaceChildren();
+      const summary = document.createElement('p'); summary.className = 'activity-execution-summary';
+      const successful = document.createElement('strong'); successful.className = 'activity-execution-success'; successful.textContent = `${formatCount(data.summary?.successful)} successful`;
+      const failed = document.createElement('strong'); failed.className = 'activity-execution-failed'; failed.textContent = `${formatCount(data.summary?.failed)} failed`;
+      summary.append(successful, document.createTextNode(' / '), failed, document.createTextNode(' statements · Executions shown first, newest first'));
+      target.append(summary);
       if (!data.events?.length) { const empty = document.createElement('p'); empty.textContent = 'No session or execution events recorded for this date.'; target.append(empty); }
       (data.events || []).forEach((event) => {
         const item = document.createElement('article'); item.className = 'activity-timeline-item';

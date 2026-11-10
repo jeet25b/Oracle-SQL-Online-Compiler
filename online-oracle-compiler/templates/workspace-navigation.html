@@ -1,0 +1,33 @@
+<nav class="side-nav" aria-label="Workspace sections" id="workspaceNavigation">
+  <div class="sidebar-label">WORKSPACE</div>
+  <a class="side-link{% if not is_profile_page and not is_compiler_page and not is_attendance_page and not is_activity_page and not is_history_page and not is_remote_code_page and not is_daily_tasks_page and not is_class_management_page and not is_class_selection_page and not is_timetable_page and not is_tests_page and not is_announcements_page %} active{% endif %}" href="{{ dashboard_home_path|default:'/portal/' }}" data-icon="home">Overview</a>
+  <a class="side-link{% if is_compiler_page %} active{% endif %}" href="/online-compiler" data-icon="code">SQL workspace</a>
+  {% if portal_role == "TEACHER" %}<a class="side-link{% if is_history_page %} active{% endif %}" href="/portal/teacher/history/" data-icon="history">History</a>{% endif %}
+  {% if is_profile_page %}<a class="side-link active" href="/portal/profile/" aria-current="page" data-icon="user">Profile</a>{% endif %}
+
+  <div class="sidebar-label">{% if portal_role == "TEACHER" %}TEACHING{% else %}LEARNING{% endif %}</div>
+  <a class="side-link" href="{{ dashboard_home_path|default:'/portal/' }}#courses" data-icon="classes">My classes</a>
+  {% if portal_role == "TEACHER" or portal_role == "STUDENT" %}
+  <a class="side-link{% if is_daily_tasks_page %} active{% endif %}" href="/portal/daily-tasks/" data-icon="tasks">Daily tasks</a>
+  {% if portal_role == 'STUDENT' %}<a class="side-link{% if is_project_check_page %} active{% endif %}" href="/portal/student/project-check/" data-icon="file">Project/Lab File Check</a>{% endif %}
+  <a class="side-link{% if is_tests_page %} active{% endif %}" href="/portal/tests/" data-icon="test">Tests</a>
+  {% endif %}
+  {% if portal_role == "TEACHER" %}
+  <a class="side-link{% if is_activity_page %} active{% endif %}" href="/portal/teacher/activity/" data-icon="activity">Live activity</a>
+  <a class="side-link{% if is_attendance_page %} active{% endif %}" href="/portal/teacher/attendance/" data-icon="attendance">Attendance</a>
+  <a class="side-link{% if is_announcements_page %} active{% endif %}" href="/portal/teacher/announcements/" data-icon="announcement">Announcements</a>
+  <a class="side-link{% if is_remote_code_page %} active{% endif %}" href="/portal/teacher/remote-code/" data-icon="code">Remote code</a>
+  {% elif portal_role == "STUDENT" %}
+  <a class="side-link" href="{{ dashboard_home_path|default:'/portal/' }}#announcements" data-icon="announcement">Announcements</a>
+  {% endif %}
+  {% for item in dashboard_navigation_items %}<a class="side-link" href="{{ item.target }}" data-dashboard-link data-icon="code">{{ item.label }}</a>{% endfor %}
+
+  {% if portal_role == "ADMIN" or user.is_superuser or user.can_manage_timetable or user.can_manage_classes or user.can_approve_students %}
+  <div class="sidebar-label">ADMINISTRATION</div>
+  {% if portal_role == "ADMIN" or user.is_superuser or portal_role == "TEACHER" and user.can_manage_timetable %}<a class="side-link{% if is_timetable_page %} active{% endif %}" href="/portal/timetable/" data-icon="calendar">Timetable</a>{% endif %}
+  {% if portal_role == "ADMIN" or user.is_superuser or portal_role == "TEACHER" and user.can_manage_classes %}<a class="side-link{% if is_class_management_page %} active{% endif %}" href="/portal/classes/" data-icon="classes">Class management</a>{% endif %}
+  {% if portal_role == "ADMIN" or user.is_superuser %}<a class="side-link{% if is_class_management_page and request.path == '/portal/student-management/' %} active{% endif %}" href="/portal/student-management/" data-icon="users">Student management</a>{% endif %}
+  {% if portal_role == "TEACHER" and user.can_approve_students %}<a class="side-link" href="{{ dashboard_home_path|default:'/portal/' }}#approvals" data-icon="users">Approvals</a>{% endif %}
+  {% if portal_role == "ADMIN" or user.is_superuser %}<a class="side-link" href="/admin/" data-icon="settings">Administration</a>{% endif %}
+  {% endif %}
+</nav>

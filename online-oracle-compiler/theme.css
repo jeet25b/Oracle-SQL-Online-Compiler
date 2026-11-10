@@ -159,6 +159,16 @@
 :root[data-theme="light"] .dashboard-page .sidebar-label { color: var(--muted); }
 :root[data-theme="light"] .dashboard-page .side-link { color: var(--muted); }
 :root[data-theme="light"] .dashboard-page .side-link > span { color: var(--muted); }
+/* Equivalent navigation links retain distinct hover and selected states. */
+:root[data-theme="dark"] .dashboard-page .side-link:is(:hover, :focus-visible) {
+  background: rgba(var(--accent-rgb), .12) !important;
+}
+:root[data-theme="dark"] .dashboard-page .side-link.active,
+:root[data-theme="dark"] .dashboard-page .side-link.active:is(:hover, :focus-visible) {
+  background: rgba(var(--accent-rgb), .26) !important;
+  color: var(--accent) !important;
+  box-shadow: inset 3px 0 var(--accent) !important;
+}
 :root[data-theme="light"] .dashboard-page .side-link:hover,
 :root[data-theme="light"] .dashboard-page .side-link:focus-visible {
   color: var(--accent-strong) !important;
@@ -367,4 +377,26 @@
   outline:none;
   box-shadow:none;
   transform:none;
+}
+
+
+/* Shared floating scrollbar follows the same palette in light and dark mode. */
+.portal-bottom-scrollbar {
+  position:fixed;z-index:100;box-sizing:border-box;height:18px;
+  overflow-x:scroll;overflow-y:hidden;overscroll-behavior:contain;
+  background:var(--paper,var(--ide-panel));color:var(--ink,var(--ide-text));border:1px solid var(--line,var(--ide-border));
+  scrollbar-color:var(--muted,var(--ide-muted)) var(--paper,var(--ide-panel));scrollbar-width:auto;
+}
+.portal-bottom-scrollbar[hidden]{display:none}
+.portal-bottom-scrollbar>div{height:1px}
+.portal-bottom-scrollbar:focus-visible{outline:2px solid var(--accent-strong,var(--ide-accent));outline-offset:-2px}
+.portal-bottom-scrollbar::-webkit-scrollbar{height:14px}
+.portal-bottom-scrollbar::-webkit-scrollbar-track{background:var(--paper,var(--ide-panel))}
+.portal-bottom-scrollbar::-webkit-scrollbar-thumb{background:var(--muted,var(--ide-muted));border:3px solid var(--paper,var(--ide-panel));border-radius:8px}
+.portal-bottom-scrollbar::-webkit-scrollbar-thumb:hover{background:var(--accent-strong,var(--ide-accent))}
+
+/* Keep table controls inside the card while its rows scroll past the viewport. */
+.portal-bottom-scrollbar.portal-table-scrollbar {
+  position:sticky;bottom:8px;left:auto;top:auto;max-width:100%;
+  margin-top:-18px;isolation:isolate;
 }

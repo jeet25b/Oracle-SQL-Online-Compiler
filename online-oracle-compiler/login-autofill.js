@@ -70,7 +70,7 @@
       if (!form.isConnected) { clearInterval(guard); return; }
       checkAppearance();
       if (!activated) { username.value = form.dataset?.savedOracleUser || ''; password.value = ''; }
-    }, 200);
+    }, 1000);
     window.addEventListener('pageshow', (event) => { if (event.persisted) reset(); });
     form.addEventListener('reset', () => queueMicrotask(reset));
   }

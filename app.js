@@ -10,7 +10,7 @@ const resultMeta=document.querySelector('#resultMeta');
 const cursorPosition=document.querySelector('#cursorPosition');
 resultContent.addEventListener('click',event=>{const row=event.target.closest('#resultContent .data-table:not(.object-property-table) tbody tr');if(!row)return;row.parentElement.querySelectorAll('tr.selected-row').forEach(selected=>{selected.classList.remove('selected-row');selected.setAttribute('aria-selected','false')});row.classList.add('selected-row');row.setAttribute('aria-selected','true')});
 function readStoredJson(key,fallback){try{const value=localStorage.getItem(key);if(value===null)return fallback;const parsed=JSON.parse(value);return Array.isArray(fallback)&&!Array.isArray(parsed)?fallback:parsed}catch{try{localStorage.removeItem(key)}catch{}return fallback}}
-const state={fileName:'query.sql',dirty:false,objects:[],selectedObject:'',suggestionColumns:null,lastResult:null,outputText:null,sqlplusLastResult:null,sqlplusOutputText:localStorage.getItem('ora-sqlplus-shared-output'),connected:false,dbUser:'',schemaLocked:false,fontSize:Number(localStorage.getItem('ora-font-size'))||12,fileDialogSql:null,fileDialogQuiet:false,pendingCodeAction:null,historyFilters:{source:'all',date:'',hour:'all',status:'all'},sqlHistory:readStoredJson('ora-sql-history',[]),diagnostics:[],lineStatus:{}};
+const state={fileName:'query.sql',dirty:false,objects:[],selectedObject:'',suggestionColumns:null,columnMetadataCache:new Map(),lastResult:null,outputText:null,sqlplusLastResult:null,sqlplusOutputText:localStorage.getItem('ora-sqlplus-shared-output'),connected:false,dbUser:'',schemaLocked:false,fontSize:Number(localStorage.getItem('ora-font-size'))||12,fileDialogSql:null,fileDialogQuiet:false,pendingCodeAction:null,historyFilters:{source:'all',date:'',hour:'all',status:'all'},sqlHistory:readStoredJson('ora-sql-history',[]),diagnostics:[],lineStatus:{}};
 // Migrate the previously active editor text once into the single SQL Compiler draft.
 const queryDraftMigrationKey='ora-query-draft-migrated';if(localStorage.getItem(queryDraftMigrationKey)!=='true'){try{const stored=JSON.parse(localStorage.getItem('ora-query-scratchpads')||'[]'),activeId=localStorage.getItem('ora-active-scratchpad'),active=Array.isArray(stored)?stored.find(item=>item?.id===activeId&&typeof item.sql==='string'):null;if(active)localStorage.setItem('ora-online-draft',active.sql)}catch{}localStorage.setItem(queryDraftMigrationKey,'true')}
 let queryDraftSaveTimer;editor.addEventListener('input',()=>{state.dirty=true;clearTimeout(queryDraftSaveTimer);queryDraftSaveTimer=setTimeout(()=>{try{localStorage.setItem('ora-online-draft',editor.value)}catch{}},180)});
@@ -71,6 +71,16 @@ function getSqlSuggestionContext(input,token){
  return'general'
 }
 function getCreateTableColumnNames(input){const source=input.value.slice(0,input.selectionStart),create=source.search(/\bCREATE\s+(?:(?:GLOBAL|PRIVATE)\s+TEMPORARY\s+)?TABLE\b/i);if(create<0)return[];const tableOpen=source.indexOf('(',create);if(tableOpen<0)return[];const body=source.slice(tableOpen+1);let depth=0,start=0;const segments=[];for(let i=0;i<body.length;i++){if(body[i]==='(')depth++;else if(body[i]===')')depth=Math.max(0,depth-1);else if(body[i]===','&&depth===0){segments.push(body.slice(start,i));start=i+1}}segments.push(body.slice(start));const names=[];for(const segment of segments){const text=segment.trim();if(!text||/^(?:CONSTRAINT|PRIMARY|FOREIGN|UNIQUE|CHECK)\b/i.test(text))continue;const match=/^("(?:""|[^"])*"|[A-Za-z][A-Za-z0-9_$#]*)\s+(BFILE|BINARY_DOUBLE|BINARY_FLOAT|BLOB|BOOLEAN|CHAR|CLOB|DATE|DECIMAL|FLOAT|INTEGER|INTERVAL|LONG|NCHAR|NCLOB|NUMBER|NUMERIC|NVARCHAR2|RAW|REAL|ROWID|TIMESTAMP|UROWID|VARCHAR2?)(?:\b|\s*\()/i.exec(text);if(match)names.push(match[1])}return [...new Set(names)]}
+function getReferencedSqlObjects(input){
+ const caret=input.selectionStart,source=input.value,start=source.lastIndexOf(';',Math.max(0,caret-1))+1,next=source.indexOf(';',caret),statement=source.slice(start,next<0?source.length:next),refs=[];
+ const pattern=/\b(?:FROM|JOIN|UPDATE|INTO|REFERENCES)\s+(?:([A-Z][A-Z0-9_$#]*)\s*\.\s*)?("(?:""|[^"])+"|[A-Z][A-Z0-9_$#]*)/gi;let match;
+ while((match=pattern.exec(statement))){const owner=(match[1]||state.dbUser||'').toUpperCase(),name=match[2].replace(/^"|"$/g,'').replace(/""/g,'"').toUpperCase();const object=state.objects.find(item=>item.OBJECT_NAME===name&&(!owner||item.OWNER===owner)&&['TABLE','VIEW','MATERIALIZED VIEW'].includes(String(item.OBJECT_TYPE).toUpperCase()));if(object&&!refs.some(item=>objectKey(item)===objectKey(object)))refs.push(object)}
+ return refs
+}
+function loadSqlColumnMetadata(objects){
+ if(!state.connected||!objects.length)return Promise.resolve();
+ return Promise.all(objects.map(object=>{const key=objectKey(object);if(state.columnMetadataCache.has(key))return state.columnMetadataCache.get(key);const task=fetch('/api/objects/'+encodeURIComponent(object.OWNER)+'/'+encodeURIComponent(object.OBJECT_NAME)+'?view=structure',{credentials:'same-origin'}).then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not load column names');return(data.columns||[]).map(column=>String(column.COLUMN_NAME||column.name||'')).filter(Boolean)}).then(names=>{state.columnMetadataCache.set(key,names);return names}).catch(()=>{state.columnMetadataCache.delete(key);return[]});state.columnMetadataCache.set(key,task);return task}));
+}
 function getSqlSuggestionItems(input,prefix){
  const query=prefix.toUpperCase(),context=getSqlSuggestionContext(input,getSqlToken(input)||{start:input.selectionStart}),items=[];
  const push=(value,kind,descriptions,group=kind)=>items.push({value,kind,descriptions,group});
@@ -81,10 +91,8 @@ function getSqlSuggestionItems(input,prefix){
  }else if(context==='column'||context==='referenceColumn'||context==='condition'||context==='selectList'){
   const localColumns=context==='referenceColumn'||context==='selectList'?[]:getCreateTableColumnNames(input);
   if(localColumns.length)for(const name of localColumns)push(name,'Column',['Column defined in this table','Identifier'],'Columns');
-  const selected=state.objects.find(obj=>objectKey(obj)===state.selectedObject),cache=state.suggestionColumns;
-  const refs=[...input.value.slice(0,input.selectionStart).matchAll(/\b(?:FROM|JOIN|UPDATE|INTO|REFERENCES)\s+(?:[A-Z][A-Z0-9_$#]*\s*\.\s*)?([A-Z][A-Z0-9_$#]*)/gi)].map(match=>match[1].toUpperCase());
-  const matchesSelected=!refs.length||(selected&&refs.includes(String(selected.OBJECT_NAME).toUpperCase()));
-  if(!localColumns.length&&cache&&selected&&cache.objectKey===state.selectedObject&&matchesSelected)for(const name of cache.names)push(name,'Column',['Column','Identifier'],'Columns');
+  const referenced=getReferencedSqlObjects(input),selected=state.objects.find(obj=>objectKey(obj)===state.selectedObject),caches=referenced.length?referenced.map(object=>state.columnMetadataCache.get(objectKey(object))).filter(Array.isArray):(!getReferencedSqlObjects(input).length&&selected&&state.suggestionColumns?.objectKey===state.selectedObject?[state.suggestionColumns.names]:[]);
+  if(!localColumns.length)for(const names of caches)for(const name of names)push(name,'Column',['Column in referenced table','Identifier'],'Columns');
   if(context==='selectList'){for(const value of ['DISTINCT','FROM','AS'])push(value,'Keyword',['Clause'],'Clauses');for(const value of SQL_FUNCTION_SUGGESTIONS)push(value,'Function',['Function','Built-in'],'Functions')}
   if(context==='condition'){for(const value of SQL_CONTEXT_SUGGESTIONS.condition)push(value,'Keyword',['Condition operator'],'Conditions');for(const value of SQL_FUNCTION_SUGGESTIONS)push(value,'Function',['Function','Built-in'],'Functions')}
   if(/\bORDER\s+BY\b/i.test(input.value.slice(0,input.selectionStart)))for(const value of ['ASC','DESC','NULLS FIRST','NULLS LAST'])push(value,'Keyword',['Sort order'],'Sort order');
@@ -116,6 +124,7 @@ function sqlCaretRect(input,mode){const mirror=mode==='editor'?document.querySel
 function positionSqlSuggestionPopup(input,popup,mode){if(!input||!popup||popup.hidden)return;const rect=input.getBoundingClientRect(),caret=sqlCaretRect(input,mode),before=input.value.slice(0,input.selectionStart).split('\n'),style=getComputedStyle(input),lineHeight=parseFloat(style.lineHeight)||23,paddingLeft=parseFloat(style.paddingLeft)||(mode==='editor'?18:6),paddingTop=parseFloat(style.paddingTop)||(mode==='editor'?8:2),canvas=positionSqlSuggestionPopup.canvas||(positionSqlSuggestionPopup.canvas=document.createElement('canvas')),ctx=canvas.getContext('2d');ctx.font=style.font;const viewportWidth=document.documentElement.clientWidth||window.innerWidth,viewportHeight=document.documentElement.clientHeight||window.innerHeight,gutter=8,rawX=caret?.left??(rect.left+paddingLeft+ctx.measureText(before.at(-1)||'').width-input.scrollLeft),rawY=caret?.top??(rect.top+paddingTop+(before.length-1)*lineHeight-input.scrollTop);const popupMaxWidth=Math.max(40,Math.min(340,viewportWidth-gutter*2));popup.style.width='max-content';popup.style.minWidth='48px';popup.style.maxWidth=popupMaxWidth+'px';popup.style.maxHeight=Math.max(40,viewportHeight-gutter*2)+'px';popup.style.overflow='hidden';const width=Math.min(popup.offsetWidth,viewportWidth-gutter*2),height=Math.min(popup.scrollHeight,viewportHeight-gutter*2),anchorY=Math.max(gutter,Math.min(rawY,viewportHeight-lineHeight-gutter)),below=anchorY+lineHeight+5,above=anchorY-height-7,top=below+height<=viewportHeight-gutter?below:above>=gutter?above:Math.max(gutter,Math.min(below,viewportHeight-height-gutter)),left=Math.max(gutter,Math.min(rawX,viewportWidth-width-gutter));popup.style.position='fixed';popup.style.zIndex='2147483647';popup.style.left=left+'px';popup.style.top=Math.max(gutter,Math.min(top,viewportHeight-height-gutter))+'px'}function updateSqlSuggestions(input,popup,container,mode){
  const empty=input.value.trim()==='',atFirstPosition=input.selectionStart===0&&input.selectionEnd===0,token=getSqlToken(input),starterEnabled=localStorage.getItem('ora-show-sql-starters')==='true',autocompleteEnabled=localStorage.getItem('ora-show-sql-autocomplete')!=='false';
  if((empty&&(!starterEnabled||!atFirstPosition||input.dataset.starterDismissed==='true'))||(!empty&&!autocompleteEnabled)||(!token&&!empty)){popup.hidden=true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');return}
+ if(!empty&&token){const referenced=getReferencedSqlObjects(input);if(referenced.some(object=>!Array.isArray(state.columnMetadataCache.get(objectKey(object))))){const value=input.value,caret=input.selectionStart;loadSqlColumnMetadata(referenced).then(()=>{if(input.isConnected&&input.value===value&&input.selectionStart===caret&&document.activeElement===input)updateSqlSuggestions(input,popup,container,mode)})}}
  const items=empty?getSqlZeroStateItems(input):token.prefix.length<3?[]:getSqlSuggestionItems(input,token.prefix);
  popup.replaceChildren();if(!items.length){popup.hidden=true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');return}
  const groups=new Map();for(const item of items){const group=item.group||item.kind;if(!groups.has(group))groups.set(group,[]);groups.get(group).push(item)}
@@ -452,11 +461,7 @@ function hideOraclePassword() {
   oraclePasswordToggle.textContent = 'Show password';
   oraclePasswordToggle.setAttribute('aria-pressed', 'false');
 }
-oraclePasswordToggle.addEventListener('click', () => {
-  const showPassword = oraclePasswordInput.type === 'password';
-  oraclePasswordInput.type = showPassword ? 'text' : 'password';
-  oraclePasswordToggle.textContent = showPassword ? 'Hide password' : 'Show password';
-  oraclePasswordToggle.setAttribute('aria-pressed', String(showPassword));
-});
+oraclePasswordToggle.hidden = true;
+
 document.querySelector('#connectionForm').addEventListener('reset', hideOraclePassword);
 document.querySelector('#connectionForm').addEventListener('submit', hideOraclePassword);

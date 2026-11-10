@@ -1,3 +1,4 @@
+from collections import Counter
 import json
 import hashlib
 import hmac
@@ -11,6 +12,7 @@ import io
 import re
 import zipfile
 import xml.etree.ElementTree as ElementTree
+from decimal import Decimal
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout, password_validation, update_session_auth_hash
@@ -37,7 +39,6 @@ from .models import (
     CompilerClientActivityEvent,
     CompilerExecutionEvent,
     CompilerActivitySlice,
-    CompilerLab,
     CompilerPasteEvent,
     CompilerQueryHistory,
     ClassSection,
@@ -80,17 +81,15 @@ def teacher_session_limits(request):
         return JsonResponse({'error': 'Invalid session limit request.'}, status=400)
     try:
         class_id = int(data.get('classId') or 0)
-        lab_id = int(data.get('labId') or 0)
         student_id = int(data.get('studentId') or 0)
     except (ValueError, TypeError):
-        return JsonResponse({'error': 'Choose a valid class, lab, or student.'}, status=400)
+        return JsonResponse({'error': 'Choose a valid class or student.'}, status=400)
     classes = ClassSection.objects.filter(teacher_assignments__teacher=request.user)
-    lab = CompilerLab.objects.filter(pk=lab_id, class_section__in=classes).select_related('class_section').first() if lab_id else None
-    section = lab.class_section if lab else classes.filter(pk=class_id).first()
-    if not section or (lab_id and not lab) or (class_id and section.pk != class_id):
-        return JsonResponse({'error': 'Choose a class or lab assigned to you.'}, status=403)
+    section = classes.filter(pk=class_id).first()
+    if not section:
+        return JsonResponse({'error': 'Choose a class assigned to you.'}, status=403)
     if request.method == 'GET':
-        return JsonResponse({'limitMinutes': lab.daily_session_minutes if lab and lab.daily_session_minutes is not None else section.daily_session_minutes, 'inherited': bool(lab and lab.daily_session_minutes is None)})
+        return JsonResponse({'limitMinutes': section.daily_session_minutes, 'inherited': False})
     action = data.get('action')
     if action == 'save':
         try:
@@ -99,27 +98,42 @@ def teacher_session_limits(request):
             return JsonResponse({'error': 'Enter a daily allowance in minutes.'}, status=400)
         if not 1 <= minutes <= 1440:
             return JsonResponse({'error': 'Choose between 1 and 1440 minutes.'}, status=400)
-        target = lab or section
-        target.daily_session_minutes = minutes
-        target.save(update_fields=['daily_session_minutes'])
-        AuditEvent.objects.create(actor=request.user, action='session_limit', target=f'{"lab" if lab else "class"}:{target.pk}:{minutes}')
+        section.daily_session_minutes = minutes
+        section.save(update_fields=['daily_session_minutes'])
+        AuditEvent.objects.create(actor=request.user, action='session_limit', target=f'class:{section.pk}:{minutes}')
         return JsonResponse({'ok': True, 'limitMinutes': minutes})
     if action == 'reset':
         from .models import StudentDailyAccessReset
         students = PortalUser.objects.filter(role=PortalUser.Role.STUDENT, pk__in=Enrollment.objects.filter(class_section=section, active=True).values('student_id'))
         if student_id:
             students = students.filter(pk=student_id)
-            if not students.exists():
-                return JsonResponse({'error': 'Student is not enrolled in this class.'}, status=403)
         elif data.get('scope') == 'student':
             return JsonResponse({'error': 'Choose a student to reset.'}, status=400)
         now = timezone.now()
+        today = timezone.localdate()
         with transaction.atomic():
-            count = 0
-            for student in students:
-                StudentDailyAccessReset.objects.update_or_create(student=student, day=timezone.localdate(), defaults={'reset_at': now, 'reset_by': request.user})
-                count += 1
-            AuditEvent.objects.create(actor=request.user, action='session_reset', target=f'class:{section.pk}:lab:{lab_id}:student:{student_id}:count:{count}')
+            # Serialize resets for this class. This prevents two simultaneous
+            # bulk resets from both deciding the same daily rows are missing
+            # and racing on the unique (student, day) constraint.
+            ClassSection.objects.select_for_update().only('pk').get(pk=section.pk)
+            student_ids = list(students.order_by().values_list('pk', flat=True))
+            if student_id and not student_ids:
+                return JsonResponse({'error': 'Student is not enrolled in this class.'}, status=403)
+            # Keep each IN clause below Oracle's 1,000-expression limit while
+            # retaining bulk writes instead of one update_or_create per student.
+            for offset in range(0, len(student_ids), 500):
+                batch_ids = student_ids[offset:offset + 500]
+                reset_rows = StudentDailyAccessReset.objects.filter(day=today, student_id__in=batch_ids)
+                existing_ids = set(reset_rows.values_list('student_id', flat=True))
+                reset_rows.update(reset_at=now, reset_by_id=request.user.pk)
+                missing_ids = [pk for pk in batch_ids if pk not in existing_ids]
+                if missing_ids:
+                    StudentDailyAccessReset.objects.bulk_create(
+                        [StudentDailyAccessReset(student_id=pk, day=today, reset_at=now, reset_by_id=request.user.pk) for pk in missing_ids],
+                        batch_size=500,
+                    )
+            count = len(student_ids)
+            AuditEvent.objects.create(actor=request.user, action='session_reset', target=f'class:{section.pk}:student:{student_id}:count:{count}')
         return JsonResponse({'ok': True, 'resetCount': count})
     return JsonResponse({'error': 'Choose save or reset.'}, status=400)
 
@@ -131,12 +145,12 @@ def student_session_status(request):
     if hasattr(request, 'student_daily_allowance'):
         return JsonResponse(request.student_daily_allowance)
     from .session_policy import daily_allowance
-    attendance = AttendanceSession.objects.filter(pk=request.session.get('attendance_session_id'), user=request.user).select_related('lab__class_section', 'class_section').first()
+    attendance = AttendanceSession.objects.filter(pk=request.session.get('attendance_session_id'), user=request.user).select_related('class_section').first()
     return JsonResponse(daily_allowance(request.user, attendance))
 
 
 PROJECT_DIR = Path(settings.BASE_DIR) / "online-oracle-compiler"
-PORTAL_ASSETS = {"student-session.js", "contact-verification.js", "compiler-activity-client.js", "workspace-core.js", "editor-assist.js", "login-autofill.js", "app.js", "styles.css", "dashboard.css", "dashboard.js", "teacher-activity.js", "teacher-attendance.js", "teacher-history.js", "teacher-remote-code.js", "search-suggestions.js", "palette.css", "palette.js", "theme.css", "theme.js", "theme-controls.css", "theme-controls.js", "portal-3d.css", "oracle-sql-ide.css", "oracle-sql-ide-extra.css", "oracle-sql-ide-layout.css", "oracle-sql-ide.js", "compiler-icon-controls.css"}
+PORTAL_ASSETS = {"question-import.js","history-sql.js","history-sql.css","workspace-ui.css", "workspace-ui.js", "workspace-session-ui.js", "workspace-daily-task.js", "setup-guide.js", "setup-guide.css", "class-management.css","class-management.js","daily-tasks.js","student-session.js", "contact-verification.js", "compiler-activity-client.js", "workspace-core.js", "editor-assist.js", "login-autofill.js", "app.js", "styles.css", "dashboard.css", "dashboard.js", "teacher-activity.js", "teacher-attendance.js", "teacher-history.js", "teacher-remote-code.js", "search-suggestions.js", "palette.css", "palette.js", "theme.css", "theme.js", "theme-controls.css", "theme-controls.js", "portal-3d.css", "oracle-sql-ide.css", "oracle-sql-ide-extra.css", "oracle-sql-ide-layout.css", "oracle-sql-ide.js", "compiler-icon-controls.css"}
 TEMPLATE_ENGINE = Engine(dirs=[str(PROJECT_DIR / "templates")], autoescape=True)
 PORTAL_ROLES = (PortalUser.Role.ADMIN, PortalUser.Role.TEACHER, PortalUser.Role.STUDENT)
 logger = logging.getLogger(__name__)
@@ -179,9 +193,18 @@ def portal_home(request):
             CompilerActivitySlice.objects.filter(attendance_session_id=attendance_id, ended_at__isnull=True).update(
                 ended_at=now, compiler_active=False, is_active_now=False,
             )
+        session_key = request.session.session_key
+        if session_key:
+            from .views import _close_oracle_session, _oracle_sessions
+            state = _oracle_sessions.get(session_key)
+            if state: _close_oracle_session(state)
+        if request.user.role == PortalUser.Role.STUDENT:
+            from .views import _reset_teacher_editor_session_access
+            _reset_teacher_editor_session_access(request.user.pk)
         logout(request)
     response = FileResponse((PROJECT_DIR / "index.html").open("rb"), content_type="text/html; charset=utf-8")
     response["Cache-Control"] = "no-store"
+    response.delete_cookie("ora_compiler_session", samesite="Strict")
     return response
 
 
@@ -248,6 +271,9 @@ def portal_login_api(request):
         return JsonResponse({"error": "This account does not have a portal role. Contact your administrator."}, status=403)
 
     old_session_key = request.session.session_key
+    if PortalUser.Role.STUDENT in roles and user.last_login is None:
+        user.class_selection_required = True
+        user.save(update_fields=("class_selection_required",))
     if user.role == PortalUser.Role.STUDENT:
         from .session_policy import daily_allowance
         allowance = daily_allowance(user)
@@ -258,10 +284,12 @@ def portal_login_api(request):
     request.session.pop("portal_active_role", None)
     request.session.set_expiry(30 * 24 * 60 * 60 if remember else 0)
     if old_session_key and old_session_key != request.session.session_key:
-        from .views import _lock, _oracle_sessions
+        from .views import _close_oracle_session, _lock, _oracle_sessions
         with _lock:
             oracle_state = _oracle_sessions.pop(old_session_key, None)
-            if oracle_state:
+            if oracle_state and oracle_state.get("user_id") not in (None, user.pk):
+                _close_oracle_session(oracle_state)
+            elif oracle_state:
                 _oracle_sessions[request.session.session_key] = oracle_state
     if user.role == PortalUser.Role.STUDENT:
         from .models import CompilerActivitySlice
@@ -272,6 +300,8 @@ def portal_login_api(request):
             locked_user.active_student_session_token = token
             locked_user.active_student_session_key = request.session.session_key
             locked_user.save(update_fields=['active_student_session_token', 'active_student_session_key'])
+            from .views import _reset_teacher_editor_session_access
+            _reset_teacher_editor_session_access(user.pk)
             now = timezone.now()
             previous_ids = list(AttendanceSession.objects.filter(user=user, logout_at__isnull=True).values_list('pk', flat=True))
             AttendanceSession.objects.filter(pk__in=previous_ids).update(logout_at=now, logout_estimated=False, end_reason='replaced_login', compiler_active=False, is_active_now=False)
@@ -279,21 +309,17 @@ def portal_login_api(request):
             attendance = AttendanceSession.objects.create(user=user, source='portal')
             request.session['student_session_token'] = token
         if previous_key and previous_key != request.session.session_key:
-            from .views import _lock, _oracle_sessions
+            from .views import _close_oracle_session, _lock, _oracle_sessions
             with _lock:
                 previous_state = _oracle_sessions.pop(previous_key, None)
-            if previous_state:
-                for kind in ('sqlplus', 'editor'):
-                    if previous_state.get(kind):
-                        try:
-                            previous_state[kind].close()
-                        except Exception:
-                            pass
+            if previous_state: _close_oracle_session(previous_state)
     else:
         attendance = AttendanceSession.objects.create(user=user, source="portal")
     request.session["attendance_session_id"] = attendance.pk
     AuditEvent.objects.create(actor=user, action="login", target=user.username)
     next_page = "/portal/choose-role/" if len(roles) > 1 else _dashboard_path(roles[0])
+    if roles == [PortalUser.Role.STUDENT] and user.class_selection_required:
+        next_page = "/portal/choose-class/"
     return JsonResponse({"ok": True, "next": next_page})
 
 
@@ -325,6 +351,8 @@ def portal_select_role(request):
     if role not in _available_portal_roles(request.user):
         return JsonResponse({"error": "Choose a role assigned to this account."}, status=403)
     request.session["portal_active_role"] = role
+    if role == PortalUser.Role.STUDENT and request.user.class_selection_required:
+        return JsonResponse({"ok": True, "next": "/portal/choose-class/"})
     return JsonResponse({"ok": True, "next": _dashboard_path(role)})
 
 
@@ -353,6 +381,7 @@ def _create_registered_portal_user(registration_data, profile_data, password_has
                     profile_data=profile_data,
                     password=password_hash,
                     role=role,
+                    class_selection_required=role == PortalUser.Role.STUDENT,
                     registration_status=(PortalUser.RegistrationStatus.APPROVED if auto_approved else PortalUser.RegistrationStatus.PENDING_ADMIN),
                     is_active=auto_approved,
                     email_verified=email_verified,
@@ -1022,18 +1051,12 @@ def portal_password_update_api(request):
 @login_required(login_url="/portal/")
 def portal_logout_api(request):
     session_key = request.session.session_key
-    from .views import _lock, _oracle_sessions
+    from .views import _close_oracle_session, _lock, _oracle_sessions, _reset_teacher_editor_session_access
     oracle_state = _oracle_sessions.get(session_key) if session_key else None
     if oracle_state:
-        for connection_name in ("sqlplus", "editor"):
-            connection = oracle_state.get(connection_name)
-            if connection:
-                try:
-                    connection.close()
-                except Exception:
-                    pass
-        with _lock:
-            _oracle_sessions.pop(session_key, None)
+        _close_oracle_session(oracle_state)
+    if request.user.role == PortalUser.Role.STUDENT:
+        _reset_teacher_editor_session_access(request.user.pk)
     attendance_id = request.session.get("attendance_session_id")
     if attendance_id:
         attendance = AttendanceSession.objects.filter(pk=attendance_id, user=request.user, logout_at__isnull=True).first()
@@ -1054,7 +1077,9 @@ def portal_logout_api(request):
             )
     AuditEvent.objects.create(actor=request.user, action="logout", target=request.user.username)
     logout(request)
-    return JsonResponse({"ok": True, "next": "/portal/"})
+    response = JsonResponse({"ok": True, "next": "/portal/"})
+    response.delete_cookie("ora_compiler_session", samesite="Strict")
+    return response
 
 
 def _render_dashboard(template_name, context, request=None):
@@ -1098,17 +1123,18 @@ def _profile_dashboard_context(request):
 def teacher_dashboard(request):
     if _active_portal_role(request) != PortalUser.Role.TEACHER:
         return redirect("/portal/choose-role/" if len(_available_portal_roles(request.user)) > 1 else _dashboard_path(request.user.role))
-    assignments = TeacherAssignment.objects.filter(teacher=request.user).select_related("class_section", "class_section__course").order_by("class_section__course__name")
+    assignments = TeacherAssignment.objects.filter(teacher=request.user).select_related("class_section", "class_section__course", "lab", "class_subject__subject").order_by("class_section__course__name")
     class_ids = assignments.values_list("class_section_id", flat=True)
     submissions = Submission.objects.filter(assignment__created_by=request.user).select_related("assignment", "student").order_by("-submitted_at")[:6]
     context = {
         "user": request.user,
         "portal_role": PortalUser.Role.TEACHER,
+        "dashboard_home_path": _dashboard_path(PortalUser.Role.TEACHER),
         "has_multiple_roles": len(_available_portal_roles(request.user)) > 1,
         "global_default_accent": _global_default_accent(),
         "dashboard_navigation_items": _dashboard_navigation_items(PortalUser.Role.TEACHER),
         "classes": assignments,
-        "class_count": assignments.count(),
+        "class_count": ClassSection.objects.filter(pk__in=assignments.order_by().values("class_section_id")).count(),
         "student_count": Enrollment.objects.filter(class_section_id__in=class_ids, active=True).values("student_id").distinct().count(),
         "pending_count": Submission.objects.filter(assignment__created_by=request.user, score__isnull=True).count(),
         "test_count": SQLTest.objects.filter(created_by=request.user).count(),
@@ -1132,7 +1158,6 @@ def teacher_announcements(request):
         pk__in=assigned_ids, is_active=True,
     ).select_related("course").order_by("course__name", "name", "section")
     class_ids = classes.values_list("id", flat=True)
-    labs = CompilerLab.objects.filter(class_section_id__in=class_ids, is_active=True).select_related("class_section", "class_section__course").order_by("class_section__course__name", "class_section__name", "name")
     student_ids = Enrollment.objects.filter(class_section_id__in=class_ids, active=True).values('student_id')
     students = PortalUser.objects.filter(
         role=PortalUser.Role.STUDENT, is_active=True,
@@ -1147,27 +1172,24 @@ def teacher_announcements(request):
         if not title or len(title) > 200 or not body or len(body) > 10000:
             error = "Enter a title (up to 200 characters) and a message (up to 10,000 characters)."
         else:
-            target = {"class_section": None, "lab": None, "student": None}
+            target = {"class_section": None, "student": None}
             if audience == "class":
                 target_id = request.POST.get("class_id", "")
                 target["class_section"] = classes.filter(pk=int(target_id)).first() if target_id.isdigit() else None
-            elif audience == "lab":
-                target_id = request.POST.get("lab_id", "")
-                target["lab"] = labs.filter(pk=int(target_id)).first() if target_id.isdigit() else None
             elif audience == "student":
                 target_id = request.POST.get("student_id", "")
                 target["student"] = students.filter(pk=int(target_id)).first() if target_id.isdigit() else None
             else:
-                error = "Choose a student, class, or lab audience."
+                error = "Choose a student, class, or all students."
             if not error and not any(target.values()):
-                error = "Choose a student, class, or lab that belongs to your teaching scope."
+                error = "Choose a student or class that belongs to your teaching scope."
             if not error:
                 Announcement.objects.create(created_by=request.user, title=title, message=body, **target)
                 message = "Announcement published to the selected audience."
     announcements = Announcement.objects.filter(created_by=request.user).filter(
-        Q(class_section_id__in=class_ids) | Q(lab__class_section_id__in=class_ids) | Q(student__in=students)
-        | Q(class_section__isnull=True, lab__isnull=True, student__isnull=True)
-    ).select_related("class_section", "class_section__course", "lab", "lab__class_section", "student").order_by("-created_at")[:50]
+        Q(class_section_id__in=class_ids) | Q(student__in=students)
+        | Q(class_section__isnull=True, student__isnull=True)
+    ).select_related("class_section", "class_section__course", "student").order_by("-created_at")[:50]
     context = {
         "user": request.user,
         "portal_role": PortalUser.Role.TEACHER,
@@ -1176,7 +1198,6 @@ def teacher_announcements(request):
         "dashboard_navigation_items": _dashboard_navigation_items(PortalUser.Role.TEACHER),
         "dashboard_home_path": _dashboard_path(PortalUser.Role.TEACHER),
         "announcement_classes": classes,
-        "announcement_labs": labs,
         "announcement_students": students,
         "teacher_announcements": announcements,
         "announcement_message": message,
@@ -1195,29 +1216,36 @@ def student_dashboard(request):
     enrolled_course_ids = Enrollment.objects.filter(student=request.user, active=True).values("class_section__course_id")
     # Use ID subqueries instead of JOIN + DISTINCT. Oracle cannot apply DISTINCT
     # to rows containing CLOB-backed TextFields such as assignment instructions.
-    assignments = Assignment.objects.filter(class_section_id__in=Subquery(enrolled_class_ids), published=True).select_related("class_section", "class_section__course").order_by("due_at")[:6]
+    from .daily_tasks import available_daily_tasks_for_student
+    visible_tasks = available_daily_tasks_for_student(request.user)
+    assignments = list(visible_tasks.order_by("due_at", "pk")[:6])
+    task_submissions = {item.assignment_id: item for item in Submission.objects.filter(student=request.user, assignment__in=visible_tasks)}
+    for assignment in assignments:
+        assignment.student_submission = task_submissions.get(assignment.pk)
+    revision_count = sum(item.review_state == "revision" for item in task_submissions.values())
+    completed_count = sum(item.is_correct for item in task_submissions.values())
     announcements = Announcement.objects.filter(published=True).filter(
-        Q(class_section__isnull=True, lab__isnull=True, student__isnull=True)
+        Q(class_section__isnull=True, student__isnull=True)
         | Q(student=request.user)
         | Q(class_section_id__in=Subquery(enrolled_class_ids))
-        | Q(lab__class_section_id__in=Subquery(enrolled_class_ids))
     ).order_by("-created_at")[:4]
     shared_code = SharedCompilerCode.objects.filter(published=True).filter(
-        Q(class_section__isnull=True, lab__isnull=True, student__isnull=True)
+        Q(class_section__isnull=True, student__isnull=True)
         | Q(student=request.user)
         | Q(class_section_id__in=Subquery(enrolled_class_ids))
-        | Q(lab__class_section_id__in=Subquery(enrolled_class_ids))
         | Q(all_students=True)
-    ).select_related("created_by", "class_section", "class_section__course", "lab", "lab__class_section").order_by("-created_at")[:20]
+    ).select_related("created_by", "class_section", "class_section__course").order_by("-created_at")[:20]
     context = {
         "user": request.user,
         "portal_role": PortalUser.Role.STUDENT,
+        "dashboard_home_path": _dashboard_path(PortalUser.Role.STUDENT),
         "has_multiple_roles": len(_available_portal_roles(request.user)) > 1,
         "global_default_accent": _global_default_accent(),
         "dashboard_navigation_items": _dashboard_navigation_items(PortalUser.Role.STUDENT),
         "enrollments": enrollments,
         "course_count": enrollments.values("class_section__course_id").distinct().count(),
-        "assignment_count": assignments.count(),
+        "assignment_count": visible_tasks.count(),
+        "revision_count": revision_count, "completed_count": completed_count,
         "test_count": SQLTest.objects.filter(published=True, course_id__in=Subquery(enrolled_course_ids)).count(),
         "assignments": assignments,
         "announcements": announcements,
@@ -1228,29 +1256,215 @@ def student_dashboard(request):
 
 @ensure_csrf_cookie
 @require_http_methods(["GET", "POST"])
+
+
+def _test_results_csv_report(teacher):
+    """Generate and download a CSV report of all test attempts and scores for this teacher."""
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="test-results-report.csv"'
+    response["Cache-Control"] = "no-store"
+    response.write("\ufeff")
+    writer = csv.writer(response)
+    writer.writerow([
+        "Test ID", "Test Title", "Course", "Class", "Grading Mode", "Total Marks",
+        "Student Username", "Student Name", "Roll Number", "Submission Status",
+        "Score", "Percentage", "Started At", "Submitted At"
+    ])
+
+    def date_str(value):
+        return timezone.localtime(value).isoformat() if value else ""
+
+    def safe(value):
+        text = str(value if value is not None else "")
+        return "'" + text if text.lstrip().startswith(("=", "+", "-", "@")) else text
+
+    tests = SQLTest.objects.filter(created_by=teacher).select_related(
+        "class_section__course"
+    ).prefetch_related(
+        "attempts__student", "class_section__enrollments__student"
+    ).order_by("-pk")
+
+    for test in tests:
+        attempts = {item.student_id: item for item in test.attempts.all()}
+        students = {}
+        if test.class_section:
+            students = {
+                item.student_id: item.student
+                for item in test.class_section.enrollments.all()
+                if item.active and item.student.is_active and item.student.role == PortalUser.Role.STUDENT
+            }
+        students.update({item.student_id: item.student for item in attempts.values()})
+
+        for student in sorted(students.values(), key=lambda s: s.username):
+            attempt = attempts.get(student.pk)
+            score_val = attempt.score if attempt and attempt.score is not None else None
+            pct = f"{(score_val / test.total_marks * 100):.1f}%" if score_val is not None and test.total_marks > 0 else ""
+            status_display = "Submitted" if attempt and attempt.submitted_at else (attempt.status if attempt else "Not started")
+
+            writer.writerow([
+                safe(test.pk),
+                safe(test.title),
+                safe(test.class_section.course.name if test.class_section and test.class_section.course else ""),
+                safe(test.class_section.name if test.class_section else ""),
+                safe(dict(SQLTest.GradingMode.choices).get(test.grading_mode, test.grading_mode)),
+                safe(test.total_marks),
+                safe(student.username),
+                safe(student.get_full_name()),
+                safe(student.student_number),
+                safe(status_display),
+                safe(score_val if score_val is not None else ""),
+                safe(pct),
+                date_str(attempt.started_at if attempt else None),
+                date_str(attempt.submitted_at if attempt else None),
+            ])
+
+    return response
+
+
+
+def _auto_finalize_expired_test(attempt, test):
+    """Auto-finalize and grade student attempt whose time limit expired."""
+    try:
+        from decimal import Decimal
+        from .portal_views import _grade_sql_test_answers
+        now = timezone.now()
+        with transaction.atomic():
+            attempt = TestAttempt.objects.select_for_update().get(pk=attempt.pk)
+            if attempt.submitted_at:
+                return
+            questions = list(test.questions.all())
+            answers = {ans.question_id: ans.answer for ans in attempt.answers.all()}
+            for q in questions:
+                if not answers.get(q.pk, '').strip():
+                    TestAnswer.objects.update_or_create(
+                        attempt=attempt, question=q,
+                        defaults={'answer': '', 'is_correct': False, 'score': Decimal('0'), 'feedback': 'Time expired before answer was saved.'}
+                    )
+            # Grade questions that had answers
+            answered_questions = [q for q in questions if answers.get(q.pk, '').strip()]
+            # Create a mock request for grading
+            from django.test import RequestFactory
+            rf = RequestFactory().post('/portal/tests/')
+            rf.user = attempt.student
+            grades = _grade_sql_test_answers(rf, test, answered_questions, answers) if answered_questions else {}
+            for q in answered_questions:
+                grade = grades.get(q.pk)
+                if grade:
+                    TestAnswer.objects.filter(attempt=attempt, question=q).update(
+                        is_correct=grade['is_correct'], score=grade['score'], feedback=grade['feedback']
+                    )
+            all_answers = list(attempt.answers.all())
+            total_score = sum((a.score or Decimal('0') for a in all_answers), Decimal('0'))
+            attempt.score = total_score
+            attempt.status = 'submitted'
+            attempt.submitted_at = now
+            attempt.save(update_fields=['score', 'status', 'submitted_at'])
+            if getattr(test, 'email_results_on_submit', False):
+                send_test_result_email(attempt.student, test, attempt)
+    except Exception as exc:
+        logger.exception("Error in _auto_finalize_expired_test: %s", exc)
+
 def portal_tests(request):
     role = _active_portal_role(request)
     if role not in (PortalUser.Role.TEACHER, PortalUser.Role.STUDENT):
         return redirect("/portal/choose-role/" if len(_available_portal_roles(request.user)) > 1 else _dashboard_path(request.user.role))
     message = ""
     if role == PortalUser.Role.TEACHER:
+        if request.method == "GET" and request.GET.get("report") == "csv":
+            return _test_results_csv_report(request.user)
         teaching_class_ids = TeacherAssignment.objects.filter(teacher=request.user).values("class_section_id")
         teaching_classes = ClassSection.objects.filter(pk__in=teaching_class_ids, is_active=True).select_related("course").order_by("course__name", "name")
         if request.method == "POST":
-            if request.POST.get("action") == "setup_class":
+            if request.POST.get('action') == 'configure_test_sample':
+                test = SQLTest.objects.filter(pk=_safe_int(request.POST.get('test_id'),None),created_by=request.user).first()
+                if not test:
+                    return JsonResponse({'error':'Test not found.'},status=404)
+                from .assessment_sandbox import checked_statements
+                try:
+                    setup = request.POST.get('sample_schema','')
+                    checked_statements(setup)
+                except ValueError as exc:
+                    return JsonResponse({'error':str(exc)},status=400)
+                test.sample_schema = setup
+                test.save(update_fields=['sample_schema'])
+                return redirect('/portal/tests/')
+            if request.POST.get("action") == "configure_all_test_answer_input":
+                allow_typed = request.POST.get("allow_typed_answer") == "on"
+                SQLTest.objects.filter(created_by=request.user).update(allow_typed_answer=allow_typed)
+                return redirect("/portal/tests/")
+            if request.POST.get("action") == "configure_test_answer_input":
+                test_id = request.POST.get("test_id", "")
+                with transaction.atomic():
+                    test = SQLTest.objects.select_for_update().filter(
+                        pk=test_id if test_id.isdigit() else None,
+                        created_by=request.user,
+                    ).first()
+                    if test:
+                        test.allow_typed_answer = request.POST.get("allow_typed_answer") == "on"
+                        test.save(update_fields=("allow_typed_answer",))
+                return redirect("/portal/tests/")
+            action = request.POST.get("action")
+            if action == "email_single_student_result":
+                attempt_id = _safe_int(request.POST.get("attempt_id"), None)
+                attempt = TestAttempt.objects.filter(pk=attempt_id, test__created_by=request.user).select_related("student", "test").first()
+                if attempt and attempt.student.email:
+                    ok = send_test_result_email(attempt.student, attempt.test, attempt, request)
+                    message = ("Result email sent to " + attempt.student.email) if ok else "Could not send result email. Check Gmail settings."
+                else:
+                    message = "Student attempt or email address not found."
+            elif action == "allow_student_late":
+                test_id = _safe_int(request.POST.get("test_id"), None)
+                student_id = _safe_int(request.POST.get("student_id"), None)
+                grant_full = request.POST.get("grant_full_time") in ("on", "1")
+                test = SQLTest.objects.filter(pk=test_id, created_by=request.user).first()
+                student = PortalUser.objects.filter(pk=student_id, role=PortalUser.Role.STUDENT).first()
+                if test and student:
+                    attempt, _ = TestAttempt.objects.get_or_create(test=test, student=student)
+                    attempt.allow_late_access = True
+                    attempt.allow_full_duration = grant_full
+                    attempt.status = "permitted"
+                    attempt.submitted_at = None
+                    attempt.save(update_fields=["allow_late_access", "allow_full_duration", "status", "submitted_at"])
+                    message = f"Late permission granted for {student.get_full_name() or student.username} (Full Time: {'Yes' if grant_full else 'No'})."
+                else:
+                    message = "Test or student not found."
+            elif action == "toggle_full_duration":
+                attempt_id = _safe_int(request.POST.get("attempt_id"), None)
+                attempt = TestAttempt.objects.filter(pk=attempt_id, test__created_by=request.user).select_related("student").first()
+                if attempt:
+                    attempt.allow_full_duration = not getattr(attempt, "allow_full_duration", False)
+                    attempt.save(update_fields=["allow_full_duration"])
+                    msg_state = "Full duration granted" if attempt.allow_full_duration else "Restricted to scheduled end time"
+                    message = f"Timer updated for {attempt.student.get_full_name() or attempt.student.username}: {msg_state}."
+                else:
+                    message = "Attempt not found."
+            elif action == "email_all_test_results":
+                test_id = _safe_int(request.POST.get("test_id"), None)
+                test = SQLTest.objects.filter(pk=test_id, created_by=request.user).first()
+                if test:
+                    count = 0
+                    for attempt in test.attempts.filter(submitted_at__isnull=False).select_related("student"):
+                        if attempt.student.email and send_test_result_email(attempt.student, test, attempt, request):
+                            count += 1
+                    message = f"Result emails sent to {count} student(s)."
+                else:
+                    message = "Test not found."
+            elif request.POST.get("action") == "setup_class":
                 code = request.POST.get("course_code", "").strip().upper()[:32]
                 course_name = request.POST.get("course_name", "").strip()[:160]
                 class_name = request.POST.get("new_class_name", "").strip()[:80]
                 section = request.POST.get("new_section", "").strip()[:32]
+                branch = request.POST.get("new_branch", "").strip()[:80]
+                semester = _safe_int(request.POST.get("new_semester"), 0)
+                group = request.POST.get("new_group", "").strip()[:32]
                 academic_year = request.POST.get("academic_year", "").strip()[:20]
-                if not code or not course_name or not class_name:
-                    message = "Enter a course code, course name, and class name."
-                    tests = SQLTest.objects.filter(created_by=request.user).select_related("class_section", "lab", "course").prefetch_related("questions", "attempts__student", "attempts__answers__question").order_by("-id")
+                if not code or not course_name or not class_name or not branch or not section or not group or not 1 <= semester <= 20:
+                    message = "Enter a course, class name, branch, semester (1–20), section, and group."
+                    tests = SQLTest.objects.filter(created_by=request.user).select_related("class_section", "course").prefetch_related("questions", "attempts__student", "attempts__answers__question").order_by("-id")
                     for test in tests:
                         test.schedule_label = _test_schedule_label(test)
                     return _render_dashboard("portal-tests.html", _tests_context(
                         request, role, tests=tests, teaching_classes=teaching_classes,
-                        labs=CompilerLab.objects.filter(class_section__in=teaching_classes, is_active=True).select_related("class_section"),
                         students=PortalUser.objects.filter(role=PortalUser.Role.STUDENT, is_active=True).order_by("first_name", "last_name", "username"),
                         message=message,
                     ), request)
@@ -1259,6 +1473,7 @@ def portal_tests(request):
                         course, _ = Course.objects.get_or_create(code=code, defaults={"name": course_name})
                         class_section, _ = ClassSection.objects.get_or_create(
                             course=course, name=class_name, academic_year=academic_year, section=section,
+                            branch=branch, semester=semester, group=group,
                         )
                         TeacherAssignment.objects.get_or_create(teacher=request.user, class_section=class_section)
                         student_ids = request.POST.getlist("student_ids")
@@ -1266,20 +1481,47 @@ def portal_tests(request):
                         for student in students:
                             Enrollment.objects.get_or_create(student=student, class_section=class_section)
                     return redirect("/portal/tests/")
-            class_section = teaching_classes.filter(pk=_safe_int(request.POST.get("class_section"), None)).first()
             title = request.POST.get("title", "").strip()[:200]
-            questions = [value.strip() for value in request.POST.getlist("question") if value.strip()]
+            import decimal
+            posted_questions = request.POST.getlist("question")
+            posted_expected_sql = request.POST.getlist("expected_sql")
+            posted_verification_sql = request.POST.getlist("verification_sql")
+            verification_sql = []
+            posted_marks = request.POST.getlist("question_marks")
+            questions, expected_sql, question_marks = [], [], []
+            for index, value in enumerate(posted_questions):
+                prompt = value.strip()
+                if prompt:
+                    questions.append(prompt)
+                    expected_sql.append(posted_expected_sql[index].strip() if index < len(posted_expected_sql) else "")
+                    verification_sql.append(posted_verification_sql[index].strip() if index < len(posted_verification_sql) else "")
+                    try:
+                        m_val = Decimal(posted_marks[index].strip()) if index < len(posted_marks) and posted_marks[index].strip() else Decimal("1")
+                        question_marks.append(m_val if m_val > 0 else Decimal("1"))
+                    except (ValueError, TypeError, decimal.InvalidOperation):
+                        question_marks.append(Decimal("1"))
+            expected_sql.extend([""] * max(0, len(questions) - len(expected_sql)))
+            try:
+                def_m_raw = request.POST.get("default_question_marks", "1").strip()
+                def_m = Decimal(def_m_raw) if def_m_raw else Decimal("1")
+                def_m = def_m if def_m > 0 else Decimal("1")
+            except (ValueError, TypeError, decimal.InvalidOperation):
+                def_m = Decimal("1")
+            question_marks.extend([def_m] * max(0, len(questions) - len(question_marks)))
+            grading_mode = request.POST.get("grading_mode", SQLTest.GradingMode.MANUAL)
             question_file = request.FILES.get("question_file")
             try:
-                if question_file:
-                    questions.extend(_questions_from_upload(question_file))
+                if question_file and request.POST.get("question_file_parsed") != "1":
+                    from .question_import import parse_upload
+                    imported = parse_upload(question_file)
+                    questions.extend(row["prompt"] for row in imported)
+                    expected_sql.extend(row["expected_sql"] for row in imported)
+                    verification_sql.extend(row["verification_sql"] for row in imported)
+                    question_marks.extend([def_m] * len(imported))
                     if len(questions) > 200:
                         raise ValueError("A test can contain at most 200 questions.")
             except ValueError as error:
                 message = str(error)
-            lab_id = request.POST.get("lab", "").strip()
-            lab_pk = _safe_int(lab_id, None) if lab_id else None
-            lab = CompilerLab.objects.filter(pk=lab_pk, class_section=class_section, is_active=True).first() if class_section and lab_id else None
             frequency = request.POST.get("schedule_frequency", SQLTest.ScheduleFrequency.ANYTIME)
             try:
                 schedule_start = time.fromisoformat(request.POST.get("schedule_start_time", "")) if request.POST.get("schedule_start_time") else None
@@ -1290,10 +1532,18 @@ def portal_tests(request):
                 frequency = "invalid"
             if message:
                 pass
-            elif not class_section or not title or not questions:
-                message = "Choose a class, enter a title, and add at least one question."
-            elif lab_id and not lab:
-                message = "Choose a lab that belongs to the selected class."
+            elif not title or not questions:
+                message = "Enter a title and at least one question. Map the complete test after saving."
+            elif grading_mode not in {choice for choice, _label in SQLTest.GradingMode.choices}:
+                message = "Choose a valid grading method."
+            elif grading_mode == SQLTest.GradingMode.RESULT_MATCH and len(questions) > 10:
+                message = "Result-based grading supports up to 10 questions per test to keep Oracle execution responsive."
+            elif grading_mode != SQLTest.GradingMode.MANUAL and len(expected_sql) < len(questions):
+                message = "Add a reference SQL answer for every question when automatic grading is enabled."
+            elif grading_mode != SQLTest.GradingMode.MANUAL and any(not value.strip() for value in expected_sql[:len(questions)]):
+                message = "Add a reference SQL answer for every question when automatic grading is enabled."
+            elif grading_mode == SQLTest.GradingMode.RESULT_MATCH and any(not _is_supported_auto_grade_query(value) for value in expected_sql[:len(questions)]):
+                message = "Automatic evaluation requires one valid SELECT, CREATE TABLE, INSERT, UPDATE, or DELETE query per question." 
             elif frequency not in {choice for choice, _label in SQLTest.ScheduleFrequency.choices}:
                 message = "Choose a valid test schedule."
             elif frequency != SQLTest.ScheduleFrequency.ANYTIME and (not schedule_start or not schedule_end or schedule_start == schedule_end):
@@ -1301,30 +1551,31 @@ def portal_tests(request):
             elif frequency == SQLTest.ScheduleFrequency.WEEKLY and (not weekdays or any(day < 0 or day > 6 for day in weekdays)):
                 message = "Choose at least one weekday for a weekly test."
             else:
-                test = SQLTest.objects.create(
-                    course=class_section.course, class_section=class_section, lab=lab,
-                    created_by=request.user, title=title,
-                    instructions=request.POST.get("instructions", "").strip(),
-                    duration_minutes=max(1, min(_safe_int(request.POST.get("duration"), 60), 600)),
-                    total_marks=len(questions),
-                    published=request.POST.get("published") == "on",
-                    schedule_frequency=frequency,
-                    schedule_start_time=schedule_start,
-                    schedule_end_time=schedule_end,
-                    schedule_weekdays=weekdays if frequency == SQLTest.ScheduleFrequency.WEEKLY else [],
-                )
-                SQLTestQuestion.objects.bulk_create([SQLTestQuestion(test=test, position=index, prompt=prompt) for index, prompt in enumerate(questions, 1)])
+                from .models import AssessmentDefinition
+                AssessmentDefinition.objects.create(kind="test", title=title, created_by=request.user, payload={
+                    "title": title, "instructions": request.POST.get("instructions", "").strip(),
+                    "sample_schema": request.POST.get("sample_schema", "").strip(),
+                    "duration_minutes": max(1,min(_safe_int(request.POST.get("duration"),60),600)),
+                    "total_marks": str(sum(question_marks)), "grading_mode": grading_mode,
+                    "allow_typed_answer": request.POST.get("allow_typed_answer")=="on",
+                    "email_results_on_submit": request.POST.get("email_results_on_submit") in ("on","1"),
+                    "questions": [{"prompt":prompt,"expected_sql":expected_sql[index] if index<len(expected_sql) else "", "verification_sql":verification_sql[index] if index<len(verification_sql) else "", "marks":str(question_marks[index] if index<len(question_marks) else def_m)} for index,prompt in enumerate(questions)],
+                })
                 return redirect("/portal/tests/")
-        tests = SQLTest.objects.filter(created_by=request.user).select_related("class_section", "lab", "course").prefetch_related("questions", "attempts__student", "attempts__answers__question").order_by("-id")
+        tests = SQLTest.objects.filter(created_by=request.user).select_related("class_section", "course").prefetch_related("questions", "attempts__student", "attempts__answers__question").order_by("-id")
+        has_tests = tests.exists()
+        all_tests_allow_typed = has_tests and not tests.filter(allow_typed_answer=False).exists()
         for test in tests:
             test.schedule_label = _test_schedule_label(test)
-        context = _tests_context(request, role, tests=tests, teaching_classes=teaching_classes, labs=CompilerLab.objects.filter(class_section__in=teaching_classes, is_active=True).select_related("class_section"), students=PortalUser.objects.filter(role=PortalUser.Role.STUDENT, is_active=True).order_by("first_name", "last_name", "username"), message=message)
+            test.grading_label = dict(SQLTest.GradingMode.choices).get(test.grading_mode, "Teacher review")
+        context = _tests_context(request, role, tests=tests, teaching_classes=teaching_classes, students=PortalUser.objects.filter(role=PortalUser.Role.STUDENT, is_active=True).order_by("first_name", "last_name", "username"), message=message, has_tests=has_tests, all_tests_allow_typed=all_tests_allow_typed)
     else:
         enrollment_classes = Enrollment.objects.filter(student=request.user, active=True).values_list("class_section_id", flat=True)
-        tests = SQLTest.objects.filter(published=True).filter(
+        from .daily_tasks import _eligible_lab_ids
+        tests = SQLTest.objects.filter(Q(lab__isnull=True) | Q(lab_id__in=_eligible_lab_ids(request.user))).filter(published=True).filter(
             Q(class_section_id__in=enrollment_classes) | Q(class_section__isnull=True, course__classes__enrollments__student=request.user, course__classes__enrollments__active=True)
         ).order_by().values("pk")
-        tests = SQLTest.objects.filter(pk__in=tests).select_related("class_section", "lab", "course").prefetch_related("questions")
+        tests = SQLTest.objects.filter(pk__in=tests).select_related("class_section", "course").prefetch_related("questions")
         if request.method == "POST":
             test = tests.filter(pk=_safe_int(request.POST.get("test_id"), None)).first()
             now = timezone.now()
@@ -1335,23 +1586,476 @@ def portal_tests(request):
                 if attempt.submitted_at:
                     message = "You have already submitted this test."
                 else:
-                    for question in test.questions.all():
+                    questions = list(test.questions.all())
+                    submitted_answers = {question.pk: request.POST.get(f"answer_{question.pk}", "").strip() for question in questions}
+                    from .assessment_sandbox import executed_test_run
+                    try:
+                        request._assessment_run = executed_test_run(request.user,test,submitted_answers.values())
+                    except ValueError as exc:
+                        return JsonResponse({'error':str(exc)},status=409)
+                    grades = None
+                    grade_error = ""
+                    if test.grading_mode != SQLTest.GradingMode.MANUAL:
+                        try:
+                            grades = _grade_sql_test_answers(request, test, questions, submitted_answers)
+                        except Exception as error:
+                            grade_error = str(error)[:500]
+                    answer_records = []
+                    for question in questions:
+                        answer_text = submitted_answers[question.pk]
+                        grade = (grades or {}).get(question.pk)
+                        answer_records.append({
+                            "attempt": attempt,
+                            "question": question,
+                            "defaults": {
+                                "answer": answer_text,
+                                "is_correct": grade.get("is_correct") if grade else None,
+                                "score": grade.get("score") if grade else None,
+                                "feedback": grade.get("feedback", "") if grade else (f"Automatic grading pending: {grade_error}" if grade_error else ""),
+                            },
+                        })
+                    for values in answer_records:
                         TestAnswer.objects.update_or_create(
-                            attempt=attempt, question=question,
-                            defaults={"answer": request.POST.get(f"answer_{question.pk}", "").strip()},
+                            attempt=values["attempt"], question=values["question"], defaults=values["defaults"],
                         )
+                    graded_answers = [grade for grade in (grades or {}).values()]
+                    attempt.score = (sum((grade["score"] for grade in graded_answers), Decimal("0"))
+                                     if grades is not None and len(graded_answers) == len(questions) else None)
                     attempt.status = "submitted"
                     attempt.submitted_at = now
-                    attempt.save(update_fields=("status", "submitted_at"))
+                    attempt.save(update_fields=("status", "submitted_at", "score"))
+                    if getattr(test, "email_results_on_submit", False):
+                        send_test_result_email(request.user, test, attempt, request)
                     return redirect("/portal/tests/")
+        # Auto-finalize any active attempts whose time limit has expired
+        now = timezone.now()
+        for active_att in TestAttempt.objects.filter(student=request.user, test__in=tests, submitted_at__isnull=True).select_related("test"):
+            if active_att.started_at and active_att.test.duration_minutes:
+                if (now - active_att.started_at).total_seconds() >= (active_att.test.duration_minutes * 60 + 15):
+                    _auto_finalize_expired_test(active_att, active_att.test)
         attempts = {attempt.test_id: attempt for attempt in TestAttempt.objects.filter(student=request.user, test__in=tests).prefetch_related("answers__question")}
         tests = list(tests.order_by("-id"))
+        from .daily_tasks import ordered_test_questions
         for test in tests:
             test.student_attempt = attempts.get(test.pk)
+            test.student_questions = ordered_test_questions(test, request.user)
+            test.grading_label = dict(SQLTest.GradingMode.choices).get(test.grading_mode, "Teacher review")
             test.schedule_open = _test_schedule_is_open(test)
             test.schedule_label = _test_schedule_label(test)
         context = _tests_context(request, role, tests=tests, message=message)
     return _render_dashboard("portal-tests.html", context, request)
+
+
+def _test_sql_tokens(sql):
+    from .sql_lexer import tokens
+    return [token for token in tokens(sql) if token["kind"] != "comment"]
+
+
+def _canonical_test_sql(sql):
+    tokens = _test_sql_tokens(sql)
+    if tokens and tokens[-1]["text"] == ";":
+        tokens.pop()
+    canonical = []
+    for token in tokens:
+        value = token["text"]
+        if token["kind"] == "word":
+            value = value.upper()
+        canonical.append((token["kind"], value))
+    return canonical
+
+
+def _detect_sql_kind(sql):
+    tokens = _test_sql_tokens(sql)
+    if not tokens:
+        return "UNKNOWN"
+    first = tokens[0]["text"].upper()
+    if first in {"SELECT", "WITH"}:
+        return "SELECT"
+    if first == "CREATE" and len(tokens) > 1 and tokens[1]["text"].upper() == "TABLE":
+        return "CREATE_TABLE"
+    if first in {"INSERT", "UPDATE", "DELETE"}:
+        return first
+    return "OTHER"
+
+
+def _is_supported_auto_grade_query(sql):
+    from .sql_lexer import split_statements
+    statements = split_statements(sql)
+    if len(statements) != 1:
+        return False
+    kind = _detect_sql_kind(statements[0])
+    if kind == "SELECT":
+        return _is_read_only_test_query(statements[0])
+    return kind in {"CREATE_TABLE", "INSERT", "UPDATE", "DELETE"}
+
+
+def _extract_table_name(sql):
+    match = re.search(r"CREATE\s+TABLE\s+(?:(?:\w+\.)?[\"\x27\`]?(\w+)[\"\x27\`]?)", sql, re.IGNORECASE)
+    return match.group(1).upper() if match else None
+
+
+def _extract_dml_target_table(sql):
+    sql_clean = sql.strip().upper()
+    if sql_clean.startswith("INSERT"):
+        m = re.search(r"INSERT\s+INTO\s+(?:(?:\w+\.)?[\"\x27\`]?(\w+)[\"\x27\`]?)", sql, re.IGNORECASE)
+    elif sql_clean.startswith("UPDATE"):
+        m = re.search(r"UPDATE\s+(?:(?:\w+\.)?[\"\x27\`]?(\w+)[\"\x27\`]?)", sql, re.IGNORECASE)
+    elif sql_clean.startswith("DELETE"):
+        m = re.search(r"DELETE\s+(?:FROM\s+)?(?:(?:\w+\.)?[\"\x27\`]?(\w+)[\"\x27\`]?)", sql, re.IGNORECASE)
+    else:
+        m = None
+    return m.group(1).upper() if m else None
+
+
+def _extract_expected_columns(sql):
+    match = re.search(r"CREATE\s+TABLE\s+.*?[\"\x27\`]?\w+[\"\x27\`]?\s*\((.*)\)", sql, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return []
+    body = match.group(1)
+    parts, depth, cur = [], 0, []
+    for char in body:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append("".join(cur).strip())
+            cur = []
+            continue
+        cur.append(char)
+    if cur:
+        parts.append("".join(cur).strip())
+    cols = []
+    for part in parts:
+        clean = re.sub(r"\s+", " ", part).strip()
+        tokens = clean.split(" ")
+        if not tokens or tokens[0].upper() in ("CONSTRAINT", "PRIMARY", "FOREIGN", "CHECK", "UNIQUE"):
+            continue
+        col_name = tokens[0].strip("\"'\x27`").upper()
+        if col_name:
+            cols.append(col_name)
+    return cols
+
+
+def _is_read_only_test_query(sql):
+    from .sql_lexer import bind_names, split_statements
+    statements = split_statements(sql)
+    if len(statements) != 1 or bind_names(sql):
+        return False
+    tokens = _test_sql_tokens(statements[0])
+    if not tokens or tokens[0]["text"].upper() not in {"SELECT", "WITH"}:
+        return False
+    words = [token["text"].upper() for token in tokens if token["kind"] == "word"]
+    if any(word in {"INSERT", "UPDATE", "DELETE", "MERGE", "COMMIT", "ROLLBACK", "CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT", "REVOKE", "EXECUTE", "CALL", "BEGIN", "DECLARE"} for word in words):
+        return False
+    return not any(left == "FOR" and right == "UPDATE" for left, right in zip(words, words[1:]))
+
+
+def _test_oracle_settings(request):
+    run = getattr(request, '_assessment_run', None)
+    if run is not None:
+        from .models import _portal_secret_cipher
+        if run.owner_id != request.user.pk or run.schema_removed_at or not run.schema_password_encrypted:
+            raise ValueError('The assessment sandbox is unavailable.')
+        return {'user': run.schema_name,
+            'password': _portal_secret_cipher().decrypt(run.schema_password_encrypted.encode()).decode(),
+            'connectString': run.sandbox_connection.connect_string}
+    from .views import current_oracle_session
+    compiler_session = current_oracle_session(request, touch=False)
+    if compiler_session and compiler_session.get("settings"):
+        return dict(compiler_session["settings"])
+    user = request.user
+    if user.has_oracle_credentials():
+        password = user.get_oracle_password()
+        if password:
+            return {"user": user.oracle_username, "password": password, "connectString": user.oracle_connect_string}
+    raise ValueError("Connect to Oracle and save your credentials in the compiler before submitting this result-graded test.")
+
+
+def _test_query_result(connection, sql):
+    from .sql_lexer import prepare_statement
+    with connection.cursor() as cursor:
+        cursor.arraysize = 501
+        connection.call_timeout = 2000
+        cursor.execute(prepare_statement(sql))
+        if not cursor.description:
+            raise ValueError("Reference SQL must return a result set.")
+        column_names = [col[0].upper() for col in cursor.description]
+        rows = cursor.fetchmany(501)
+    if len(rows) > 500:
+        raise ValueError("A graded query may return at most 500 rows.")
+
+    def normalize(value):
+        if value is None:
+            return ("null", "")
+        if isinstance(value, Decimal):
+            return ("number", format(value.normalize(), "f"))
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return ("number", format(Decimal(str(value)).normalize(), "f"))
+        if isinstance(value, (date, time)):
+            return (type(value).__name__, value.isoformat())
+        if hasattr(value, "read"):
+            raise ValueError("Large object columns are not supported by automatic result grading.")
+        if isinstance(value, bytes):
+            return ("bytes", value.hex())
+        return (type(value).__name__, str(value))
+
+    normalized_rows = [tuple(normalize(value) for value in row) for row in rows]
+    words = [token["text"].upper() for token in _test_sql_tokens(sql) if token["kind"] == "word"]
+    ordered = any(a == "ORDER" and b == "BY" for a, b in zip(words, words[1:]))
+    encoded_rows = [json.dumps(row, ensure_ascii=False, separators=(",", ":")) for row in normalized_rows]
+    return column_names, encoded_rows, ordered
+
+
+def _evaluate_select_query(connection, expected_sql, candidate_sql, marks):
+    expected_cols, expected_rows, ordered = _test_query_result(connection, expected_sql)
+    try:
+        actual_cols, actual_rows, _ = _test_query_result(connection, candidate_sql)
+    except Exception as error:
+        if re.search(r"\b(?:DPY-(?:1001|4011)|ORA-(?:01013|03113|03114|03135|12537|12547|12570|12571))\b", str(error), re.I):
+            raise
+        return {"is_correct": False, "score": Decimal("0"), "feedback": f"Oracle could not run this query: {str(error)[:300]}"}
+
+    columns_correct = (actual_cols == expected_cols)
+    if ordered:
+        rows_correct = (actual_rows == expected_rows)
+    else:
+        rows_correct = (Counter(actual_rows) == Counter(expected_rows))
+
+    passed = columns_correct and rows_correct
+    if passed:
+        feedback = "Query results match the reference."
+    elif not columns_correct and rows_correct:
+        feedback = "Rows match, but column names or column order do not match the reference."
+    elif columns_correct and not rows_correct:
+        feedback = f"Columns match, but returned rows differ (expected {len(expected_rows)} rows, got {len(actual_rows)} rows)."
+    else:
+        feedback = "Query ran, but its result rows and columns do not match the reference."
+
+    return {
+        "is_correct": passed,
+        "score": marks if passed else Decimal("0"),
+        "feedback": feedback,
+    }
+
+
+def _evaluate_create_table(connection, expected_sql, candidate_sql, marks):
+    expected_table = _extract_table_name(expected_sql)
+    candidate_table = _extract_table_name(candidate_sql)
+    if not expected_table:
+        return {"is_correct": False, "score": Decimal("0"), "feedback": "Invalid reference CREATE TABLE statement."}
+    if candidate_table and candidate_table != expected_table:
+        return {"is_correct": False, "score": Decimal("0"), "feedback": f"Expected table '{expected_table}', but statement creates '{candidate_table}'."}
+
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT column_name, data_type, nullable
+            FROM user_tab_columns
+            WHERE table_name = :tbl
+            ORDER BY column_id
+        """, {'tbl': expected_table})
+        actual_cols = cursor.fetchall()
+        if not actual_cols:
+            return {"is_correct": False, "score": Decimal("0"), "feedback": f"Table '{expected_table}' was not found in schema. Create the table successfully first."}
+
+        cursor.execute("""
+            SELECT c.constraint_type, cc.column_name
+            FROM user_constraints c
+            JOIN user_cons_columns cc ON c.constraint_name = cc.constraint_name AND c.owner = cc.owner
+            WHERE c.table_name = :tbl
+        """, {'tbl': expected_table})
+        constraints = cursor.fetchall()
+        actual_pks = {col.upper() for ctype, col in constraints if ctype == 'P'}
+
+    expected_cols = _extract_expected_columns(expected_sql)
+    actual_col_names = [col[0].upper() for col in actual_cols]
+    missing_cols = [col for col in expected_cols if col not in actual_col_names]
+    if missing_cols:
+        return {"is_correct": False, "score": Decimal("0"), "feedback": f"Table created, but missing column(s): {', '.join(missing_cols)}."}
+
+    if 'PRIMARY KEY' in expected_sql.upper() and not actual_pks:
+        return {"is_correct": False, "score": Decimal("0"), "feedback": f"Table '{expected_table}' created, but missing the required PRIMARY KEY constraint."}
+
+    return {"is_correct": True, "score": marks, "feedback": f"Table '{expected_table}' created and verified successfully."}
+
+
+def _evaluate_dml_statement(connection, expected_sql, candidate_sql, marks):
+    expected_target = _extract_dml_target_table(expected_sql)
+    candidate_target = _extract_dml_target_table(candidate_sql)
+    if not expected_target:
+        return {"is_correct": False, "score": Decimal("0"), "feedback": "Invalid reference DML statement."}
+    if candidate_target and candidate_target != expected_target:
+        return {"is_correct": False, "score": Decimal("0"), "feedback": f"Expected DML to target table '{expected_target}', but got '{candidate_target}'."}
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) FROM {expected_target}")
+            count = cursor.fetchone()[0]
+    except Exception as error:
+        return {"is_correct": False, "score": Decimal("0"), "feedback": f"Table '{expected_target}' evaluation error: {str(error)[:300]}"}
+
+    return {"is_correct": True, "score": marks, "feedback": f"DML statement executed successfully on '{expected_target}'."}
+
+
+
+
+
+
+def send_test_result_email(student, test, attempt, request=None):
+    """Send formatted scorecard email to student with marks and question breakdown."""
+    try:
+        from .models import PortalSetting
+        from .otp_delivery import send_account_email
+        setting = PortalSetting.objects.first()
+        if not setting or not setting.gmail_login_email or not setting.get_gmail_app_password():
+            logger.warning("Result email skipped: Gmail not configured in PortalSetting.")
+            return False
+
+        if not student.email:
+            return False
+
+        answers = attempt.answers.select_related("question").all()
+        total_marks = test.total_marks
+        score = attempt.score if attempt.score is not None else Decimal("0")
+
+        breakdown = []
+        for ans in answers:
+            status = "Correct" if ans.is_correct else ("Incorrect" if ans.is_correct is False else "Pending Review")
+            ans_score = ans.score if ans.score is not None else Decimal("0")
+            q_marks = ans.question.marks
+            fb = f"\n   Feedback: {ans.feedback}" if ans.feedback else ""
+            breakdown.append(f"Q{ans.question.position}. {ans.question.prompt}\n   Status: {status} ({ans_score} / {q_marks} marks){fb}")
+
+        breakdown_text = "\n\n".join(breakdown) if breakdown else "No individual questions recorded."
+        portal_url = request.build_absolute_uri("/portal/tests/") if request else "https://your-portal-url/portal/tests/"
+        recipient_name = student.get_full_name() or student.username
+
+        subject = f"Test Result: {test.title} (Score: {score}/{total_marks})"
+        body = (
+            f"Dear {recipient_name},\n\n"
+            f"Your result for '{test.title}' is ready.\n\n"
+            f"========================================\n"
+            f"SCORECARD:\n"
+            f"- Total Score: {score} / {total_marks}\n"
+            f"- Submission Time: {attempt.submitted_at.strftime('%Y-%m-%d %H:%M') if attempt.submitted_at else 'N/A'}\n"
+            f"- Status: {attempt.status.title()}\n"
+            f"========================================\n\n"
+            f"Question-by-Question Breakdown:\n"
+            f"{breakdown_text}\n\n"
+            f"Review your complete test answers and sandbox reports here:\n"
+            f"{portal_url}\n\n"
+            f"Best regards,\n"
+            f"Oracle SQL Learning Portal"
+        )
+        send_account_email(setting, student.email, subject, body)
+        return True
+    except Exception as exc:
+        logger.exception("Failed to send test result email to %s: %s", getattr(student, 'email', ''), exc)
+        return False
+
+def _notify_students_about_new_test(request, class_sections, test_title, question_count):
+    """Notify all active enrolled students in the target classes via Gmail SMTP."""
+    try:
+        from .models import PortalSetting, PortalUser, Enrollment
+        from .otp_delivery import send_account_email
+        setting = PortalSetting.objects.first()
+        if not setting or not setting.gmail_login_email or not setting.get_gmail_app_password():
+            logger.warning("Email notification skipped: Gmail settings not configured in PortalSetting.")
+            return
+
+        class_section_ids = [cs.pk for cs in class_sections]
+        enrolled_student_ids = Enrollment.objects.filter(
+            class_section_id__in=class_section_ids,
+            active=True,
+            student__is_active=True,
+            student__role=PortalUser.Role.STUDENT
+        ).values_list('student_id', flat=True).distinct()
+
+        students = PortalUser.objects.filter(pk__in=enrolled_student_ids).exclude(email='').distinct()
+        if not students.exists():
+            return
+
+        portal_url = request.build_absolute_uri('/portal/tests/')
+        teacher_name = request.user.get_full_name() or request.user.username
+        subject = f"New Test Assigned: {test_title}"
+
+        for student in students:
+            recipient_name = student.get_full_name() or student.username
+            body = (
+                f"Hello {recipient_name},\n\n"
+                f"A new SQL Test has been uploaded for your class by {teacher_name}.\n\n"
+                f"Test Title: {test_title}\n"
+                f"Total Questions: {question_count}\n\n"
+                f"Please log in to your portal to take the test:\n"
+                f"{portal_url}\n\n"
+                f"Best regards,\n"
+                f"Oracle Learning Portal"
+            )
+            try:
+                send_account_email(setting, student.email, subject, body)
+            except Exception as exc:
+                logger.warning("Failed to send test email to %s: %s", student.email, exc)
+    except Exception as exc:
+        logger.exception("Error in _notify_students_about_new_test: %s", exc)
+
+def _grade_sql_test_answers(request, test, questions, submitted_answers):
+    from .models import SQLTest
+    mode = test.grading_mode
+    if mode == SQLTest.GradingMode.SQL_MATCH:
+        grades = {}
+        for question in questions:
+            correct = bool(submitted_answers.get(question.pk, "").strip()) and (
+                _canonical_test_sql(submitted_answers[question.pk]) == _canonical_test_sql(question.expected_sql)
+            )
+            grades[question.pk] = {
+                "is_correct": correct,
+                "score": question.marks if correct else Decimal("0"),
+                "feedback": "SQL statement matches the reference." if correct else "The SQL statement does not match the reference answer.",
+            }
+        return grades
+    if mode != SQLTest.GradingMode.RESULT_MATCH:
+        return {}
+    from .views import connect_options, open_oracle_connection
+    connection = None
+    try:
+        connection = open_oracle_connection(connect_options(_test_oracle_settings(request)))
+        connection.call_timeout = 2000
+        grades = {}
+        for question in questions:
+            candidate = submitted_answers.get(question.pk, "").strip()
+            expected = (question.expected_sql or "").strip()
+            if not candidate:
+                grades[question.pk] = {"is_correct": False, "score": Decimal("0"), "feedback": "No answer provided."}
+                continue
+
+            kind = _detect_sql_kind(expected)
+            if kind == 'SELECT':
+                if not _is_read_only_test_query(candidate):
+                    grades[question.pk] = {"is_correct": False, "score": Decimal("0"), "feedback": "Enter one read-only SELECT query without bind variables."}
+                    continue
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET TRANSACTION READ ONLY")
+                except Exception:
+                    pass
+                grades[question.pk] = _evaluate_select_query(connection, expected, candidate, question.marks)
+                try:
+                    connection.rollback()
+                except Exception:
+                    pass
+            elif kind == 'CREATE_TABLE':
+                grades[question.pk] = _evaluate_create_table(connection, expected, candidate, question.marks)
+            elif kind in {'INSERT', 'UPDATE', 'DELETE'}:
+                grades[question.pk] = _evaluate_dml_statement(connection, expected, candidate, question.marks)
+            else:
+                grades[question.pk] = _evaluate_select_query(connection, expected, candidate, question.marks)
+        return grades
+    finally:
+        if connection:
+            try: connection.rollback()
+            except Exception: pass
+            try: connection.close()
+            except Exception: pass
 
 
 def _safe_int(value, default):
@@ -1368,7 +2072,7 @@ def _questions_from_upload(upload):
     try:
         if suffix == ".txt":
             content = upload.read().decode("utf-8-sig")
-            rows = [line.strip() for line in content.splitlines() if line.strip()]
+            rows = content.splitlines()
         elif suffix == ".csv":
             content = upload.read().decode("utf-8-sig")
             rows = []
@@ -1386,13 +2090,68 @@ def _questions_from_upload(upload):
                 root = ElementTree.fromstring(docx.read(document))
             namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
             rows = ["".join(node.text or "" for node in paragraph.findall(".//w:t", namespace)).strip() for paragraph in root.findall(".//w:body/w:p", namespace)]
-            rows = [row for row in rows if row]
         else:
-            raise ValueError("Use a .txt, .csv, or .docx file. Put one question on each line or row.")
+            raise ValueError("Use a .txt, .csv, or .docx question file.")
     except (UnicodeDecodeError, csv.Error, zipfile.BadZipFile, KeyError, ElementTree.ParseError, RuntimeError, OSError):
         raise ValueError("The question file could not be read. Check its format and try again.") from None
-    questions = [re.sub(r"^\s*(?:(?:Q\s*)?\d+\s*[.) :]\s*)", "", row).strip() for row in rows]
-    questions = [question for question in questions if question]
+    return _questions_from_rows(rows)
+
+
+def _questions_from_text(text):
+    """Use the file importer's question boundaries for pasted text."""
+    return _questions_from_rows(text.splitlines())
+
+
+def _questions_from_rows(rows):
+    start_pattern = re.compile(
+        r"^\s*(?:(?:(?:question|q)\s*)?\d+\s*(?:[.):\-]|\s+)|[-#]+\s*|/\*\s*)",
+        re.I,
+    )
+    number_pattern = re.compile(r"^(?:(?:question|q)\s*)?\d+\s*(?:[.):\-]|\s+)\s*", re.I)
+    lines = [str(row).strip() for row in rows]
+    lines = [line for line in lines if line]
+    if not any(start_pattern.match(line) for line in lines):
+        questions = lines
+    else:
+        questions, preamble = [], []
+        current = None
+        in_block_comment = False
+
+        def append_question(parts):
+            text = "\n".join(part for part in parts if part).strip()
+            if text and text.casefold().rstrip(":") not in {"questions", "question list", "questions list"}:
+                questions.append(text)
+
+        for line in lines:
+            marker = start_pattern.match(line)
+            if marker:
+                if current is not None:
+                    append_question(current)
+                elif preamble:
+                    append_question(preamble)
+                    preamble = []
+                current = []
+                body = line[marker.end():].strip()
+                body = number_pattern.sub("", body, count=1).strip()
+                in_block_comment = line.lstrip().startswith("/*")
+                if in_block_comment and body.endswith("*/"):
+                    body = body[:-2].rstrip()
+                    in_block_comment = False
+                if body:
+                    current.append(body)
+            elif current is None:
+                preamble.append(line)
+            else:
+                continuation = line
+                if in_block_comment and continuation.endswith("*/"):
+                    continuation = continuation[:-2].rstrip()
+                    in_block_comment = False
+                if continuation:
+                    current.append(continuation)
+        if current is not None:
+            append_question(current)
+        elif preamble:
+            append_question(preamble)
     if not questions:
         raise ValueError("No questions were found in that file.")
     if len(questions) > 200:
@@ -1440,6 +2199,34 @@ def _tests_context(request, role, **values):
         "is_tests_page": True,
         "dashboard_home_path": _dashboard_path(role),
     }
+    if role == PortalUser.Role.TEACHER:
+        from .assessment_library import library_context
+        context.update(library_context(request, "test"))
+        context["test_view"] = request.GET.get("view", "library") if request.GET.get("view", "library") in {"library", "create", "mappings", "setup"} else "library"
+        if request.method == "POST":
+            context["test_view"] = "setup" if request.POST.get("action") == "setup_class" else "create"
+        # Reuse the records maintained in admin; do not invent academic options.
+        context["setup_courses"] = list(
+            Course.objects.filter(is_active=True).order_by("code").values("code", "name")
+        )
+        academic_fields = ("name", "branch", "semester", "section", "group", "academic_year")
+        rows = list(ClassSection.objects.filter(
+            is_active=True, course__is_active=True,
+        ).values(*academic_fields))
+        context["setup_class_fields"] = [
+            {
+                "label": label, "name": input_name, "required": required,
+                "options": sorted({row[field] for row in rows if row[field] not in (None, "")}),
+            }
+            for field, label, input_name, required in (
+                ("name", "Class name", "new_class_name", True),
+                ("branch", "Branch", "new_branch", True),
+                ("semester", "Semester", "new_semester", True),
+                ("section", "Section", "new_section", True),
+                ("group", "Group", "new_group", True),
+                ("academic_year", "Academic year (optional)", "academic_year", False),
+            )
+        ]
     context.update(values)
     return context
 
@@ -1450,7 +2237,9 @@ def teacher_activity_dashboard(request):
     if _active_portal_role(request) != PortalUser.Role.TEACHER:
         return redirect("/portal/choose-role/" if len(_available_portal_roles(request.user)) > 1 else _dashboard_path(request.user.role))
     can_view_all_activity = request.user.can_view_all_compiler_activity
-    assignments = TeacherAssignment.objects.filter(teacher=request.user).select_related("class_section", "class_section__course").order_by("class_section__course__name", "class_section__name")
+    assignments = TeacherAssignment.objects.filter(teacher=request.user).select_related(
+        "class_section", "class_section__course", "class_subject__subject"
+    ).order_by("class_section__course__name", "class_section__name", "class_subject__subject__code")
     activity_classes = ClassSection.objects.all() if can_view_all_activity else ClassSection.objects.filter(teacher_assignments__teacher=request.user).distinct()
     activity_classes = activity_classes.select_related("course").order_by("course__name", "name", "section")
     context = {
@@ -1481,6 +2270,7 @@ def teacher_attendance_dashboard(request):
         "global_default_accent": _global_default_accent(),
         "dashboard_navigation_items": _dashboard_navigation_items(PortalUser.Role.TEACHER),
         "attendance_classes": classes.select_related("course").order_by("course__name", "name", "section"),
+        "attendance_assignments": TeacherAssignment.objects.filter(class_section_id__in=classes.values("id")).select_related("class_subject__subject").order_by("class_subject__subject__name"),
         "can_view_all_compiler_activity": can_view_all,
         "dashboard_home_path": _dashboard_path(PortalUser.Role.TEACHER),
         "is_attendance_page": True,
@@ -1521,7 +2311,6 @@ def teacher_remote_code_dashboard(request):
     # Deduplicate IDs before loading related objects: Oracle cannot DISTINCT NCLOBs.
     class_ids = ClassSection.objects.filter(teacher_assignments__teacher=request.user, is_active=True).order_by().values("pk")
     classes = ClassSection.objects.filter(pk__in=class_ids).select_related("course").order_by("course__name", "name")
-    labs = CompilerLab.objects.filter(class_section__in=classes, is_active=True).select_related("class_section", "class_section__course").order_by("class_section__course__name", "class_section__name", "name")
     remote_students = students.order_by("first_name", "last_name", "username")
     share_student_ids = PortalUser.objects.filter(
         role=PortalUser.Role.STUDENT, is_active=True,
@@ -1535,16 +2324,13 @@ def teacher_remote_code_dashboard(request):
         code = str(request.POST.get("code", ""))
         editor_kind = request.POST.get("editor_kind", "")
         audience = request.POST.get("code_audience", "")
-        target = {"class_section": None, "lab": None, "student": None}
+        target = {"class_section": None, "student": None}
         if audience == "all":
             if not PortalUser.objects.filter(role=PortalUser.Role.STUDENT, is_active=True).exists():
                 share_code_error = "There are no active student accounts to receive this code."
         elif audience == "class":
             target_id = request.POST.get("code_class_id", "")
             target["class_section"] = classes.filter(pk=int(target_id)).first() if target_id.isdigit() else None
-        elif audience == "lab":
-            target_id = request.POST.get("code_lab_id", "")
-            target["lab"] = labs.filter(pk=int(target_id)).first() if target_id.isdigit() else None
         elif audience == "student":
             target_id = request.POST.get("code_student_id", "")
             target["student"] = share_students.filter(pk=int(target_id)).first() if target_id.isdigit() else None
@@ -1560,8 +2346,8 @@ def teacher_remote_code_dashboard(request):
             SharedCompilerCode.objects.create(created_by=request.user, title=title, code=code, editor_kind=editor_kind, all_students=audience == "all", **target)
             share_code_message = "Code shared with all active students." if audience == "all" else "Code shared. Students can view and copy it from their portal."
     shared_code_records = SharedCompilerCode.objects.filter(created_by=request.user).filter(
-        Q(class_section__in=classes) | Q(lab__in=labs) | Q(student__in=share_students) | Q(all_students=True)
-    ).select_related("class_section", "class_section__course", "lab", "lab__class_section", "student").order_by("-created_at")[:30]
+        Q(class_section__in=classes) | Q(student__in=share_students) | Q(all_students=True)
+    ).select_related("class_section", "class_section__course", "student").order_by("-created_at")[:30]
     context = {
         "user": request.user,
         "portal_role": PortalUser.Role.TEACHER,
@@ -1572,7 +2358,6 @@ def teacher_remote_code_dashboard(request):
         "remote_code_students": remote_students,
         "share_code_students": share_students,
         "remote_code_classes": classes,
-        "remote_code_labs": labs,
         "shared_code_records": shared_code_records,
         "share_code_message": share_code_message,
         "share_code_error": share_code_error,
@@ -1603,39 +2388,17 @@ def compiler_activity_heartbeat(request):
         attendance = AttendanceSession.objects.create(user=request.user, source="recovered")
         request.session["attendance_session_id"] = attendance.pk
 
-    previous_context = (attendance.class_section_id, attendance.lab_id)
+    previous_context = attendance.class_section_id
     now = timezone.now()
     page = "compiler" if payload.get("page") == "compiler" else "portal"
     active = payload.get("active") is True
-    lab_id = payload.get("labId")
-    if lab_id not in (None, ""):
-        try:
-            lab_id = int(lab_id)
-        except (TypeError, ValueError):
-            return JsonResponse({"error": "Choose a valid lab."}, status=400)
-        lab_query = CompilerLab.objects.filter(pk=lab_id, is_active=True).select_related("class_section")
-        role = _active_portal_role(request)
-        if role == PortalUser.Role.STUDENT:
-            lab_query = lab_query.filter(class_section__enrollments__student=request.user, class_section__enrollments__active=True)
-        elif role == PortalUser.Role.TEACHER:
-            lab_query = lab_query.filter(class_section__teacher_assignments__teacher=request.user)
-        else:
-            return JsonResponse({"error": "This account cannot select a compiler lab."}, status=403)
-        lab = lab_query.first()
-        if not lab:
-            return JsonResponse({"error": "That lab is not assigned to your account."}, status=403)
-        attendance.lab = lab
-        attendance.class_section = lab.class_section
-    elif "labId" in payload:
-        attendance.lab = None
-        attendance.class_section = None
 
     elapsed = max(0, min(int((now - attendance.last_heartbeat_at).total_seconds()), 45))
     if elapsed:
         if active: attendance.active_seconds += elapsed
         else: attendance.idle_seconds += elapsed
     previous_slice = attendance.activity_slices.filter(ended_at__isnull=True).order_by("-started_at", "-id").first()
-    context_changed = previous_context != (attendance.class_section_id, attendance.lab_id)
+    context_changed = previous_context != attendance.class_section_id
     if previous_slice and context_changed:
         previous_slice.ended_at = previous_slice.last_heartbeat_at
         previous_slice.is_active_now = False
@@ -1644,7 +2407,7 @@ def compiler_activity_heartbeat(request):
         previous_slice = None
     if not previous_slice:
         current_slice = CompilerActivitySlice.objects.create(
-            attendance_session=attendance, class_section=attendance.class_section, lab=attendance.lab,
+            attendance_session=attendance, class_section=attendance.class_section,
             started_at=now, last_heartbeat_at=now, last_activity_at=now if active else attendance.last_activity_at,
             current_page=page, is_active_now=active, compiler_active=page == "compiler" and active,
         )
@@ -1665,67 +2428,18 @@ def compiler_activity_heartbeat(request):
     attendance.compiler_active = page == "compiler" and active
     if active: attendance.last_activity_at = now
     attendance.save(update_fields=(
-        "lab", "class_section", "active_seconds", "idle_seconds", "last_heartbeat_at",
+        "class_section", "active_seconds", "idle_seconds", "last_heartbeat_at",
         "current_page", "is_active_now", "compiler_active", "last_activity_at",
         "logout_at", "logout_estimated", "end_reason",
     ))
-    return JsonResponse({"ok": True, "serverTime": now.isoformat()})
-
-
-@login_required(login_url="/portal/")
-@require_http_methods(["GET", "POST"])
-def compiler_labs(request):
-    if not _same_origin(request):
-        return JsonResponse({"error": "Lab settings must come from this portal."}, status=403)
-    role = _active_portal_role(request)
-    assigned_class_ids = TeacherAssignment.objects.filter(teacher=request.user).values_list("class_section_id", flat=True)
-    if request.method == "GET":
-        if role == PortalUser.Role.STUDENT:
-            labs = CompilerLab.objects.filter(is_active=True, class_section__enrollments__student=request.user, class_section__enrollments__active=True)
-        elif role == PortalUser.Role.TEACHER:
-            can_view_all_activity = request.GET.get("activity") == "1" and request.user.can_view_all_compiler_activity
-            allowed_class_ids = ClassSection.objects.values_list("id", flat=True) if can_view_all_activity else assigned_class_ids
-            labs = CompilerLab.objects.filter(class_section_id__in=allowed_class_ids)
-            class_id = request.GET.get("class", "")
-            if class_id:
-                try:
-                    class_id = int(class_id)
-                except ValueError:
-                    return JsonResponse({"error": "Invalid class filter."}, status=400)
-                if not (can_view_all_activity and ClassSection.objects.filter(pk=class_id).exists()) and not TeacherAssignment.objects.filter(teacher=request.user, class_section_id=class_id).exists():
-                    return JsonResponse({"error": "Class is not assigned to you."}, status=403)
-                labs = labs.filter(class_section_id=class_id)
-        else:
-            return JsonResponse({"error": "Only students and teachers can access compiler labs."}, status=403)
-        lab_ids = labs.order_by().values("pk")
-        labs = CompilerLab.objects.filter(pk__in=lab_ids).select_related("class_section", "class_section__course").order_by("class_section__name", "name")
-        return JsonResponse({"labs": [{
-            "id": lab.pk, "name": lab.name, "classId": lab.class_section_id,
-            "className": f"{lab.class_section.course.code} · {lab.class_section.name} {lab.class_section.section}".strip(),
-            "isActive": lab.is_active,
-        } for lab in labs]})
-
-    if role != PortalUser.Role.TEACHER:
-        return JsonResponse({"error": "Only teachers can create compiler labs."}, status=403)
-    try:
-        payload = json.loads(request.body or b"{}")
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return JsonResponse({"error": "Lab details could not be read."}, status=400)
-    name = str(payload.get("name", "")).strip()[:120]
-    try:
-        class_id = int(payload.get("classId"))
-    except (TypeError, ValueError):
-        return JsonResponse({"error": "Choose an assigned class."}, status=400)
-    class_section = ClassSection.objects.filter(pk=class_id, teacher_assignments__teacher=request.user).first()
-    if not class_section:
-        return JsonResponse({"error": "You can create labs only for your assigned classes."}, status=403)
-    if not name:
-        return JsonResponse({"error": "Enter a lab name."}, status=400)
-    lab, created = CompilerLab.objects.get_or_create(class_section=class_section, name=name, defaults={"created_by": request.user})
-    if not created and not lab.is_active:
-        lab.is_active = True
-        lab.save(update_fields=("is_active",))
-    return JsonResponse({"ok": True, "id": lab.pk, "name": lab.name}, status=201 if created else 200)
+    request.student_attendance = attendance
+    from .views import _lock, _oracle_sessions, _refresh_compiler_session_cookie, _sync_independent_compiler_expiry
+    with _lock:
+        compiler_session = _oracle_sessions.get(request.session.session_key)
+        if compiler_session and compiler_session.get("independent_enabled"):
+            _sync_independent_compiler_expiry(request, compiler_session)
+            request._compiler_session_cookie = compiler_session.get("independent_token", "")
+    return _refresh_compiler_session_cookie(JsonResponse({"ok": True, "serverTime": now.isoformat()}), request)
 
 
 @login_required(login_url="/portal/")
@@ -1754,34 +2468,17 @@ def teacher_compiler_activity_student(request, student_id):
             return JsonResponse({"error": "Invalid class filter."}, status=400)
         if not class_filter or not student.enrollments.filter(class_section=class_filter, active=True).exists():
             return JsonResponse({"error": "Class is not assigned to this student."}, status=403)
-    lab_id = request.GET.get("lab", "")
-    lab_filter = None
-    if lab_id:
-        try:
-            lab_filter = CompilerLab.objects.filter(pk=int(lab_id), class_section_id__in=class_ids, class_section__enrollments__student=student).first()
-        except ValueError:
-            return JsonResponse({"error": "Invalid lab filter."}, status=400)
-        if not lab_filter:
-            return JsonResponse({"error": "Lab is not assigned to this student."}, status=403)
-        if class_filter and lab_filter.class_section_id != class_filter.pk:
-            return JsonResponse({"error": "Lab does not belong to the selected class."}, status=400)
     sessions = AttendanceSession.objects.filter(user=student, login_at__date=report_day).order_by("login_at")
-    activity_slices = CompilerActivitySlice.objects.filter(attendance_session__user=student, started_at__date=report_day).select_related("lab", "class_section")
-    events = CompilerExecutionEvent.objects.filter(student=student, executed_at__date=report_day).select_related("lab", "class_section")
+    activity_slices = CompilerActivitySlice.objects.filter(attendance_session__user=student, started_at__date=report_day).select_related("class_section")
+    events = CompilerExecutionEvent.objects.filter(student=student, executed_at__date=report_day).select_related("class_section")
     paste_events = CompilerPasteEvent.objects.filter(student=student, created_at__date=report_day).select_related("attendance_session")
     client_events = CompilerClientActivityEvent.objects.filter(student=student, created_at__date=report_day)
     if class_filter:
         sessions = sessions.filter(Q(class_section=class_filter) | Q(class_section__isnull=True))
         activity_slices = activity_slices.filter(class_section=class_filter)
-        events = events.filter(Q(class_section=class_filter) | Q(lab__class_section=class_filter))
+        events = events.filter(Q(class_section=class_filter) | Q(attendance_session__class_section=class_filter))
         paste_events = paste_events.filter(attendance_session__class_section=class_filter)
         client_events = client_events.filter(attendance_session__class_section=class_filter)
-    if lab_filter:
-        sessions = sessions.filter(Q(lab=lab_filter) | Q(lab__isnull=True))
-        activity_slices = activity_slices.filter(lab=lab_filter)
-        events = events.filter(lab=lab_filter)
-        paste_events = paste_events.filter(attendance_session__lab=lab_filter)
-        client_events = client_events.filter(attendance_session__lab=lab_filter)
     timeline = []
     for session in sessions:
         timeline.append({"at": session.login_at.isoformat(), "title": "Login · in-time", "detail": f"{session.source} session started.", "kind": "login"})
@@ -1790,13 +2487,13 @@ def teacher_compiler_activity_student(request, student_id):
         if session.logout_at:
             timeline.append({"at": session.logout_at.isoformat(), "title": "Out-time", "detail": "Estimated from last heartbeat." if session.logout_estimated else "Confirmed at logout.", "kind": "logout", "estimated": session.logout_estimated})
     for activity_slice in activity_slices:
-        context_name = activity_slice.lab.name if activity_slice.lab else "Compiler session"
-        timeline.append({"at": activity_slice.last_heartbeat_at.isoformat(), "title": f"Activity · {context_name}", "detail": f"{activity_slice.active_seconds // 60} min active · {activity_slice.idle_seconds // 60} min idle" + (f" · {activity_slice.class_section}" if activity_slice.class_section and not activity_slice.lab else ""), "kind": "activity"})
+        context_name = str(activity_slice.class_section) if activity_slice.class_section else "Compiler session"
+        timeline.append({"at": activity_slice.last_heartbeat_at.isoformat(), "title": f"Activity · {context_name}", "detail": f"{activity_slice.active_seconds // 60} min active · {activity_slice.idle_seconds // 60} min idle", "kind": "activity"})
     for event in events:
         detail = f"{event.duration_ms} ms · {event.row_count} rows"
         if event.typed_chars is not None:
             detail += f" · typed {event.typed_chars} · pasted {event.pasted_chars or 0} · paste actions {event.paste_count or 0} · edits after paste {event.edits_after_paste or 0}"
-        timeline.append({"at": event.executed_at.isoformat(), "title": f"{event.source} · {'Successful' if event.status == 'success' else 'Failed'}", "detail": detail + (f" · {event.lab.name}" if event.lab else ""), "kind": "execution"})
+        timeline.append({"at": event.executed_at.isoformat(), "title": f"{event.source} · {'Successful' if event.status == 'success' else 'Failed'}", "detail": detail, "kind": "execution"})
     for event in paste_events.order_by("-created_at")[:500]:
         pasted_character_count = f"at least {len(event.text)}" if event.truncated else str(len(event.text))
         timeline.append({
@@ -1834,7 +2531,6 @@ def teacher_attendance_report(request):
         end_day = date.fromisoformat(request.GET.get("to", "")) if request.GET.get("to") else timezone.localdate()
         start_day = date.fromisoformat(request.GET.get("from", "")) if request.GET.get("from") else end_day - timedelta(days=29)
         selected_class_id = int(request.GET["class"]) if request.GET.get("class") else None
-        selected_lab_id = int(request.GET["lab"]) if request.GET.get("lab") else None
     except (ValueError, TypeError):
         return JsonResponse({"error": "Choose valid attendance dates and filters."}, status=400)
     if start_day > end_day or (end_day - start_day).days > 365:
@@ -1845,22 +2541,16 @@ def teacher_attendance_report(request):
     class_query = ClassSection.objects.filter(pk__in=class_ids)
     if selected_class_id:
         class_query = class_query.filter(pk=selected_class_id)
-    selected_lab = None
-    if selected_lab_id:
-        selected_lab = CompilerLab.objects.filter(pk=selected_lab_id, class_section_id__in=class_ids).select_related("class_section").first()
-        if not selected_lab or (selected_class_id and selected_lab.class_section_id != selected_class_id):
-            return JsonResponse({"error": "Lab is not assigned to the selected class."}, status=403)
-        class_query = class_query.filter(pk=selected_lab.class_section_id)
 
     enrollments = Enrollment.objects.filter(
         class_section__in=class_query, active=True, student__role=PortalUser.Role.STUDENT, student__is_active=True,
     ).select_related("student").order_by("student__first_name", "student__last_name", "student__username")
-    class_section = class_query.first() if selected_class_id or selected_lab else None
-    scheduled_start = (selected_lab.attendance_start_time if selected_lab and selected_lab.attendance_start_time else None) or (class_section.attendance_start_time if class_section else None)
+    class_section = class_query.first() if selected_class_id else None
+    scheduled_start = class_section.attendance_start_time if class_section else None
     students = {}
     for enrollment in enrollments:
         students.setdefault(enrollment.student_id, {"user": enrollment.student, "presentDates": set(), "sessions": []})
-    if can_view_all and not selected_class_id and not selected_lab:
+    if can_view_all and not selected_class_id:
         for student in PortalUser.objects.filter(role=PortalUser.Role.STUDENT, is_active=True).order_by("first_name", "last_name", "username"):
             students.setdefault(student.pk, {"user": student, "presentDates": set(), "sessions": []})
     student_ids = list(students)
@@ -1870,10 +2560,6 @@ def teacher_attendance_report(request):
         | Q(login_at__date__lte=end_day, logout_at__date__gte=start_day)
         | Q(login_at__date__lte=end_day, logout_at__isnull=True, last_heartbeat_at__date__gte=start_day)
     )
-    if selected_lab:
-        sessions = sessions.filter(lab_id=selected_lab.pk)
-    # Portal login is the attendance signal for a class. For lab-level reports,
-    # attendance is recorded only when the student opened that lab in the compiler.
     for session in sessions.order_by("login_at"):
         login_day = timezone.localtime(session.login_at).date()
         students[session.user_id]["sessions"].append(session)
@@ -1946,10 +2632,10 @@ def teacher_attendance_report(request):
         "eligibleDays": eligible_days,
         "from": start_day.isoformat(),
         "to": end_day.isoformat(),
-        "scope": selected_lab.name if selected_lab else (str(class_query.first()) if selected_class_id else "Assigned classes"),
+        "scope": str(class_query.first()) if selected_class_id else "Assigned classes",
         "attendanceBasis": "Portal login days; Monday–Friday are counted as eligible days.",
         "scheduledStartTime": scheduled_start.strftime("%H:%M") if scheduled_start else "",
-        "scheduleLevel": "lab" if selected_lab and selected_lab.attendance_start_time else "class",
+        "scheduleLevel": "class",
     })
 
 
@@ -1963,11 +2649,10 @@ def teacher_attendance_schedule(request):
         if not isinstance(payload, dict):
             raise ValueError("Invalid schedule payload")
         class_id = int(payload.get("classId"))
-        lab_id = int(payload["labId"]) if payload.get("labId") else None
         start_value = str(payload.get("startTime", "")).strip()
         start_time = time.fromisoformat(start_value) if start_value else None
     except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
-        return JsonResponse({"error": "Choose a valid class, lab, and start time."}, status=400)
+        return JsonResponse({"error": "Choose a valid class and start time."}, status=400)
     can_view_all = request.user.can_view_all_compiler_activity
     class_query = ClassSection.objects.filter(pk=class_id)
     if not can_view_all:
@@ -1975,18 +2660,8 @@ def teacher_attendance_schedule(request):
     class_section = class_query.first()
     if not class_section:
         return JsonResponse({"error": "Class is not assigned to you."}, status=403)
-    if lab_id:
-        lab_query = CompilerLab.objects.filter(pk=lab_id, class_section=class_section)
-        if not can_view_all:
-            lab_query = lab_query.filter(class_section__teacher_assignments__teacher=request.user)
-        lab = lab_query.first()
-        if not lab:
-            return JsonResponse({"error": "Lab is not assigned to this class."}, status=403)
-        lab.attendance_start_time = start_time
-        lab.save(update_fields=("attendance_start_time",))
-    else:
-        class_section.attendance_start_time = start_time
-        class_section.save(update_fields=("attendance_start_time",))
+    class_section.attendance_start_time = start_time
+    class_section.save(update_fields=("attendance_start_time",))
     return JsonResponse({"ok": True, "startTime": start_time.strftime("%H:%M") if start_time else ""})
 
 
@@ -2015,26 +2690,16 @@ def teacher_compiler_activity(request):
     can_view_all_activity = request.user.can_view_all_compiler_activity
     class_ids = list(ClassSection.objects.values_list("id", flat=True)) if can_view_all_activity else list(TeacherAssignment.objects.filter(teacher=request.user).values_list("class_section_id", flat=True))
     if not class_ids and not can_view_all_activity:
-        return JsonResponse({"classes": [], "labs": [], "students": [], "summary": {}, "updatedAt": timezone.now().isoformat()})
+        return JsonResponse({"classes": [], "students": [], "summary": {}, "updatedAt": timezone.now().isoformat()})
 
     selected_class = request.GET.get("class", "")
-    selected_lab = request.GET.get("lab", "")
     try:
         selected_class_id = int(selected_class) if selected_class else None
-        selected_lab_id = int(selected_lab) if selected_lab else None
     except ValueError:
-        return JsonResponse({"error": "Invalid class or lab filter."}, status=400)
+        return JsonResponse({"error": "Invalid class filter."}, status=400)
     if selected_class_id and selected_class_id not in class_ids:
         return JsonResponse({"error": "Class is not assigned to you."}, status=403)
     assigned_classes = ClassSection.objects.filter(pk__in=class_ids).select_related("course").order_by("course__name", "name")
-    labs_query = CompilerLab.objects.filter(class_section_id__in=class_ids)
-    if selected_class_id:
-        labs_query = labs_query.filter(class_section_id=selected_class_id)
-    if selected_lab_id:
-        lab_filter = labs_query.filter(pk=selected_lab_id).first()
-        if not lab_filter:
-            return JsonResponse({"error": "Lab is not assigned to your classes."}, status=403)
-        selected_class_id = lab_filter.class_section_id
 
     day_value = request.GET.get("date", "")
     try:
@@ -2049,7 +2714,7 @@ def teacher_compiler_activity(request):
     students_by_id = {}
     for enrollment in enrollments:
         students_by_id.setdefault(enrollment.student_id, {"user": enrollment.student, "classes": []})["classes"].append(enrollment.class_section)
-    if can_view_all_activity and not selected_class_id and not selected_lab_id:
+    if can_view_all_activity and not selected_class_id:
         for student in PortalUser.objects.filter(role=PortalUser.Role.STUDENT, is_active=True).order_by("first_name", "last_name", "username"):
             students_by_id.setdefault(student.pk, {"user": student, "classes": []})
     student_ids = list(students_by_id)
@@ -2067,10 +2732,7 @@ def teacher_compiler_activity(request):
     # Presence is live across calendar boundaries: an open session from yesterday can still be active today.
     current_sessions_query = AttendanceSession.objects.filter(user_id__in=student_ids, logout_at__isnull=True, last_heartbeat_at__gte=stale_before)
     current_slices_query = CompilerActivitySlice.objects.filter(attendance_session__user_id__in=student_ids, ended_at__isnull=True, last_heartbeat_at__gte=stale_before).select_related("attendance_session")
-    if selected_lab_id:
-        current_sessions_query = current_sessions_query.filter(lab_id=selected_lab_id)
-        current_slices_query = current_slices_query.filter(lab_id=selected_lab_id)
-    elif selected_class_id:
+    if selected_class_id:
         single_class_students = Enrollment.objects.filter(active=True).values("student_id").annotate(class_count=Count("class_section_id")).filter(class_count=1).values_list("student_id", flat=True)
         current_sessions_query = current_sessions_query.filter(Q(class_section_id=selected_class_id) | Q(class_section__isnull=True, user_id__in=single_class_students))
         current_slices_query = current_slices_query.filter(Q(class_section_id=selected_class_id) | Q(class_section__isnull=True, attendance_session__user_id__in=single_class_students))
@@ -2081,9 +2743,7 @@ def teacher_compiler_activity(request):
     for activity_slice in current_slices_query.order_by("attendance_session__user_id", "-last_heartbeat_at", "-id"):
         current_slice_by_student.setdefault(activity_slice.attendance_session.user_id, activity_slice)
     activity_slices = CompilerActivitySlice.objects.filter(attendance_session__user_id__in=student_ids, started_at__date=report_day).select_related("attendance_session")
-    if selected_lab_id:
-        activity_slices = activity_slices.filter(lab_id=selected_lab_id)
-    elif selected_class_id:
+    if selected_class_id:
         single_class_students = Enrollment.objects.filter(active=True).values("student_id").annotate(class_count=Count("class_section_id")).filter(class_count=1).values_list("student_id", flat=True)
         activity_slices = activity_slices.filter(Q(class_section_id=selected_class_id) | Q(class_section__isnull=True, attendance_session__user_id__in=single_class_students))
     slice_by_student = {}
@@ -2096,16 +2756,11 @@ def teacher_compiler_activity(request):
     events = CompilerExecutionEvent.objects.filter(student_id__in=student_ids, executed_at__date=report_day)
     paste_events = CompilerPasteEvent.objects.filter(student_id__in=student_ids, created_at__date=report_day)
     client_activity_events = CompilerClientActivityEvent.objects.filter(student_id__in=student_ids, created_at__date=report_day)
-    if selected_lab_id:
-        events = events.filter(lab_id=selected_lab_id)
-    elif selected_class_id:
+    if selected_class_id:
         single_class_students = Enrollment.objects.filter(active=True).values("student_id").annotate(class_count=Count("class_section_id")).filter(class_count=1).values_list("student_id", flat=True)
-        events = events.filter(Q(class_section_id=selected_class_id) | Q(lab__class_section_id=selected_class_id) | Q(class_section__isnull=True, lab__isnull=True, student_id__in=single_class_students))
+        events = events.filter(Q(class_section_id=selected_class_id) | Q(class_section__isnull=True, student_id__in=single_class_students))
         paste_events = paste_events.filter(attendance_session__class_section_id=selected_class_id)
         client_activity_events = client_activity_events.filter(attendance_session__class_section_id=selected_class_id)
-    if selected_lab_id:
-        paste_events = paste_events.filter(attendance_session__lab_id=selected_lab_id)
-        client_activity_events = client_activity_events.filter(attendance_session__lab_id=selected_lab_id)
     event_stats = {row["student_id"]: row for row in events.values("student_id").annotate(
         total=Count("id"), succeeded=Count("id", filter=Q(status="success")), failed=Count("id", filter=Q(status="error")),
         last_execution=Max("executed_at"), total_duration=Sum("duration_ms"),
@@ -2216,7 +2871,6 @@ def teacher_compiler_activity(request):
     roster.sort(key=lambda row: (row["status"] != "active", row["studentName"].casefold()))
     return JsonResponse({
         "classes": [{"id": section.pk, "name": f"{section.course.code} · {section.name} {section.section}".strip()} for section in assigned_classes],
-        "labs": [{"id": lab.pk, "name": lab.name, "classId": lab.class_section_id, "className": f"{lab.class_section.course.code} · {lab.class_section.name}"} for lab in labs_query.select_related("class_section", "class_section__course").order_by("name")],
         "students": roster,
         "summary": {"students": len(roster), **counts},
         "reportDate": report_day.isoformat(),

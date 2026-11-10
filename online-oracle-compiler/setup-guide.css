@@ -1,0 +1,24 @@
+.setup-guide-button,.setup-guide-panel button{border:1px solid var(--line,var(--ide-border));border-radius:8px;padding:8px 12px;background:var(--paper,var(--ide-panel));color:var(--ink,var(--ide-text));font:600 12px/1.4 system-ui;cursor:pointer}
+.setup-guide-button[hidden]{display:none}
+:is(.setup-guide-button,.setup-guide-panel button):hover{background:var(--surface-2,var(--ide-panel-2));border-color:var(--accent-strong,var(--ide-accent))}
+:is(.setup-guide-button,.setup-guide-panel button):focus-visible{outline:2px solid var(--accent-strong,var(--ide-accent));outline-offset:3px}
+.setup-guide-panel button:disabled{opacity:.5;cursor:not-allowed}
+.setup-guide-panel{position:fixed;inset:auto;margin:0;z-index:20010;box-sizing:border-box;width:min(360px,calc(100vw - 16px));max-height:calc(100dvh - 16px);overflow:auto;padding:18px;border:1px solid var(--accent-strong,var(--ide-accent));border-radius:12px;background:var(--paper,var(--ide-panel));color:var(--ink,var(--ide-text));box-shadow:0 8px 30px color-mix(in srgb,var(--ink,var(--ide-text)) 24%,transparent);font:13px/1.6 system-ui}
+.setup-guide-panel[hidden],.setup-guide-highlight[hidden]{display:none}
+.setup-guide-panel h2{margin:6px 0;font-size:17px;color:inherit}
+.setup-guide-panel p{margin:8px 0;color:inherit}
+.setup-guide-panel .setup-guide-step{color:var(--accent-strong,var(--ide-accent));font-size:11px;font-weight:700}
+.setup-guide-panel .setup-guide-feedback{color:var(--status-error,var(--ide-text))}
+.setup-guide-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.setup-guide-highlight{position:fixed;inset:auto;margin:0;padding:0;box-sizing:border-box;z-index:20009;border:3px solid var(--accent-strong,var(--ide-accent));border-radius:8px;background:transparent;pointer-events:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-strong,var(--ide-accent)) 25%,transparent)}
+.setup-guide-controls{margin-bottom:18px;background:var(--paper);color:var(--ink)}
+.setup-guide-controls h2{font-size:16px;margin:4px 0}.setup-guide-controls p{font-size:12px;color:var(--muted)}
+.setup-guide-control-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.setup-guide-control-actions label{display:flex;align-items:center;gap:8px;font-size:12px}
+.setup-freesql-help{margin:12px 0;padding:12px;border:1px solid var(--ide-border,var(--line));border-radius:8px;background:var(--ide-panel-2,var(--surface-2));color:var(--ide-text,var(--ink));font-size:12px;line-height:1.6}
+.setup-freesql-help summary{cursor:pointer;color:inherit;font-weight:600}.setup-freesql-help a{color:var(--ide-accent,var(--accent-strong));text-decoration:underline}.setup-freesql-help ol{padding-left:20px}.setup-freesql-help li{margin-bottom:8px}.setup-freesql-help :is(summary,a):focus-visible{outline:2px solid var(--ide-accent,var(--accent-strong));outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.setup-guide-highlight{transition:none}}
+
+.setup-guide-notice{inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20020}
+.setup-guide-notice p{overflow-wrap:anywhere;white-space:pre-wrap}
+
+.setup-guide-panel.setup-guide-inline{position:relative;inset:auto;width:100%;max-height:min(380px,50dvh);margin:12px 0;transform:none;z-index:1}

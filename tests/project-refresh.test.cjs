@@ -1,0 +1,20 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+test('refresh restores file, filled details and pending values without submitting SQL',async()=>{
+ const template=fs.readFileSync('templates/teacher-project-runner.html','utf8');
+ const source=template.slice(template.indexOf('const checkDraftKey='),template.indexOf('function updateAssessmentControls'));
+ const initial={id:7,name:'Saved project',nextIndex:2,status:'paused',source:'SELECT :ID FROM dual;',fileName:'employee.sql'};
+ const valueInput={value:''},typeInput={value:'VARCHAR2'};
+ const label={dataset:{kind:'bind',name:'ID'},querySelector:key=>key==='input'?valueInput:typeInput};
+ const elements={ '#name':{value:''}, '#file':{files:[],addEventListener(){}}, '#initialProjectCheck':{textContent:JSON.stringify(initial)}, '#projectDraftStatus':{textContent:''} };
+ const correction={value:'',addEventListener(){}};
+ const draft={runId:7,nextIndex:2,name:'Draft name',correction:'SELECT :ID FROM dual;',variables:[{kind:'bind',name:'ID',value:'42',datatype:'NUMBER'}]};
+ let restored;
+ const context={assessmentContext:null,document:{querySelector:key=>elements[key]},form:{addEventListener(){}},correction,variableFields:{addEventListener(){},querySelectorAll:()=>[label]},sessionStorage:{getItem:()=>JSON.stringify(draft)},activeRun:null,showRun:run=>{restored=run},File:class{constructor(parts,name){this.parts=parts;this.name=name}},DataTransfer:class{constructor(){this.files=[];this.items={add:file=>this.files.push(file)}}},fetch:()=>{throw Error('Refresh must not submit execution')}};
+ vm.createContext(context);vm.runInContext(source,context);
+ await context.restoreFileCheck();
+ assert.equal(restored.id,7);
+ assert.equal(elements['#name'].value,'Draft name');
+ assert.equal(elements['#file'].files[0].name,'employee.sql');
+ assert.equal(correction.value,'SELECT :ID FROM dual;');
+ assert.equal(valueInput.value,'42');assert.equal(typeInput.value,'NUMBER');
+});

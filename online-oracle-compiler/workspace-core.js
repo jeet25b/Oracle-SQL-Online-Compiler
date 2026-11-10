@@ -35,9 +35,17 @@
   }
   function binds(source){
     const tokens=scan(source).tokens, found=new Set();
+    const significant=tokens.filter(token=>token.kind!=='comment');
+    const header=significant.slice(0,7).map(token=>token.text.toUpperCase()).join(' ');
+    const correlations=new Set();
+    if(/^CREATE (?:OR REPLACE )?(?:(?:NON)?EDITIONABLE )?TRIGGER\b/.test(header)){
+      ['NEW','OLD','PARENT'].forEach(name=>correlations.add(name));
+      let cursor=significant.findIndex(token=>token.kind==='word'&&token.text.toUpperCase()==='REFERENCING');
+      if(cursor>=0){cursor++;while(cursor<significant.length&&['NEW','OLD','PARENT'].includes(significant[cursor].text.toUpperCase())){cursor++;if(significant[cursor]?.text.toUpperCase()==='AS')cursor++;if(!['word','identifier'].includes(significant[cursor]?.kind))break;correlations.add(significant[cursor].text.replace(/^"|"$/g,'').toUpperCase());cursor++;}}
+    }
     for(let i=0;i<tokens.length-1;i++){
       const t=tokens[i],next=tokens[i+1];
-      if(t.kind==='symbol'&&t.text===':'&&next.start===t.end&&(next.kind==='word'||next.kind==='number'&&/^\d+$/.test(next.text))&&tokens[i-1]?.text!==':')found.add(next.text.toUpperCase());
+      if(t.kind==='symbol'&&t.text===':'&&next.start===t.end&&(next.kind==='word'||next.kind==='number'&&/^\d+$/.test(next.text))&&tokens[i-1]?.text!==':'&&!correlations.has(next.text.toUpperCase()))found.add(next.text.toUpperCase());
     }
     return [...found];
   }
@@ -59,7 +67,10 @@
       const word=t.kind==='word'?t.text.toUpperCase():t.text;
       if(last){
         if(last.kind==='comment'&&last.text.startsWith('--'))out+='\n';
-        else if(last.text===';'||last.text===',')out+='\n';
+        // Keep comma-separated column/value lists readable on one line. A
+        // comma is SQL punctuation, not a statement boundary; preserve an
+        // existing source newline only through the generic gap handling.
+        else if(last.text===';')out+='\n';
         else if(t.kind==='word'&&breaks.has(word)&&last.text!=='.')out+='\n';
         else if(gap)out+=gap.includes('\n')?'\n':' ';
       }
@@ -89,7 +100,7 @@
     return{comments,sql:tail.slice(gap.length)};
   }
   function clean(source){
-    return source.replace(/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/g,' ')
+    return source.replace(/[\u2018\u2019]/g, "'").replace(/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/g,' ')
       .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u034f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g,'')
       .replace(/[\u2028\u2029]/g,'\n').replace(/\r\n?/g,'\n');
   }

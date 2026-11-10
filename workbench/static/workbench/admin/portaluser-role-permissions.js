@@ -3,7 +3,7 @@
   const roleSelect = document.getElementById('id_role');
   const approvalPermission = document.getElementById('id_can_approve_students');
   const allActivityPermission = document.getElementById('id_can_view_all_compiler_activity');
-  const permissionFields = [approvalPermission, allActivityPermission].filter(Boolean);
+  const permissionFields = [approvalPermission, allActivityPermission, document.getElementById('id_can_manage_classes'), document.getElementById('id_can_manage_timetable')].filter(Boolean);
   if (!permissionFields.length) return;
 
   const additionalTeacherRole = () => Array.from(

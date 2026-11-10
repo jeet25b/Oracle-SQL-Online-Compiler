@@ -14,6 +14,7 @@ from threading import RLock
 from weakref import WeakValueDictionary
 
 import oracledb
+from .password_privacy import redact_text
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q, Subquery
@@ -32,41 +33,11 @@ ORACLE_CALL_TIMEOUT_MS = 5000
 ORACLE_METADATA_TIMEOUT_MS = 30000
 IDLE_SECONDS = 30 * 60
 _oracle_sessions = {}
+_oracle_session_tokens = {}
 _connect_attempts = {}
 _saved_connection_locks = WeakValueDictionary()
 _lock = RLock()
 _sqlplus_requests = {}
-_history_archive_lock = RLock()
-
-
-def _append_local_history_event(user_id, event):
-    """Append one user-scoped history event to the local, newline-delimited archive."""
-    path = ROOT / "local-history" / f"user-{int(user_id)}.jsonl"
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n"
-        with _history_archive_lock, path.open("a", encoding="utf-8", newline="\n") as archive:
-            archive.write(line)
-    except OSError:
-        # The database remains the live history store if local disk is unavailable.
-        pass
-
-
-def _history_archive_record(record):
-    event = {
-        "type": "statement", "id": record.pk, "studentId": record.student_id,
-        "sql": record.sql, "source": record.source, "status": record.status,
-        "durationMs": record.duration_ms, "rows": record.row_count,
-        "typedChars": record.typed_chars, "pastedChars": record.pasted_chars,
-        "pasteCount": record.paste_count, "pastedTexts": record.pasted_texts,
-        "editsAfterPaste": record.edits_after_paste,
-        "inputMethod": record.input_method,
-        "inputSourceMap": record.input_source_map,
-        "message": record.message, "isActive": record.is_active,
-        "executedAt": record.executed_at.isoformat(),
-    }
-    _append_local_history_event(record.student_id, event)
-    return event
 
 
 def _validated_input_source_map(value, start=0, end=MAX_BODY):
@@ -82,40 +53,8 @@ def _validated_input_source_map(value, start=0, end=MAX_BODY):
 
 
 def _validated_pasted_texts(value):
-    if not isinstance(value, list):
-        return []
-    output = []
-    total = 0
-    for item in value[:100]:
-        if not isinstance(item, str) or not item:
-            continue
-        remaining = 65536 - total
-        if remaining <= 0:
-            break
-        text = item[:remaining]
-        output.append(text)
-        total += len(text)
-    return output
-
-
-def _read_local_history(user_id):
-    path = ROOT / "local-history" / f"user-{int(user_id)}.jsonl"
-    rows = {}
-    try:
-        with path.open("r", encoding="utf-8") as archive:
-            for line in archive:
-                try:
-                    event = json.loads(line)
-                    if event.get("type") == "statement":
-                        rows[str(event["id"])] = event
-                    elif event.get("type") == "remove":
-                        for record_id in event.get("ids", []):
-                            rows.pop(str(record_id), None)
-                except (ValueError, TypeError, KeyError):
-                    continue
-    except OSError:
-        pass
-    return rows
+    # Clipboard contents may contain an unlabelled password. Keep metrics only.
+    return []
 
 
 def _execute_sqlplus_once(request, request_id):
@@ -199,22 +138,192 @@ def same_origin(request):
 
 def current_oracle_session(request, touch=True):
     key = request.session.session_key
-    if not key:
-        return None
     now = time.time()
     with _lock:
         expired = [sid for sid, value in _oracle_sessions.items() if now - value["last_activity"] > IDLE_SECONDS]
         for sid in expired:
-            old = _oracle_sessions.pop(sid, None)
-            if old:
-                for connection_name in ("sqlplus", "editor"):
-                    if old.get(connection_name):
-                        try: old[connection_name].close()
-                        except Exception: pass
-        session = _oracle_sessions.get(key)
+            old = _oracle_sessions.get(sid)
+            if old: _close_oracle_session(old)
+        session = _oracle_sessions.get(key) if key else None
+        token = request.COOKIES.get("ora_compiler_session", "")
+        if session and request.user.is_authenticated and session.get("user_id") not in (None, request.user.pk):
+            session = None
+        if token and (not session or not request.user.is_authenticated):
+            candidate = _oracle_session_tokens.get(token)
+            if not candidate or candidate.get("independent_token") != token:
+                candidate = None
+                request._clear_compiler_session_cookie = True
+            elif time.time() >= float(candidate.get("independent_expires_at") or 0):
+                _close_oracle_session(candidate)
+                candidate = None
+                request._clear_compiler_session_cookie = True
+            if candidate and candidate.get("independent_enabled"):
+                if request.user.is_authenticated and candidate.get("user_id") != request.user.pk:
+                    candidate = None
+                elif not _independent_compiler_session_allowed(candidate.get("user_id")):
+                    _close_oracle_session(candidate)
+                    candidate = None
+                    request._clear_compiler_session_cookie = True
+                else:
+                    from .models import PortalUser
+                    owner = PortalUser.objects.filter(pk=candidate.get("user_id"), is_active=True).only(
+                        "id", "role", "active_student_session_token"
+                    ).first()
+                    if not owner or owner.active_student_session_token != candidate.get("student_session_token", ""):
+                        if candidate: _close_oracle_session(candidate)
+                        candidate = None
+                        request._clear_compiler_session_cookie = True
+                    session = candidate
+                    if session:
+                        request._compiler_session_cookie = session.get("independent_token", "")
+                    if session and not request.user.is_authenticated:
+                        request._compiler_session_owner = owner
+                        request._compiler_session_role = session.get("portal_role") or "STUDENT"
+        if session and request.user.is_authenticated:
+            if session.get("independent_enabled"):
+                if _independent_compiler_session_allowed(request.user.pk):
+                    _sync_independent_compiler_expiry(request, session)
+                    request._compiler_session_cookie = session.get("independent_token", "")
+                else:
+                    for active_token, current in list(_oracle_session_tokens.items()):
+                        if current is session: _oracle_session_tokens.pop(active_token, None)
+                    session["independent_enabled"] = False
+                    session.pop("independent_token", None)
+                    request._clear_compiler_session_cookie = True
+            else:
+                _ensure_independent_compiler_token(request, session)
+        elif session and not getattr(request, "_compiler_session_owner", None):
+            session = None
         if session and touch:
             session["last_activity"] = now
         return session
+
+
+def _close_oracle_session(session):
+    if not session:
+        return
+    with _lock:
+        for key, current in list(_oracle_sessions.items()):
+            if current is session:
+                _oracle_sessions.pop(key, None)
+        for token, current in list(_oracle_session_tokens.items()):
+            if current is session:
+                _oracle_session_tokens.pop(token, None)
+    for connection_name in ("sqlplus", "editor"):
+        connection = session.get(connection_name)
+        if connection:
+            try: connection.close()
+            except Exception: pass
+
+
+def _independent_compiler_session_allowed(user_id):
+    if not user_id:
+        return False
+    from django.core.cache import cache
+    cache_key = f"independent-compiler-session:{user_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return bool(cached)
+    from .models import Enrollment
+    allowed = Enrollment.objects.filter(
+        student_id=user_id, active=True,
+        class_section__teacher_assignments__teacher__activity_preference__independent_compiler_sessions_enabled=True,
+    ).exists()
+    cache.set(cache_key, allowed, 10)
+    return allowed
+
+
+def _ensure_independent_compiler_token(request, session):
+    user = request.user
+    if getattr(user, "role", None) != "STUDENT":
+        return
+    if not _independent_compiler_session_allowed(user.pk):
+        request._clear_compiler_session_cookie = True
+        return
+    with _lock:
+        token = session.get("independent_token")
+        if not token:
+            token = secrets.token_urlsafe(32)
+            session["independent_token"] = token
+            session["independent_enabled"] = True
+            session["user_id"] = user.pk
+            session["student_session_token"] = getattr(user, "active_student_session_token", "")
+            session["portal_role"] = "STUDENT"
+            _oracle_session_tokens[token] = session
+        _sync_independent_compiler_expiry(request, session)
+    request._compiler_session_cookie = token
+
+
+def _sync_independent_compiler_expiry(request, session):
+    try:
+        # get_expiry_date() is a prospective deadline and moves on every call.
+        # Capture it only when the Django session will be saved, so compiler
+        # requests cannot keep the independent token alive beyond portal login.
+        if request.session.modified or not session.get("independent_portal_expires_at"):
+            session["independent_portal_expires_at"] = request.session.get_expiry_date().timestamp()
+            session["independent_expires_at_browser_close"] = request.session.get_expire_at_browser_close()
+        expires_at = float(session.get("independent_portal_expires_at") or 0)
+
+        # Student portal sessions also end on inactivity or exhausted daily
+        # allowance. Heartbeats refresh these deadlines while the portal session
+        # is valid; token-only requests can then reject expired sessions without
+        # querying Oracle or Django's session store on every statement.
+        allowance = getattr(request, "student_daily_allowance", None)
+        attendance = getattr(request, "student_attendance", None)
+        if allowance and allowance.get("restricted"):
+            if attendance and attendance.last_activity_at:
+                expires_at = min(expires_at, attendance.last_activity_at.timestamp() + 1800)
+            remaining = allowance.get("remainingSeconds")
+            if remaining is not None:
+                expires_at = min(expires_at, time.time() + max(0, float(remaining)))
+        session["independent_expires_at"] = expires_at
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        session["independent_expires_at"] = time.time()
+        session["independent_expires_at_browser_close"] = False
+
+
+def _authorize_compiler_session_request(request):
+    session = current_oracle_session(request)
+    if not session:
+        return None
+    if request.user.is_authenticated:
+        if session.get("user_id") not in (None, request.user.pk):
+            return None
+        return session
+    owner = getattr(request, "_compiler_session_owner", None)
+    if owner is None or not session.get("independent_enabled"):
+        return None
+    # A newer student login revokes the previous independent compiler token.
+    from .models import PortalUser
+    owner = PortalUser.objects.filter(
+        pk=owner.pk, is_active=True, active_student_session_token=session.get("student_session_token", "")
+    ).first()
+    if not owner or not _independent_compiler_session_allowed(owner.pk):
+        _close_oracle_session(session)
+        request._clear_compiler_session_cookie = True
+        return None
+    request.user = owner
+    request._compiler_session_role = session.get("portal_role") or "STUDENT"
+    request._compiler_session_cookie = session.get("independent_token")
+    return session
+
+
+def _refresh_compiler_session_cookie(response, request):
+    token = getattr(request, "_compiler_session_cookie", "")
+    if token:
+        session = _oracle_session_tokens.get(token)
+        expires_at = float(session.get("independent_expires_at") or 0) if session else 0
+        remaining = int(expires_at - time.time())
+        if not session or remaining <= 0:
+            response.delete_cookie("ora_compiler_session", samesite="Strict")
+        else:
+            cookie_options = {"httponly": True, "samesite": "Strict", "secure": request.is_secure()}
+            if not session.get("independent_expires_at_browser_close"):
+                cookie_options["max_age"] = remaining
+            response.set_cookie("ora_compiler_session", token, **cookie_options)
+    elif getattr(request, "_clear_compiler_session_cookie", False):
+        response.delete_cookie("ora_compiler_session", samesite="Strict")
+    return response
 
 
 def is_default_connection(connect_string, user):
@@ -387,12 +496,20 @@ def compiler_selection(request):
         return redirect("/portal/")
 
     compiler_options = list(CompilerOption.objects.filter(is_active=True))
+    native_ready = False
+    if any(compiler.engine in {'C', 'CPP'} for compiler in compiler_options):
+        from .native_compiler import runner_status
+        native_ready = runner_status()['ready']
     for compiler in compiler_options:
+        native = compiler.engine in {'C', 'CPP'}
+        compiler.workspace_url = f'/portal/compiler/{compiler.engine}/' if native else f'/oracle-sql/?engine={compiler.engine}' + ('' if request.user.has_oracle_credentials() else '&promptOracleLogin=1')
+        compiler.availability_label = ('READY' if native_ready else 'EDITOR AVAILABLE · RUNNER SETUP NEEDED') if native else ('READY' if compiler.execution_ready else 'UNAVAILABLE')
         compiler.name = compiler.name.replace("SQL*Plus", "SQLCL").replace("SQL*PLUS", "SQLCL").replace("PL/SQL", "SQL WorkSheet")
         compiler.description = compiler.description.replace("SQL*Plus", "SQLCL").replace("SQL*PLUS", "SQLCL").replace("PL/SQL", "SQL WorkSheet")
     return render(request, "compiler_selection.html", {
         "compiler_options": compiler_options,
         "user": request.user,
+        "has_saved_oracle_credentials": request.user.has_oracle_credentials(),
         "portal_role": role,
         "has_multiple_roles": len(_available_portal_roles(request.user)) > 1,
         "global_default_accent": _global_default_accent(),
@@ -412,17 +529,18 @@ def compiler_workspace(request):
 
 
 @ensure_csrf_cookie
-@login_required(login_url="/portal/")
 def oracle_sql_workspace(request):
     from .portal_views import _active_portal_role
-    role = _active_portal_role(request)
+    if not request.user.is_authenticated and not _authorize_compiler_session_request(request):
+        return redirect("/portal/")
+    role = getattr(request, "_compiler_session_role", None) or _active_portal_role(request)
     response = render(request, "oracle_sql_workspace.html", {
         "is_teacher": role == "TEACHER",
         "is_student": role == "STUDENT",
         "can_manage_compiler_tabs": role in {"ADMIN", "TEACHER"} or request.user.is_superuser,
     })
     response["Cache-Control"] = "no-store"
-    return response
+    return _refresh_compiler_session_cookie(response, request)
 
 
 def frontend_asset(request, asset):
@@ -447,7 +565,18 @@ def connect_oracle(request):
         return json_error("Enter the Oracle username, password, and connect string.")
     save_credentials = payload.get("saveCredentials", False)
     if not isinstance(save_credentials, bool): return json_error("Invalid credential-saving option.")
-    return _open_oracle_session(request, user.strip(), password, connect_string.strip(), save_credentials=save_credentials)
+    name = payload.get("connectionName", "")
+    if not isinstance(name, str) or len(name.strip()) > 120:
+        return json_error("Connection name must be at most 120 characters.")
+    response = _open_oracle_session(request, user.strip(), password, connect_string.strip(), save_credentials=save_credentials)
+    if save_credentials and response.status_code < 400:
+        from .models import OracleConnectionProfile
+        OracleConnectionProfile.objects.update_or_create(
+            owner=request.user, name=name.strip() or f"{user.strip()} · {connect_string.strip()}"[:120],
+            defaults={"username": user.strip(), "connect_string": connect_string.strip(),
+                      "password_encrypted": request.user.oracle_password_encrypted},
+        )
+    return response
 
 
 @csrf_exempt
@@ -463,17 +592,42 @@ def legacy_connect_oracle(request):
 
 
 @csrf_exempt
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "POST", "DELETE"])
 @login_required(login_url="/portal/")
 def connect_saved_oracle(request):
     if not same_origin(request): return json_error("Cross-origin API requests are blocked.", 403)
     profile = request.user
+    from .models import OracleConnectionProfile
+    if request.method == "DELETE":
+        try: payload = read_json(request)
+        except ValueError as exc: return json_error(exc)
+        selected = payload.get("connectionId")
+        if not isinstance(selected, int) or isinstance(selected, bool): return json_error("Select a saved connection to delete.")
+        deleted, _ = OracleConnectionProfile.objects.filter(owner=request.user, pk=selected).delete()
+        if not deleted: return json_error("Saved connection not found.", 404)
+        return JsonResponse({"deleted": True, "connectionId": selected})
     if request.method == "GET":
         return JsonResponse({
+            "connections": [{"id": item.pk, "name": item.name, "user": item.username,
+                             "connectString": item.connect_string} for item in profile.oracle_connections.order_by("name", "id")],
             "saved": profile.has_oracle_credentials(),
             "user": profile.oracle_username if profile.has_oracle_credentials() else "",
             "connectString": profile.oracle_connect_string if profile.has_oracle_credentials() else "",
         })
+    try: payload = read_json(request) if request.body and request.content_type == "application/json" else {}
+    except ValueError as exc: return json_error(exc)
+    selected = payload.get("connectionId")
+    if selected is not None:
+        if not isinstance(selected, int) or isinstance(selected, bool): return json_error("Invalid saved connection.")
+        saved = OracleConnectionProfile.objects.filter(owner=request.user, pk=selected).first()
+        if not saved: return json_error("Saved connection not found.", 404)
+        response = _open_oracle_session(request, saved.username, saved.get_oracle_password(), saved.connect_string, expose_saved_details=True)
+        if response.status_code < 400:
+            request.user.oracle_username = saved.username
+            request.user.oracle_password_encrypted = saved.password_encrypted
+            request.user.oracle_connect_string = saved.connect_string
+            request.user.save(update_fields=("oracle_username", "oracle_password_encrypted", "oracle_connect_string"))
+        return response
     if not profile.has_oracle_credentials():
         return JsonResponse({"connected": False, "saved": False})
     session_key = request.session.session_key or str(profile.pk)
@@ -521,25 +675,29 @@ def _open_oracle_session(request, user, password, connect_string, save_credentia
         old_session_key = request.session.session_key
         prior = current_oracle_session(request, touch=False)
         if prior:
-            for connection_name in ("sqlplus", "editor"):
-                if prior.get(connection_name):
-                    try: prior[connection_name].close()
-                    except Exception: pass
+            _close_oracle_session(prior)
         if not request.session.session_key:
             request.session.save()
         with _lock:
             if old_session_key and old_session_key != request.session.session_key:
                 _oracle_sessions.pop(old_session_key, None)
         result["navigatorCacheId"] = secrets.token_urlsafe(16)
+        result["connectString"] = connect_string.strip()
         workspace_id = request.COOKIES.get("ora_workspace") or secrets.token_urlsafe(32)
         request.session["oracle_connected"] = True
         session_key = request.session.session_key
+        from .portal_views import _active_portal_role
+        portal_role = _active_portal_role(request)
+        state = {"settings": {"user": user.strip(), "password": password, "connectString": connect_string.strip()}, "workspace_id": workspace_id, "sqlplus": connection, "editor": None, "dbms_output_enabled": {"sqlplus": {"enabled": False}, "editor": {"enabled": False}}, "status": result, "last_activity": now, "user_id": request.user.pk, "portal_role": portal_role}
         with _lock:
-            _oracle_sessions[session_key] = {"settings": {"user": user.strip(), "password": password, "connectString": connect_string.strip()}, "workspace_id": workspace_id, "sqlplus": connection, "editor": None, "dbms_output_enabled": {"sqlplus": {"enabled": False}, "editor": {"enabled": False}}, "status": result, "last_activity": now}
+            _oracle_sessions[session_key] = state
+        if getattr(request.user, "role", None) == "STUDENT":
+            _ensure_independent_compiler_token(request, state)
         connection = None
         response_data = {**result, "saved": True, "user": user, "connectString": connect_string} if expose_saved_details else result
         response = JsonResponse(response_data)
         response.set_cookie("ora_workspace", workspace_id, max_age=31536000, httponly=True, samesite="Strict", secure=request.is_secure())
+        _refresh_compiler_session_cookie(response, request)
         return response
     except Exception as exc: return json_error(getattr(exc, "message", str(exc)))
     finally:
@@ -554,51 +712,145 @@ def disconnect_oracle(request):
     if not same_origin(request): return json_error("Cross-origin API requests are blocked.", 403)
     session = current_oracle_session(request, touch=False)
     if session:
-        for connection_name in ("sqlplus", "editor"):
-            if session.get(connection_name):
-                try: session[connection_name].close()
-                except Exception: pass
-    with _lock:
-        if request.session.session_key: _oracle_sessions.pop(request.session.session_key, None)
+        _close_oracle_session(session)
+    elif request.session.session_key:
+        with _lock: _oracle_sessions.pop(request.session.session_key, None)
     # Oracle disconnect must preserve the authenticated portal session.
     request.session.pop("oracle_connected", None)
     # Database disconnect is not an authentication change. Rotating this key
     # races with in-flight portal heartbeats using the existing session cookie.
     response = JsonResponse({"connected": False})
     response.delete_cookie("ora_workspace", samesite="Strict")
+    response.delete_cookie("ora_compiler_session", samesite="Strict")
     return response
+
+
+def _oracle_transaction_pending(connection):
+    if connection is None: return None
+    try:
+        pending = connection.transaction_in_progress
+        return pending if isinstance(pending, bool) else None
+    except Exception:
+        return None
+
+
+def _oracle_transactions(session):
+    return {"worksheet": _oracle_transaction_pending(session.get("editor")),
+            "sqlcl": _oracle_transaction_pending(session.get("sqlplus"))}
 
 
 @require_http_methods(["GET"])
 def oracle_status(request):
+    if not same_origin(request): return json_error("Cross-origin API requests are blocked.", 403)
     session = current_oracle_session(request)
-    if not session: return JsonResponse({"connected": False})
+    if not session: return _refresh_compiler_session_cookie(JsonResponse({"connected": False}), request)
     status = session.setdefault("status", {})
     status.setdefault("navigatorCacheId", secrets.token_urlsafe(16))
     operation_lock = session.setdefault("operation_lock", RLock())
     if not operation_lock.acquire(blocking=False):
-        return JsonResponse({**status, "connected": True, "busy": True})
+        return _refresh_compiler_session_cookie(JsonResponse({**status, "connected": True, "busy": True}), request)
     try:
         key = "sqlplus" if session.get("sqlplus") else "editor"
         connection = session.get(key)
-        if not connection: return JsonResponse({"connected": False})
+        if not connection and session.get("independent_enabled"):
+            try:
+                connection = open_oracle_connection(connect_options(session["settings"]))
+                session[key] = connection
+                session.setdefault("dbms_output_enabled", {})[key] = {"enabled": False}
+            except Exception:
+                return _refresh_compiler_session_cookie(JsonResponse({"connected": False}), request)
+        if not connection: return _refresh_compiler_session_cookie(JsonResponse({"connected": False}), request)
         try:
             with connection.cursor() as cursor: cursor.execute("SELECT 1 FROM dual")
         except Exception as exc:
             broken = bool(re.search(r"\b(?:DPY-(?:1001|4011)|NJS-(?:003|500|511|521)|ORA-(?:03113|03114|03135|12537|12547|12570|12571))\b", str(exc)))
             if not broken:
-                return JsonResponse({**status, "connected": True, "statusWarning": "Oracle health check could not complete."})
+                return _refresh_compiler_session_cookie(JsonResponse({**status, "connected": True, "statusWarning": "Oracle health check could not complete."}), request)
             try: connection.close()
             except Exception: pass
             session[key] = None
+            if session.get("independent_enabled"):
+                try:
+                    session[key] = open_oracle_connection(connect_options(session["settings"]))
+                    session.setdefault("dbms_output_enabled", {})[key] = {"enabled": False}
+                    return _refresh_compiler_session_cookie(JsonResponse({**status, "connected": True, "reconnected": True}), request)
+                except Exception:
+                    pass
             # A stale terminal must never discard an independent editor transaction.
-            return JsonResponse({**status, "connected": bool(session.get("editor") or session.get("sqlplus"))})
-        return JsonResponse({**status, "connected": True})
+            return _refresh_compiler_session_cookie(JsonResponse({**status, "connected": bool(session.get("editor") or session.get("sqlplus"))}), request)
+        return _refresh_compiler_session_cookie(JsonResponse({**status, "connected": True, "transactions": _oracle_transactions(session)}), request)
     finally:
         operation_lock.release()
 
 
 DBMS_OUTPUT_CHUNK_SIZE = 500
+
+
+def _explain_plan_lines(options, sql, binds=None):
+    """Explain one statement on an isolated connection and return DBMS_XPLAN lines."""
+    statement_id = "WBP" + uuid.uuid4().hex[:20].upper()
+    connection = open_oracle_connection(connect_options(options))
+    connection.call_timeout = ORACLE_CALL_TIMEOUT_MS
+    # This connection is used only for the disposable PLAN_TABLE rows. Never
+    # touch the interactive SQLCL/worksheet connection or its open transaction.
+    connection.autocommit = True
+    try:
+        with connection.cursor() as cursor:
+            tune_oracle_cursor(cursor)
+            cursor.execute(
+                f"EXPLAIN PLAN SET STATEMENT_ID = '{statement_id}' FOR {sql}",
+                driver_binds(sql, binds),
+            )
+            cursor.execute(
+                "SELECT plan_table_output FROM TABLE(DBMS_XPLAN.DISPLAY(NULL, :statement_id, 'TYPICAL +PREDICATE +ALIAS'))",
+                {"statement_id": statement_id},
+            )
+            lines = [str(row[0] or "") for row in cursor.fetchmany(1000)]
+            cursor.execute(
+                "SELECT id, parent_id, operation, options, object_owner, object_name, cardinality, cost "
+                "FROM PLAN_TABLE WHERE statement_id = :statement_id ORDER BY id",
+                {"statement_id": statement_id},
+            )
+            plan_rows = cursor.fetchall()
+        nodes_by_id = {}
+        for node_id, parent_id, operation, options_text, owner, object_name, cardinality, cost in plan_rows:
+            operation_name = " ".join(value for value in (operation, options_text) if value)
+            if object_name:
+                operation_name += f" · {owner + '.' if owner else ''}{object_name}"
+            nodes_by_id[node_id] = {
+                "id": node_id,
+                "parentId": parent_id,
+                "operation": operation_name,
+                "estimatedRows": cardinality,
+                "cost": cost,
+                "children": [],
+            }
+        roots = []
+        for node in nodes_by_id.values():
+            parent = nodes_by_id.get(node["parentId"])
+            (parent["children"] if parent else roots).append(node)
+        return {"lines": lines, "tree": roots}
+    finally:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM PLAN_TABLE WHERE statement_id = :statement_id", {"statement_id": statement_id})
+        except Exception:
+            # A missing/privilege-restricted PLAN_TABLE cleanup should not
+            # discard a plan that DBMS_XPLAN already returned.
+            pass
+        try:
+            connection.close()
+        except Exception:
+            pass
+
+
+def _unwrap_explain_plan(sql):
+    prefix = re.match(
+        r"^EXPLAIN\s+PLAN(?:\s+SET\s+STATEMENT_ID\s*=\s*(?:'[^']*'|[\w$#]+))?\s+FOR\s+",
+        sql,
+        re.I,
+    )
+    return sql[prefix.end():].strip() if prefix else sql
 
 
 def execute_one(connection, sql, binds, auto_commit, serveroutput=True, serveroutput_state=None):
@@ -611,7 +863,21 @@ def execute_one(connection, sql, binds, auto_commit, serveroutput=True, serverou
             cursor.execute("BEGIN DBMS_OUTPUT.ENABLE(NULL); END;")
             if serveroutput_state is not None:
                 serveroutput_state["enabled"] = True
-        cursor.execute(sql, driver_binds(sql, binds))
+        parameters = driver_binds(sql, binds)
+        from .sql_lexer import tokens
+        first_token = next((token for token in tokens(sql) if token["kind"] != "comment"), None)
+        if first_token and first_token["kind"] == "word" and first_token["text"].upper() == "RENAME":
+            # python-oracledb 3.4.x Thin omits RENAME from its DDL classifier.
+            # A reused DDL cursor can report success without repeating the rename.
+            # First discard a handle cached before this safeguard was installed.
+            # Preparing alone can still reuse that old handle once; closing its
+            # owning cursor before preparing again guarantees a fresh execution.
+            with connection.cursor() as eviction_cursor:
+                eviction_cursor.prepare(sql, cache_statement=False)
+            cursor.prepare(sql, cache_statement=False)
+            cursor.execute(None, parameters)
+        else:
+            cursor.execute(sql, parameters)
         execution_warning = getattr(cursor, "warning", None)
         description = cursor.description or []
         columns = [{"name": item[0], "type": getattr(item[1], "name", "")} for item in description]
@@ -653,6 +919,8 @@ def sqlplus_feedback(sql, rows_affected, has_result=False):
     command = re.sub(r"^\s*(?:EXEC|EXECUTE)\s+", "BEGIN ", sql, flags=re.I).lstrip().upper()
     if re.match(r"^(?:DECLARE|BEGIN)\b", command):
         return "PL/SQL procedure successfully completed."
+    if re.match(r"^RENAME\b", command):
+        return "Object renamed."
     if re.match(r"^COMMIT\b", command):
         return "Commit complete."
     if re.match(r"^ROLLBACK\b", command):
@@ -675,13 +943,74 @@ def sqlplus_feedback(sql, rows_affected, has_result=False):
 @csrf_exempt
 @require_http_methods(["POST"])
 def execute_sql(request):
+    if not same_origin(request): return json_error("Cross-origin API requests are blocked.", 403)
+    if not request.user.is_authenticated:
+        _authorize_compiler_session_request(request)
+    if not request.user.is_authenticated:
+        return _refresh_compiler_session_cookie(json_error("Sign in again to start a compiler session.", 401), request)
     request_id = request.headers.get('X-Terminal-Request-Id', '')
     if request_id:
         if not same_origin(request): return json_error('Cross-origin API requests are blocked.', 403)
-        if not request.user.is_authenticated: return json_error('Sign in to execute SQL.', 401)
         if not re.fullmatch(r'[A-Za-z0-9-]{16,80}', request_id): return json_error('Invalid terminal request ID.')
-        return _execute_sqlplus_once(request, request_id)
-    return _execute_sql_request(request)
+        return _refresh_compiler_session_cookie(_execute_sqlplus_once(request, request_id), request)
+    return _refresh_compiler_session_cookie(_execute_sql_request(request), request)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def explain_sql(request):
+    """Return an estimated Oracle execution plan and concise plan diagnostics."""
+    if not same_origin(request):
+        return json_error("Cross-origin API requests are blocked.", 403)
+    if not request.user.is_authenticated:
+        _authorize_compiler_session_request(request)
+    if not request.user.is_authenticated:
+        return _refresh_compiler_session_cookie(json_error("Sign in again to start a compiler session.", 401), request)
+    try:
+        payload = read_json(request)
+    except ValueError as exc:
+        return json_error(exc, 413 if str(exc) == "Request is too large." else 400)
+    sql = payload.get("sql")
+    if not isinstance(sql, str) or not sql.strip():
+        return json_error("Provide a SQL query to explain.")
+    statements = [statement for statement in split_script(sql) if statement]
+    if len(statements) != 1:
+        return json_error("Explain Plan accepts one SQL statement at a time.")
+    from .sql_lexer import prepare_statement, tokens
+    statement = prepare_statement(statements[0])
+    first_sql_token = next((token for token in tokens(statement) if token["kind"] != "comment"), None)
+    if first_sql_token is None:
+        return json_error("Provide a SQL query to explain.")
+    statement = _unwrap_explain_plan(statement[first_sql_token["start"]:])
+    blocked = blocked_admin_command(statement)
+    if blocked:
+        return json_error(f"{blocked} is disabled by the workbench security policy.", 403)
+    if not re.match(r"^(?:SELECT|WITH|INSERT|UPDATE|DELETE|MERGE)\b", statement, re.I):
+        return json_error("Explain Plan supports SELECT and DML statements only.")
+    session = current_oracle_session(request)
+    if not session:
+        return _refresh_compiler_session_cookie(json_error("Connect to Oracle first.", 401), request)
+    operation_lock = session.setdefault("operation_lock", RLock())
+    operation_lock.acquire()
+    try:
+        # Use an isolated connection so diagnostics cannot affect pending work.
+        plan_data = _explain_plan_lines(session["settings"], statement, payload.get("binds"))
+        plan_lines = plan_data["lines"]
+        plan_text = "\n".join(plan_lines)
+        diagnostics = []
+        if re.search(r"TABLE ACCESS FULL", plan_text, re.I):
+            diagnostics.append({"severity": "review", "message": "The plan includes a full table scan. This can be appropriate for small tables or queries returning many rows; review filters and indexes if the table is large."})
+        if re.search(r"MERGE JOIN CARTESIAN|CARTESIAN", plan_text, re.I):
+            diagnostics.append({"severity": "warning", "message": "The plan includes a Cartesian join. Check that each joined table has the intended join condition."})
+        if not diagnostics:
+            diagnostics.append({"severity": "info", "message": "No common plan warning was detected. The plan contains optimizer estimates, not measured execution statistics."})
+        response = JsonResponse({"statement": statement, "plan": plan_lines, "planTree": plan_data["tree"], "diagnostics": diagnostics, "message": "Estimated execution plan"})
+        return _refresh_compiler_session_cookie(response, request)
+    except Exception as exc:
+        message = getattr(exc, "message", str(exc))
+        return _refresh_compiler_session_cookie(json_error(message), request)
+    finally:
+        operation_lock.release()
 
 
 def _execute_sql_request(request):
@@ -750,6 +1079,33 @@ def _execute_sql_request(request):
             statement_started = time.monotonic()
             statement_status, statement_row_count, statement_message = "success", 0, ""
             try:
+                explain_statement = _unwrap_explain_plan(statement)
+                if explain_statement != statement:
+                    explain_token = next((token for token in tokens(explain_statement) if token["kind"] != "comment"), None)
+                    if explain_token is None:
+                        raise ValueError("EXPLAIN PLAN FOR requires a SQL statement.")
+                    explain_statement = explain_statement[explain_token["start"]:]
+                    if not re.match(r"^(?:SELECT|WITH|INSERT|UPDATE|DELETE|MERGE)\b", explain_statement, re.I):
+                        raise ValueError("EXPLAIN PLAN supports SELECT and DML statements only.")
+                    blocked = blocked_admin_command(explain_statement)
+                    if blocked:
+                        raise ValueError(f"{blocked} is disabled by the workbench security policy.")
+                    plan_data = _explain_plan_lines(session["settings"], explain_statement, payload.get("binds"))
+                    plan_lines = plan_data["lines"]
+                    result_columns = [{"name": "PLAN_TABLE_OUTPUT", "type": "VARCHAR2"}]
+                    result_rows = [[line] for line in plan_lines]
+                    columns, rows = result_columns, result_rows
+                    message = f"Estimated execution plan ({len(plan_lines)} lines)"
+                    statement_row_count, statement_message = len(plan_lines), message
+                    messages.append(message)
+                    statement_results.append({
+                        "statement": display_statement,
+                        "columns": result_columns,
+                        "rows": result_rows,
+                        "planTree": plan_data["tree"],
+                        "message": message,
+                    })
+                    continue
                 if not payload.get("sqlplus"):
                     from .sql_lexer import out_bind_names
                     output_binds = sorted(out_bind_names(statement))
@@ -860,6 +1216,9 @@ def _execute_sql_request(request):
                 execution_errors.append({"statement": display_statement, "error": error_text})
                 statement_results.append({"statement": display_statement, "error": error_text})
             finally:
+                statement_duration_ms = round((time.monotonic()-statement_started)*1000)
+                if statement_results and statement_results[-1].get("statement") == display_statement:
+                    statement_results[-1]["durationMs"] = statement_duration_ms
                 statement_edit_source = dict(history_edit_source) if isinstance(history_edit_source, dict) else {}
                 statement_edit_source["inputMethod"] = history_input_method
                 statement_edit_source["inputSourceMap"] = (
@@ -867,17 +1226,19 @@ def _execute_sql_request(request):
                     if history_source_start >= 0 else []
                 )
                 _record_compiler_query(request, display_statement, connection_key, statement_status,
-                                       round((time.monotonic()-statement_started)*1000), statement_row_count,
+                                       statement_duration_ms, statement_row_count,
                                        statement_message, statement_edit_source)
                 # Input metrics belong to the submitted batch, not every statement.
                 history_edit_source = None
                 statement_history_recorded = True
         duration_ms = round((time.monotonic()-started)*1000)
         from .object_refresh import metadata_refresh
-        return JsonResponse({"metadataRefresh": metadata_refresh(statement_results), "columns": columns, "rows": rows, "outputLines": output, "rowsAffected": affected,
+        plan_tree = next((item["planTree"] for item in reversed(statement_results) if "planTree" in item), None)
+        return JsonResponse({"metadataRefresh": metadata_refresh(statement_results), "columns": columns, "rows": rows, "outputLines": output, "rowsAffected": affected, "queryPlanTree": plan_tree,
             "truncated": bool(columns and len(rows) == MAX_ROWS), "maxRows": MAX_ROWS,
             "durationMs": duration_ms, "message": " · ".join(messages), "statementsExecuted": len(messages),
             "statementResults": statement_results, "executionErrors": execution_errors,
+            "transactionPending": _oracle_transaction_pending(connection),
             "sqlPlusAutoCommit": sqlplus_settings["autocommit"] if payload.get("sqlplus") else None,
             "sqlPlusHeading": sqlplus_settings["heading"], "sqlPlusFeedback": sqlplus_settings["feedback"]})
     except Exception as exc:
@@ -907,7 +1268,7 @@ def _record_compiler_query(request, sql, connection_key, status, duration_ms, ro
     try:
         from .models import AttendanceSession, CompilerActivitySlice, CompilerExecutionEvent, CompilerQueryHistory
         from .portal_views import _active_portal_role
-        if _active_portal_role(request) not in {"STUDENT", "TEACHER"}:
+        if (getattr(request, "_compiler_session_role", None) or _active_portal_role(request)) not in {"STUDENT", "TEACHER"}:
             return
         source = "SQL*Plus" if connection_key == "sqlplus" else "PL/SQL"
         elapsed = max(0, int(duration_ms))
@@ -925,17 +1286,16 @@ def _record_compiler_query(request, sql, connection_key, status, duration_ms, ro
             "edits_after_paste": metric("editsAfterPaste"),
         }
         input_method = str(edit_source.get("inputMethod", "")).strip().lower()
-        if input_method not in {"typed", "pasted", "file", "history_recall", "mixed", "internal_copy"}:
+        if input_method not in {"typed", "pasted", "file", "history_recall", "daily_task", "mixed", "internal_copy", "remote_code"}:
             input_method = ""
         input_source_map = _validated_input_source_map(edit_source.get("inputSourceMap", []), 0, min(len(str(sql)), MAX_BODY))
         pasted_texts = _validated_pasted_texts(edit_source.get("pasteTexts", []))
-        history_record = CompilerQueryHistory.objects.create(
-            student=request.user, source=source, sql=str(sql)[:MAX_BODY], status=status,
+        CompilerQueryHistory.objects.create(
+            student=request.user, source=source, sql=redact_text(str(sql)[:MAX_BODY], bare_token=True), status=status,
             duration_ms=elapsed, row_count=rows, message=str(message or "")[:4000],
             input_method=input_method, input_source_map=input_source_map,
             pasted_texts=pasted_texts, **edit_metrics,
         )
-        _history_archive_record(history_record)
         attendance_id = request.session.get("attendance_session_id")
         attendance = AttendanceSession.objects.filter(pk=attendance_id, user=request.user).first() if attendance_id else None
         if attendance and attendance.logout_at and attendance.logout_estimated:
@@ -1000,7 +1360,11 @@ def compiler_history(request):
         students = [request.user]
     elif role == "TEACHER" and request.GET.get("own") == "1":
         records = CompilerQueryHistory.objects.filter(student=request.user)
-        students = [request.user]
+        students_query = PortalUser.objects.filter(pk__in=_teacher_student_ids(request.user), role=PortalUser.Role.STUDENT)
+        student_status = request.GET.get("studentStatus", "all")
+        if student_status == "active": students_query = students_query.filter(is_active=True)
+        elif student_status == "inactive": students_query = students_query.filter(is_active=False)
+        students = list(students_query.order_by("first_name", "last_name", "username"))
     elif role == "TEACHER":
         assigned = _teacher_student_ids(request.user)
         student_status = request.GET.get("studentStatus", "all")
@@ -1026,7 +1390,7 @@ def compiler_history(request):
         failed=Count("id", filter=Q(status="error")),
     )
     # Apply filters and pagination in SQL so a history page never loads every
-    # statement (or scans every user's append-only archive) into Python.
+    # statement into Python.
     source = request.GET.get("source", "all")
     status = request.GET.get("status", "all")
     search = request.GET.get("search", "").strip()[:200]
@@ -1060,9 +1424,23 @@ def compiler_history(request):
     pages = max(1, (total + page_size - 1) // page_size)
     page = min(page, pages)
     offset = (page - 1) * page_size
-    records = records.select_related("student").order_by(f"{direction}{sort_fields[sort_key]}", f"{direction}executed_at", f"{direction}id")[offset:offset + page_size]
+    from django.db.models import OuterRef
+    from bisect import bisect_right
+    from .models import CompilerClientActivityEvent, CompilerQueryHistory
+    previous = CompilerQueryHistory.objects.filter(student_id=OuterRef("student_id"), executed_at__lt=OuterRef("executed_at")).order_by("-executed_at").values("executed_at")[:1]
+    records = list(records.select_related("student").annotate(previous_execution=Subquery(previous)).order_by(f"{direction}{sort_fields[sort_key]}", f"{direction}executed_at", f"{direction}id")[offset:offset + page_size])
+    focus_by_student = {}
+    if records:
+        lower = min(record.previous_execution or record.executed_at.replace(hour=0, minute=0, second=0, microsecond=0) for record in records)
+        upper = max(record.executed_at for record in records)
+        focus_rows = CompilerClientActivityEvent.objects.filter(student_id__in={record.student_id for record in records}, created_at__gt=lower, created_at__lte=upper, kind__in=[CompilerClientActivityEvent.Kind.PAGE_HIDDEN, CompilerClientActivityEvent.Kind.WINDOW_BLUR]).order_by("created_at").values_list("student_id", "created_at")
+        for student_id, created_at in focus_rows:
+            focus_by_student.setdefault(student_id, []).append(created_at)
     records_payload = []
     for record in records:
+        previous_execution = record.previous_execution or record.executed_at.replace(hour=0, minute=0, second=0, microsecond=0)
+        focus_times = focus_by_student.get(record.student_id, [])
+        focus_events = bisect_right(focus_times, record.executed_at) - bisect_right(focus_times, previous_execution)
         item = {"id": record.pk, "studentId": record.student_id,
                 "studentName": record.student.get_full_name() or record.student.username,
                 "studentNumber": record.student.student_number, "sql": record.sql,
@@ -1071,6 +1449,7 @@ def compiler_history(request):
                 "message": record.message, "isActive": record.is_active,
                 "inputMethod": record.input_method,
                 "inputSourceMap": record.input_source_map,
+                "focusLossCount": focus_events,
                 "executedAt": record.executed_at.isoformat()}
         if role == "TEACHER":
             item.update({"typedChars": record.typed_chars, "pastedChars": record.pasted_chars,
@@ -1099,7 +1478,6 @@ def compiler_history_item(request, history_id):
     entry = CompilerQueryHistory.objects.filter(pk=history_id, student_id__in=_teacher_student_ids(request.user)).first()
     if not entry: return json_error("History entry not found in your activity scope.", 404)
     if request.method == "DELETE":
-        _append_local_history_event(entry.student_id, {"type": "remove", "ids": [entry.pk]})
         entry.delete()
         return JsonResponse({"deleted": True})
     try: payload = read_json(request)
@@ -1120,8 +1498,6 @@ def compiler_history_clear_student(request, student_id):
     if _active_portal_role(request) != "TEACHER": return json_error("Only teachers can clear student SQL history.", 403)
     if student_id not in _teacher_student_ids(request.user):
         return json_error("Student is not available in your activity scope.", 403)
-    entries = list(CompilerQueryHistory.objects.filter(student_id=student_id).values_list("pk", flat=True))
-    _append_local_history_event(student_id, {"type": "remove", "ids": entries})
     deleted, _ = CompilerQueryHistory.objects.filter(student_id=student_id).delete()
     return JsonResponse({"cleared": True, "deleted": deleted})
 
@@ -1131,7 +1507,7 @@ def compiler_history_clear_student(request, student_id):
 def compiler_settings(request):
     if not same_origin(request): return json_error('Cross-origin API requests are blocked.', 403)
     if not request.user.is_authenticated: return json_error('Sign in to view compiler settings.', 401)
-    from .models import (ClassSection, CompilerLab, CompilerTabAppearanceOverride, Enrollment, PortalSetting, PortalUser)
+    from .models import (CompilerTabAppearanceOverride, PortalSetting, PortalUser, TeacherActivityPreference)
     from .portal_views import _active_portal_role
     role = _active_portal_role(request)
     is_admin = role == 'ADMIN' or request.user.is_superuser
@@ -1146,26 +1522,42 @@ def compiler_settings(request):
 
     if is_admin:
         allowed_students = PortalUser.objects.filter(role=PortalUser.Role.STUDENT)
-        allowed_labs = CompilerLab.objects.select_related('class_section', 'class_section__course')
-        allowed_classes = ClassSection.objects.all()
     elif role == 'TEACHER':
         if request.user.can_view_all_compiler_activity:
             allowed_students = PortalUser.objects.filter(role=PortalUser.Role.STUDENT)
-            allowed_classes = ClassSection.objects.all()
         else:
             allowed_students = PortalUser.objects.filter(pk__in=_teacher_student_ids(request.user), role=PortalUser.Role.STUDENT)
-            allowed_classes = ClassSection.objects.filter(teacher_assignments__teacher=request.user)
-        allowed_labs = CompilerLab.objects.filter(class_section__in=allowed_classes).select_related('class_section', 'class_section__course')
     else:
         allowed_students = PortalUser.objects.none()
-        allowed_classes = ClassSection.objects.none()
-        allowed_labs = CompilerLab.objects.none()
 
     if request.method == 'POST':
         if not can_manage: return json_error('Only admins and teachers can change shared compiler settings.', 403)
         try:
             payload = read_json(request)
         except ValueError as exc: return json_error(str(exc))
+        if 'independentCompilerSessions' in payload:
+            if role != 'TEACHER':
+                return json_error('Only teachers can change independent compiler session access.', 403)
+            enabled = payload.get('independentCompilerSessions')
+            if type(enabled) is not bool:
+                return json_error('Choose whether independent Oracle sessions should be enabled.')
+            preference, _ = TeacherActivityPreference.objects.get_or_create(teacher=request.user)
+            preference.independent_compiler_sessions_enabled = enabled
+            preference.save(update_fields=('independent_compiler_sessions_enabled', 'updated_at'))
+            student_ids = list(allowed_students.values_list('pk', flat=True))
+            from django.core.cache import cache
+            for student_id in student_ids:
+                cache.delete(f'independent-compiler-session:{student_id}')
+            if not enabled:
+                student_id_set = set(student_ids)
+                for state in list(_oracle_session_tokens.values()):
+                    if state.get('user_id') in student_id_set and not _independent_compiler_session_allowed(state.get('user_id')):
+                        for active_token, current in list(_oracle_session_tokens.items()):
+                            if current is state: _oracle_session_tokens.pop(active_token, None)
+                        state['independent_enabled'] = False
+                        state.pop('independent_token', None)
+            return JsonResponse({'ok': True, 'independentCompilerSessions': enabled,
+                                 'affectedCount': len(student_ids)})
         if 'bufferEntries' in payload:
             value = payload.get('bufferEntries')
             if type(value) is not int or not 100 <= value <= 50000:
@@ -1206,19 +1598,8 @@ def compiler_settings(request):
             allowed_ids = set(allowed_students.filter(pk__in=requested_ids).values_list('pk', flat=True))
             if allowed_ids != requested_ids: return json_error('One or more selected students are outside your teaching scope.', 403)
             student_ids = allowed_ids
-        elif scope == 'labs':
-            raw_ids = target.get('labIds', [])
-            if not isinstance(raw_ids, list) or not raw_ids:
-                return json_error('Select at least one lab.')
-            try: requested_lab_ids = {int(value) for value in raw_ids}
-            except (TypeError, ValueError): return json_error('Lab selection is invalid.')
-            selected_labs = allowed_labs.filter(pk__in=requested_lab_ids)
-            if set(selected_labs.values_list('pk', flat=True)) != requested_lab_ids:
-                return json_error('One or more selected labs are outside your teaching scope.', 403)
-            student_ids = set(Enrollment.objects.filter(active=True, class_section_id__in=selected_labs.values('class_section_id'), student__role=PortalUser.Role.STUDENT).values_list('student_id', flat=True))
-            student_ids &= set(allowed_students.values_list('pk', flat=True))
         else:
-            return json_error('Choose all students, selected students, or selected labs.')
+            return json_error('Choose all students or selected students.')
         if not student_ids: return json_error('No students were found in that selection.')
         if scope == 'all' and is_admin:
             PortalSetting.objects.update_or_create(pk=1, defaults={'compiler_tab_appearance': normalized_tabs})
@@ -1241,14 +1622,13 @@ def compiler_settings(request):
         'name': student.get_full_name().strip() or student.username,
         'identifier': student.student_number or student.username,
     } for student in allowed_students.order_by('first_name', 'last_name', 'username')]
-    labs = [{
-        'id': lab.pk, 'name': lab.name,
-        'className': f'{lab.class_section.course.code} · {lab.class_section.name} {lab.class_section.section}'.strip(),
-    } for lab in allowed_labs.order_by('class_section__course__code', 'class_section__name', 'name')]
+    teacher_preference = TeacherActivityPreference.objects.filter(teacher=request.user).first() if role == 'TEACHER' else None
     return JsonResponse({'bufferEntries': setting.sqlplus_buffer_entries if setting else 5000,
                          'canManageDefault': can_manage, 'canManageTabs': can_manage,
+                         'canManageIndependentSessions': role == 'TEACHER',
+                         'independentCompilerSessions': bool(teacher_preference and teacher_preference.independent_compiler_sessions_enabled),
                          'tabAppearance': global_tabs, 'effectiveTabs': global_tabs,
-                         'students': students, 'labs': labs})
+                         'students': students})
 
 
 @csrf_exempt
@@ -1309,9 +1689,6 @@ def compiler_history_clear_scope(request):
             return json_error('Class is outside your activity scope.', 403)
         student_ids = Enrollment.objects.filter(class_section_id=selected, student_id__in=student_ids).values_list('student_id', flat=True)
     elif scope != 'all': return json_error('Choose student, class, or all students.')
-    entries = list(CompilerQueryHistory.objects.filter(student_id__in=student_ids).values_list("student_id", "pk"))
-    for owner_id in {owner_id for owner_id, _ in entries}:
-        _append_local_history_event(owner_id, {"type": "remove", "ids": [record_id for user_id, record_id in entries if user_id == owner_id]})
     deleted, _ = CompilerQueryHistory.objects.filter(student_id__in=student_ids).delete()
     return JsonResponse({'cleared': True, 'deleted': deleted})
 
@@ -1340,6 +1717,22 @@ def _editor_share_payload(share, student=None):
     }
 
 
+def _reset_teacher_editor_session_access(student_id):
+    """Revoke session-scoped teacher editing when a student session ends."""
+    from .models import CompilerEditorShare
+    return CompilerEditorShare.objects.filter(
+        student_id=student_id,
+        access_mode=CompilerEditorShare.AccessMode.SESSION,
+    ).update(
+        access_mode=CompilerEditorShare.AccessMode.PRIVATE,
+        session_token="",
+        statement_snapshot_ready=False,
+        edit_permission_requested_at=None,
+        edit_permission_requested_by=None,
+        updated_at=timezone.now(),
+    )
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def compiler_editor_share(request, student_id=None):
@@ -1351,8 +1744,20 @@ def compiler_editor_share(request, student_id=None):
     CompilerEditorShare.objects.filter(
         student_id=request.user.pk if role == 'STUDENT' else student_id,
         access_mode=CompilerEditorShare.AccessMode.STATEMENT,
-        updated_at__lt=timezone.now() - timedelta(minutes=2),
+        updated_at__lt=timezone.now() - timedelta(minutes=1),
     ).update(access_mode=CompilerEditorShare.AccessMode.PRIVATE, statement_snapshot_ready=False)
+    CompilerEditorShare.objects.filter(
+        student_id=request.user.pk if role == 'STUDENT' else student_id,
+        access_mode=CompilerEditorShare.AccessMode.SESSION,
+        updated_at__lt=timezone.now() - timedelta(minutes=1),
+    ).update(
+        access_mode=CompilerEditorShare.AccessMode.PRIVATE,
+        session_token="",
+        statement_snapshot_ready=False,
+        edit_permission_requested_at=None,
+        edit_permission_requested_by=None,
+        updated_at=timezone.now(),
+    )
     if request.method == "GET":
         if role == "STUDENT" and student_id is None:
             share, _ = CompilerEditorShare.objects.get_or_create(student=request.user)
@@ -1402,7 +1807,7 @@ def compiler_editor_share(request, student_id=None):
                     share.editor_text = editor_text[:MAX_BODY]
                     share.sqlplus_text = sqlplus_text[:MAX_BODY]
                 share.revision += 1
-            elif share.access_mode == CompilerEditorShare.AccessMode.SESSION and timezone.now() - share.updated_at > timedelta(minutes=2):
+            elif share.access_mode == CompilerEditorShare.AccessMode.SESSION and timezone.now() - share.updated_at > timedelta(minutes=1):
                 share.access_mode = CompilerEditorShare.AccessMode.PRIVATE
                 share.session_token = ""
             share.edit_permission_requested_at = None
@@ -1476,7 +1881,7 @@ def compiler_editor_share(request, student_id=None):
             return JsonResponse({"disconnected": True})
         if payload.get("action") == "request_edit_permission":
             age = timezone.now() - share.updated_at
-            has_edit_permission = share.access_mode == CompilerEditorShare.AccessMode.ALWAYS or (share.access_mode == CompilerEditorShare.AccessMode.SESSION and age <= timedelta(minutes=2)) or (share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and share.statement_snapshot_ready and age <= timedelta(minutes=2))
+            has_edit_permission = share.access_mode == CompilerEditorShare.AccessMode.ALWAYS or (share.access_mode == CompilerEditorShare.AccessMode.SESSION and age <= timedelta(minutes=1)) or (share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and share.statement_snapshot_ready and age <= timedelta(minutes=1))
             if has_edit_permission:
                 return json_error("This student has already allowed editor access.", 409)
             share.edit_permission_requested_at = timezone.now()
@@ -1486,7 +1891,7 @@ def compiler_editor_share(request, student_id=None):
         has_edit_permission = share.access_mode in {CompilerEditorShare.AccessMode.SESSION, CompilerEditorShare.AccessMode.ALWAYS} or (share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and share.statement_snapshot_ready)
         if not has_edit_permission:
             return json_error("Student permission is required to edit this editor.", 403)
-        if share.access_mode == CompilerEditorShare.AccessMode.SESSION and timezone.now() - share.updated_at > timedelta(minutes=2):
+        if share.access_mode == CompilerEditorShare.AccessMode.SESSION and timezone.now() - share.updated_at > timedelta(minutes=1):
             return json_error("This student editor session is no longer active.", 403)
         if share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and not share.statement_snapshot_ready:
             return json_error("The student has not shared a statement yet.", 403)
@@ -1519,8 +1924,8 @@ def _remote_terminal_teacher_access(request, student_id, *, require_edit=True):
     now = timezone.now()
     allowed = bool(share and (
         share.access_mode == CompilerEditorShare.AccessMode.ALWAYS
-        or (share.access_mode == CompilerEditorShare.AccessMode.SESSION and now - share.updated_at <= timedelta(minutes=2))
-        or (share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and share.statement_snapshot_ready and now - share.updated_at <= timedelta(minutes=2))
+        or (share.access_mode == CompilerEditorShare.AccessMode.SESSION and now - share.updated_at <= timedelta(minutes=1))
+        or (share.access_mode == CompilerEditorShare.AccessMode.STATEMENT and share.statement_snapshot_ready and now - share.updated_at <= timedelta(minutes=1))
     ))
     if require_edit and not allowed:
         return None, None, json_error("Current student permission to edit is required to execute a remote command.", 403)
@@ -1738,9 +2143,22 @@ def object_details(request, owner, name):
                         ELSE
                             (SELECT ref.table_name FROM all_constraints ref WHERE ref.owner=c.r_owner AND ref.constraint_name=c.r_constraint_name)
                         END END"""
+                reference_column = """CASE WHEN c.constraint_type='R' THEN
+                    (SELECT refcol.column_name FROM all_cons_columns refcol
+                     WHERE refcol.owner=c.r_owner AND refcol.constraint_name=c.r_constraint_name
+                       AND refcol.position=cc.position) END"""
+                if own_schema:
+                    reference_column = """CASE WHEN c.constraint_type='R' THEN
+                        CASE WHEN c.r_owner=:owner THEN
+                            (SELECT refcol.column_name FROM user_cons_columns refcol
+                             WHERE refcol.constraint_name=c.r_constraint_name AND refcol.position=cc.position)
+                        ELSE (SELECT refcol.column_name FROM all_cons_columns refcol
+                              WHERE refcol.owner=c.r_owner AND refcol.constraint_name=c.r_constraint_name
+                                AND refcol.position=cc.position) END END"""
                 cursor.execute(f"""
                     SELECT c.constraint_name, c.constraint_type, c.status, c.validated,
-                           cc.column_name, cc.position, {reference_table} AS referenced_table_name
+                           cc.column_name, cc.position, {reference_table} AS referenced_table_name,
+                           c.r_owner AS referenced_owner, {reference_column} AS referenced_column_name
                     FROM {constraint_source} c
                     LEFT JOIN {column_source} cc
                       ON {'' if own_schema else 'cc.owner=c.owner AND '}cc.constraint_name=c.constraint_name AND cc.table_name=c.table_name

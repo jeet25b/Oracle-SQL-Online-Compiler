@@ -3,6 +3,14 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   const $ = (selector) => document.querySelector(selector);
   const rowsNode = $('#teacherHistoryRows');
   if (!rowsNode) return;
+  const historyCard = rowsNode.closest('.teacher-history-card');
+  const topbar = document.querySelector('.dashboard-topbar');
+  const updateHistoryViewport = () => {
+    historyCard.style.setProperty('--history-topbar-height', `${topbar?.getBoundingClientRect().height || 0}px`);
+  };
+  const historyLayoutObserver = new ResizeObserver(updateHistoryViewport);
+  if (topbar) historyLayoutObserver.observe(topbar);
+  updateHistoryViewport();
   const filters = {
     student: $('#teacherHistoryStudent'), source: $('#teacherHistorySource'), status: $('#teacherHistoryStatus'),
     from: $('#teacherHistoryFrom'), to: $('#teacherHistoryTo'), search: $('#teacherHistorySearch'),
@@ -14,11 +22,12 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   let sort = { key: 'executedAt', direction: 'desc' };
   const pageSize = 50;
   function inputMethodLabel(item) {
-    const labels = { typed: 'Typed', pasted: 'Pasted', file: 'File', history_recall: 'History recall', internal_copy: 'Internal copy', mixed: 'Mixed' };
+    const labels = { typed: 'Typed', pasted: 'Pasted', file: 'File', history_recall: 'History recall', daily_task: 'Daily task', internal_copy: 'Internal copy', remote_code: 'Remote code', mixed: 'Mixed' };
     const pastedChars = Number(item.pastedChars) || 0;
     const pasteCount = Number(item.pasteCount) || 0;
     const typedChars = Number(item.typedChars) || 0;
     const edited = Number(item.editsAfterPaste) > 0;
+    if (item.inputMethod === 'daily_task') return edited ? 'Daily task + Edited' : 'Daily task';
     const recalledAndEdited = item.inputMethod === 'mixed' && typedChars > 0 && pastedChars === 0 && pasteCount === 0;
     if (recalledAndEdited) return 'History recall + Edited';
     let label = item.inputMethod === 'history_recall' ? 'History recall' : edited && (pastedChars > 0 || pasteCount > 0 || item.inputMethod === 'mixed') ? 'Pasted' : labels[item.inputMethod] || (pastedChars > 0 || pasteCount > 0 ? typedChars > 0 ? 'Typed + pasted' : 'Pasted' : typedChars > 0 ? 'Typed' : 'Not tracked');
@@ -65,7 +74,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }
   async function loadHistory() {
     $('#teacherHistoryRefresh').disabled = true;
-    showMessage('Loading student history…');
+    showMessage('Loading SQL history…');
     try {
       const params = requestParams();
       const response = await fetch(`/api/compiler/history?${params}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -76,10 +85,14 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       pagination = data.pagination || { page: 1, pageSize, total: (data.records || []).length, pages: 1 };
       page = pagination.page || page;
       const selected = filters.student.value;
+      const ownHistory = selected === 'self';
       filters.student.replaceChildren(new Option(data.studentScope === 'all' ? 'All students' : 'All assigned students', ''));
-      students.forEach((student) => filters.student.add(new Option(`${student.name}${student.number ? ` · ${student.number}` : ''}${student.isActive ? '' : ' · Inactive'}`, String(student.id))));
+      filters.student.add(new Option('Self history', 'self'));
+      if (!ownHistory) students.forEach((student) => filters.student.add(new Option(`${student.name}${student.number ? ` · ${student.number}` : ''}${student.isActive ? '' : ' · Inactive'}`, String(student.id))));
       filters.student.value = selected;
-      $('#teacherHistoryScope').textContent = data.studentScope === 'all'
+      $('#teacherHistoryScope').textContent = ownHistory
+        ? 'Showing your own compiler statements and results.'
+        : data.studentScope === 'all'
         ? 'Showing history for all students available to your teacher account.'
         : 'Showing history for students assigned to your classes.';
       render(data.records || []);
@@ -96,7 +109,8 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       studentStatus: 'all', page: String(page), pageSize: String(pageSize),
       sort: sort.key, direction: sort.direction,
     });
-    Object.entries({ student: filters.student.value, source: filters.source.value, status: filters.status.value,
+    if (filters.student.value === 'self') params.set('own', '1');
+    Object.entries({ student: filters.student.value === 'self' ? '' : filters.student.value, source: filters.source.value, status: filters.status.value,
       from: filters.from.value, to: filters.to.value, search: filters.search.value.trim() })
       .forEach(([key, value]) => { if (value && value !== 'all') params.set(key, value); });
     return params;
@@ -110,7 +124,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     $('#teacherHistoryPrev').disabled = page <= 1;
     $('#teacherHistoryNext').disabled = page >= pages;
     rowsNode.replaceChildren();
-    if (!visible.length) { showMessage(total ? 'No statements match these filters.' : 'No student compiler history has been recorded yet.'); return; }
+    if (!visible.length) { showMessage(total ? 'No statements match these filters.' : 'No compiler history has been recorded for this selection yet.'); return; }
     visible.forEach((item) => {
       const row = document.createElement('tr');
       const student = document.createElement('td'); student.className = 'teacher-history-student';
@@ -122,7 +136,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       const source = document.createElement('td'); source.textContent = compilerSourceLabel(item.source);
       const sql = document.createElement('td'); sql.className = 'teacher-history-sql';
       const inputLabel = inputMethodLabel(item);
-      appendColoredSql(sql, item.sql || '', item.inputSourceMap, inputLabel);
+      window.HistorySql.render(sql, item.sql || '');
       if ((inputLabel === 'Typed + pasted' || inputLabel === 'Mixed') && !item.inputSourceMap?.length) {
         sql.classList.add('input-mixed');
         sql.title = 'Mixed typed and pasted input; exact character positions were not recorded.';
@@ -144,11 +158,17 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         input.textContent = 'Not tracked';
         input.title = 'Input method was not recorded for this statement.';
       }
+      const focusLoss = document.createElement('small'); focusLoss.className = 'teacher-history-focus-loss';
+      focusLoss.textContent = `${Number(item.focusLossCount) || 0} focus loss${Number(item.focusLossCount) === 1 ? '' : 'es'}`;
+      focusLoss.title = 'Browser tab or window lost focus between this and the previous statement.';
+      input.append(focusLoss);
       const pastedText = document.createElement('td'); pastedText.className = 'teacher-history-pasted-text-cell';
       const pasteTexts = Array.isArray(item.pastedTexts) ? item.pastedTexts.filter((text) => typeof text === 'string' && text.length) : [];
       if (pasteTexts.length) {
-        pastedText.textContent = pasteTexts.join(', ');
-        pastedText.classList.add('teacher-history-pasted-text');
+        const content = document.createElement('div');
+        content.className = 'teacher-history-pasted-text';
+        content.textContent = pasteTexts.join(', ');
+        pastedText.append(content);
       } else if (pasteCount > 0) {
         pastedText.textContent = 'Not captured for this statement';
         pastedText.classList.add('teacher-history-pasted-text-unavailable');
@@ -160,7 +180,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       const duration = document.createElement('td'); duration.textContent = `${Number(item.durationMs || 0).toLocaleString()} ms`;
       const count = document.createElement('td'); count.textContent = Number(item.rows || 0).toLocaleString();
       const action = document.createElement('td'); const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'teacher-history-copy'; copy.textContent = 'Copy'; copy.title = 'Copy statement';
-      copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(item.sql || ''); copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy'; }, 1200); } catch { $('#teacherHistoryUpdated').textContent = 'Clipboard access is unavailable.'; } });
+      copy.addEventListener('click', async () => { try { await window.HistorySql.copy(item.sql || ''); copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy'; }, 1200); } catch { $('#teacherHistoryUpdated').textContent = 'Clipboard access is unavailable.'; } });
       action.append(copy); row.append(student, time, source, sql, input, pastedText, result, duration, count, action); rowsNode.append(row);
     });
   }
@@ -194,7 +214,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       }
       const rows = records.map((item) => [item.studentName, item.studentNumber, item.executedAt, compilerSourceLabel(item.source), item.sql, inputMethodLabel(item), (Array.isArray(item.pastedTexts) ? item.pastedTexts : []).join(', '), item.typedChars, item.pastedChars, item.pasteCount, item.editsAfterPaste, item.status, item.durationMs, item.rows, item.message]);
       const csv = [columns, ...rows].map((values) => values.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\r\n');
-      const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); link.download = 'student-sql-history.csv'; link.click(); URL.revokeObjectURL(link.href);
+      const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); link.download = filters.student.value === 'self' ? 'self-sql-history.csv' : 'student-sql-history.csv'; link.click(); URL.revokeObjectURL(link.href);
     } catch (error) { showMessage(error.message || 'Could not export student SQL history.', true); }
     finally { button.disabled = false; }
   });

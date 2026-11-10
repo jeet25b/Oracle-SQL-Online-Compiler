@@ -68,6 +68,30 @@ class StudentSessionLimitTests(TestCase):
         response = self.client.post('/api/teacher/session-limits', data=json.dumps({'action':'reset', 'classId': self.section.pk}), content_type='application/json', **headers)
         self.assertEqual(response.status_code, 403)
 
+    def test_section_wide_reset_batches_large_rosters_and_is_repeatable(self):
+        students = [
+            PortalUser(username=f'bulk-budget-student-{index}', role=PortalUser.Role.STUDENT)
+            for index in range(1000)
+        ]
+        PortalUser.objects.bulk_create(students, batch_size=500)
+        student_ids = list(PortalUser.objects.filter(username__startswith='bulk-budget-student-').values_list('pk', flat=True))
+        Enrollment.objects.bulk_create(
+            [Enrollment(student_id=student_id, class_section=self.section) for student_id in student_ids],
+            batch_size=500,
+        )
+        self.client.force_login(self.teacher)
+        headers = {'HTTP_ORIGIN': 'https://testserver', 'secure': True}
+        payload = {'action': 'reset', 'classId': self.section.pk}
+        first = self.client.post('/api/teacher/session-limits', data=json.dumps(payload), content_type='application/json', **headers)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()['resetCount'], 1001)
+        self.assertEqual(StudentDailyAccessReset.objects.filter(day=timezone.localdate()).count(), 1001)
+
+        second = self.client.post('/api/teacher/session-limits', data=json.dumps(payload), content_type='application/json', **headers)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()['resetCount'], 1001)
+        self.assertEqual(StudentDailyAccessReset.objects.filter(day=timezone.localdate()).count(), 1001)
+
     def test_exhausted_daily_allowance_blocks_relogin(self):
         self.student.set_password('DailyBudgetExample!45')
         self.student.save()

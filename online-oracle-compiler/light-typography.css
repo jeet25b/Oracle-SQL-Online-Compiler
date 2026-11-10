@@ -1,0 +1,122 @@
+/* Light palette contrast. Typography follows each page's original theme rules. */
+:root[data-theme="light"] {
+  --light-reading-text: #17263a;
+  --light-reading-muted: #35465c;
+  --light-reading-secondary: #43546a;
+  --muted: var(--light-reading-secondary);
+  --ide-muted: var(--light-reading-secondary);
+}
+
+:root[data-theme="light"] .dashboard-page :is(h1, h2, h3, h4),
+:root[data-theme="light"] .oracle-ide-page :is(h1, h2, h3, h4) {
+  color: var(--light-reading-text);
+}
+
+:root[data-theme="light"] .dashboard-page :is(.section-kicker, .sidebar-label),
+:root[data-theme="light"] .oracle-ide-page :is(.panel-eyebrow, .navigator-label, .ide-brand small) {
+  color: var(--light-reading-muted);
+}
+
+:root[data-theme="light"] .dashboard-page :is(.breadcrumb, .muted-note, .dashboard-footer, .field-hint),
+:root[data-theme="light"] .oracle-ide-page :is(.ide-subtitle, .navigator-footer, .terminal-foot, .syntax-color-legend) {
+  color: var(--light-reading-muted);
+}
+
+/* Secondary text stays legible on both white cards and the pale workspace canvas. */
+:root[data-theme="light"] .dashboard-page :is(
+  .page-heading > div > p:last-child, .metric-card div p, .metric-card > small,
+  .class-main span, .submission-main span, .course-section, .announcement p,
+  .online-indicator, .side-link:not(.active), .side-link:not(.active) > span,
+  .help-card p, .count-pill, .today-badge small
+) {
+  color: var(--light-reading-secondary);
+}
+
+:root[data-theme="light"] .oracle-ide-page :is(
+  .ide-connection, .terminal-titlebar, .terminal-foot, .navigator-footer,
+  .object-group-toggle, .object-tree-item, .terminal-font-value
+) {
+  color: var(--light-reading-secondary);
+}
+
+:root[data-theme="light"] .oracle-ide-page :is(
+  .ide-subtitle, .navigator-label, .navigator-schema-label,
+  .syntax-color-legend, .panel-eyebrow
+) {
+  color: var(--light-reading-muted);
+}
+
+/* These labels have their own pale foreground declarations in the IDE CSS. */
+:root[data-theme="light"] .oracle-ide-page :is(
+  .ide-brand small, .ide-connection .connection-service,
+  .terminal-titlebar small, .terminal-foot > span,
+  .navigator-footer > span
+) {
+  color: var(--light-reading-secondary);
+}
+
+/* Small UI labels need a readable raster size on light surfaces. Headings and
+   SQL/code text retain their existing typography in both themes. */
+:root[data-theme="light"] {
+  --light-ui-label-font: "Segoe UI", Arial, sans-serif;
+}
+
+:root[data-theme="light"] body :is(
+  .eyebrow, .small-eyebrow, .preview-label, .input-hint,
+  .side-heading, .version, .sidebar-version, .result-meta,
+  .row-count, .run-hint
+),
+:root[data-theme="light"] .dashboard-page :is(
+  .section-kicker, .sidebar-label, .today-badge small,
+  .count-pill, .subject-tag, .status-pill, .course-footer,
+  .metric-card > small, .class-main span, .submission-main span,
+  .announcement-meta, .dashboard-footer, .activity-footnote,
+  .test-state, .shared-code-heading span, .shared-code-heading button,
+  .shared-code-card summary, .attendance-expanded-detail span,
+  .teacher-history-input .paste-badge, .teacher-history-input .typed-badge,
+  .teacher-history-pasted-text-unavailable, .teacher-history-footer,
+  .remote-code-toolbar label, .remote-code-toolbar button,
+  .remote-code-student-search, .remote-code-request,
+  .remote-code-label, .remote-worksheet-actions button,
+  .remote-share-form label, .remote-code-footer p
+),
+:root[data-theme="light"] .oracle-ide-page :is(
+  .ide-brand small, .panel-eyebrow, .navigator-label,
+  .navigator-schema-label, .object-tree-item small,
+  .navigator-connection small, .navigator-footer,
+  .terminal-foot, .terminal-titlebar small, .result-runtime,
+  .history-filters label, .history-table th, .history-table td,
+  .history-table td time small, .history-source-badge,
+  .history-status-badge, .history-export-button,
+  .history-pagination, .terminal-titlebar .tool-button
+) {
+  font-family: var(--light-ui-label-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+:root[data-theme="light"] body :is(
+  .benefits strong, .secure-note, .help-button,
+  .theme-mode-button, .mode-toggle
+) {
+  font-family: var(--light-ui-label-font);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+:root[data-theme="light"] .oracle-ide-page .history-query-preview {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+:root[data-theme="light"] .dashboard-page :is(
+  .teacher-history-sql, .teacher-history-pasted-text
+) {
+  font-size: 12px;
+  line-height: 1.5;
+}
+

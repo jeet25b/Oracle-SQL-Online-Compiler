@@ -58,3 +58,19 @@ test('complete comments advance prompt; unfinished block or actual SQL do not co
  assert.equal(core.commentOnly('/* not closed'),false);
  assert.equal(core.commentOnly('-- heading\nSELECT 1 FROM DUAL;'),false);
 });
+
+
+test('clean code normalizes opening, closing and mixed curly single quotes',()=>{
+ for(const literal of ["‘IT’", "'IT’", "‘IT'", "'IT'"]){
+  assert.equal(core.clean(`select dept_ID from DEPARTMENT where name=${literal};`),
+   "select dept_ID from DEPARTMENT where name='IT';");
+ }
+ assert.equal(core.clean("SELECT 'O''Brien' FROM dual;"),"SELECT 'O''Brien' FROM dual;");
+});
+
+
+test('trigger row records and aliases are not prompted as client binds',()=>{
+ assert.deepEqual(core.binds('-- header\nCREATE OR REPLACE TRIGGER t BEFORE UPDATE ON emp FOR EACH ROW BEGIN :NEW.salary := :OLD.salary; END;'),[]);
+ assert.deepEqual(core.binds('CREATE TRIGGER t BEFORE UPDATE ON emp REFERENCING NEW AS fresh OLD AS previous FOR EACH ROW BEGIN :fresh.salary := :previous.salary + :amount; END;'),['AMOUNT']);
+ assert.deepEqual(core.binds('SELECT :NEW, :OLD FROM dual'),['NEW','OLD']);
+});

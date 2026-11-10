@@ -16,6 +16,9 @@ def with_static_files(application):
         path = ROOT / name
         if path.suffix.lower() in {'.js', '.css'} and path.is_file():
             static.add_file_to_dictionary('/' + name, str(path))
+    vendor = PROJECT_DIR / 'vendor'
+    if vendor.is_dir():
+        static.add_files(str(vendor), prefix='/portal/vendor/')
     if settings.STATIC_ROOT.is_dir():
         static.add_files(str(settings.STATIC_ROOT), prefix=settings.STATIC_URL)
     return static

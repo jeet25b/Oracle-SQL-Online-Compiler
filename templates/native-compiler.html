@@ -1,0 +1,16 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}{{ language_label }} compiler{% endblock %}
+{% block page_heading %}{{ language_label }} compiler{% endblock %}
+{% block page_intro %}Write a single-file program, provide its input, and compile and run it.{% endblock %}
+{% block dashboard_content %}
+<link rel="stylesheet" href="/portal/assets/native-compiler.css?v=20261107-1">
+<section class="content-card native-compiler" data-language="{{ language }}" data-user-id="{{ user.pk }}">
+  {% csrf_token %}
+  <div class="native-toolbar"><a class="dashboard-help-button" href="/online-compiler">All compilers</a><strong>{{ language_label }} {% if language == 'C' %}17{% else %}20{% endif %}</strong><button class="dashboard-help-button" id="nativeRun" type="button" disabled>Compile &amp; run</button><button class="dashboard-help-button" id="nativeImport" type="button">Open file</button><input id="nativeFile" type="file" accept=".c,.cpp,.cc,.cxx,.txt" hidden><button class="dashboard-help-button" id="nativeDownload" type="button">Download source</button><button class="dashboard-help-button" id="nativeCheck" type="button">Check runner</button></div>
+  <p id="nativeRunnerStatus" role="status">Checking local compiler…</p>
+  <label class="native-label" for="nativeSource">Source code</label><div id="nativeEditor"><textarea id="nativeSource" spellcheck="false" aria-label="{{ language_label }} source code"></textarea></div>
+  <div class="native-panels"><div><label class="native-label" for="nativeInput">Standard input (stdin)</label><textarea id="nativeInput" rows="6" maxlength="32768" placeholder="Enter values the program reads with scanf or cin"></textarea></div><div><h3>Run result</h3><p id="nativeRunStatus" role="status">Ready to write code · Ctrl + Enter to run</p><p class="native-muted">One source file · 64 KB source · 32 KB input · 5-second program limit · 64 KB output</p></div></div>
+  <h3>Standard output</h3><pre id="nativeStdout" tabindex="0" aria-label="Standard output"></pre><h3>Compiler diagnostics / standard error</h3><pre id="nativeStderr" tabindex="0" aria-label="Compiler diagnostics and standard error"></pre>
+</section>
+<script src="/portal/vendor/monaco/vs/loader.js" defer></script><script src="/portal/assets/native-compiler.js?v=20261107-1" defer></script>
+{% endblock %}

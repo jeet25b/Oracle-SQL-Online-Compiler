@@ -137,3 +137,8 @@
 .attendance-days-percent{white-space:normal!important}.attendance-days-percent div+div,.attendance-days-percent-header .activity-sort-button+ .activity-sort-button{display:block;margin-top:1px}.attendance-days-percent-header .activity-sort-button{white-space:nowrap;line-height:1.15}
 
 .attendance-range select{cursor:pointer}.attendance-range input:focus-visible,.attendance-range select:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
+.online-indicator[data-state=disconnected] i{background:#dc3545!important;box-shadow:0 0 0 3px #dc35451b!important}.online-indicator[data-state=connecting] i{background:#f2c94c!important;box-shadow:0 0 0 3px #f2c94c1b!important}
+
+/* Overview cards keep their own height and a visible gap when stacked. */
+.dashboard-columns{row-gap:16px;align-items:start}
+.student-project-check-card + .dashboard-columns{margin-top:17px}

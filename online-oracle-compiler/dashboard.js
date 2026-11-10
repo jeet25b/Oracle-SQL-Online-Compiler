@@ -13,7 +13,7 @@
         return;
       }
       if (toast) {
-        toast.textContent = `${card.dataset.compilerName || 'This compiler'} is listed, but its database driver and execution backend are not configured yet. Ask an administrator to configure the engine before using it.`;
+        toast.textContent = `${card.dataset.compilerName || 'This compiler'} is not available right now. Choose another environment or contact your portal administrator.`;
         toast.hidden = false;
       }
     });
@@ -88,7 +88,7 @@
       document.querySelectorAll('[data-role-choice]').forEach((item) => { item.disabled = true; });
       if (roleChoiceError) { roleChoiceError.hidden = true; roleChoiceError.textContent = ''; }
       const csrf = document.cookie.split('; ').find((part) => part.startsWith('ora_csrf='));
-      const token = csrf ? decodeURIComponent(csrf.slice('ora_csrf='.length)) : '';
+      const token = csrf ? decodeURIComponent(csrf.slice('ora_csrf='.length)) : (document.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '');
       try {
         const response = await fetch('/api/portal/select-role', {
           method: 'POST', credentials: 'same-origin',

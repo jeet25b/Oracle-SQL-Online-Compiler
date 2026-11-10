@@ -6,35 +6,225 @@
   <title>{% block page_title %}Dashboard{% endblock %} · Online Oracle Compiler</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/portal/assets/styles.css"><link rel="stylesheet" href="/portal/assets/dashboard.css?v=20261028-theme-safe-controls"><link rel="stylesheet" href="/portal/assets/palette.css"><link rel="stylesheet" href="/portal/assets/theme.css?v=20261028-themed-checkboxes"><link rel="stylesheet" href="/portal/assets/portal-3d.css?v=20261026-no-card-hover"><link rel="stylesheet" href="/portal/assets/theme-controls.css?v=20261028-themed-suggestions-checkboxes">
-  <script src="/portal/assets/dashboard.js?v=20261028-client-request-reduction" defer></script><script src="/portal/assets/palette.js" defer></script><script src="/portal/assets/theme.js?v=20261028-tooltip-anchor" defer></script><script src="/portal/assets/theme-controls.js?v=20261028-shared-dropdowns-dates" defer></script><script src="/portal/assets/search-suggestions.js?v=20261028-search-everywhere" defer></script>
+  <link rel="stylesheet" href="/portal/assets/styles.css"><link rel="stylesheet" href="/portal/assets/dashboard.css?v=20261028-theme-safe-controls"><link rel="stylesheet" href="/portal/assets/palette.css"><link rel="stylesheet" href="/portal/assets/theme.css?v=20261030-contained-table-scroll"><link rel="stylesheet" href="/portal/assets/portal-3d.css?v=20261031-professional-3"><link rel="stylesheet" href="/portal/assets/theme-controls.css?v=20261031-professional-3">
+  <script src="/portal/assets/dashboard.js?v=20261031-professional-3" defer></script><script src="/portal/assets/palette.js" defer></script><script src="/portal/assets/theme.js?v=20261031-task-workflow" defer></script><script src="/portal/assets/theme-controls.js?v=20261031-professional-3" defer></script><script src="/portal/assets/search-suggestions.js?v=20261028-search-everywhere" defer></script>
   <script src="/portal/assets/contact-verification.js?v=20261019-1" defer></script>
+  <link rel="stylesheet" href="/portal/assets/setup-guide.css?v=20261030-no-overlap">
+  <script src="/portal/assets/setup-guide.js?v=20261101-no-connect-notice" defer></script>
+  <link rel="stylesheet" href="/portal/assets/workspace-ui.css?v=20261031-professional-3">
+  <script src="/portal/assets/workspace-ui.js?v=20261102-attendance-daily-scroll-fix-2" defer></script>
+
+<style>
+  .sidebar-user-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border-radius: 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .sidebar-user-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: var(--accent-strong);
+    color: var(--on-accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .sidebar-user-details {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .sidebar-user-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sidebar-user-role-tag {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .online-indicator[data-state="connected"] i {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--status-success);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--status-success) 35%, transparent);
+    animation: pulse-dot 2s infinite;
+  }
+  @keyframes pulse-dot {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-success) 60%, transparent); }
+    70% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--status-success) 0%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-success) 0%, transparent); }
+  }
+  .side-link {
+    transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+    border-radius: 8px;
+    margin: 2px 0;
+  }
+  .side-link:hover {
+    transform: translateX(3px);
+  }
+  .side-link.active {
+    font-weight: 700;
+    box-shadow: inset 3px 0 0 var(--accent-strong);
+  }
+</style>
+
+
+<style id="quickFix">
+  .welcome-hub-title, .welcome-hub-pill, .dashboard-welcome-hub h2, .dashboard-welcome-hub p { display: none !important; }
+  .dashboard-welcome-hub { background: transparent !important; border: none !important; padding: 0 !important; margin: 8px 0 !important; }
+  .teacher-quick-actions, .student-quick-actions, .welcome-hub-actions { display: flex !important; gap: 16px !important; flex-wrap: wrap !important; margin: 12px 0 24px !important; }
+  .teacher-action-chip, .student-action-chip, .hub-btn {
+    display: inline-flex !important; align-items: center !important; gap: 10px !important;
+    padding: 11px 20px !important; margin-right: 14px !important; margin-bottom: 12px !important;
+    border-radius: 12px !important; font-size: 13.5px !important; font-weight: 700 !important;
+    text-decoration: none !important; background: #111d2e !important; color: #f1f5f9 !important;
+    border: 1px solid #283e58 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.25) !important;
+    transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+    white-space: nowrap !important;
+  }
+  .teacher-action-chip:hover, .student-action-chip:hover, .hub-btn:hover {
+    transform: translateY(-2px) !important; border-color: #38bdf8 !important;
+    box-shadow: 0 6px 18px rgba(56, 189, 248, 0.3) !important; color: #ffffff !important; text-decoration: none !important;
+  }
+  .teacher-action-chip.chip-primary, .student-action-chip.chip-primary, .hub-btn-primary {
+    background: #6366f1 !important; color: #ffffff !important; border-color: #6366f1 !important;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4) !important;
+  }
+  .chip-icon, .hub-btn span { text-decoration: none !important; }
+  .terminal-input-wrap { padding: 0 !important; font-size: var(--sqlcl-font-size, 14px) !important; }
+  #terminalInputHighlight, #terminalInput {
+    box-sizing: border-box !important; margin: 0 !important; padding: 10px 14px !important;
+    border: none !important; outline: none !important; font-family: Consolas, monospace !important;
+    font-size: var(--sqlcl-font-size, 14px) !important; font-weight: 400 !important; line-height: 1.4 !important;
+    letter-spacing: 0px !important; tab-size: 4 !important; white-space: pre-wrap !important;
+  }
+  #terminalInputHighlight * { font-family: inherit !important; font-weight: 400 !important; }
+  #terminalInput { position: relative !important; z-index: 2 !important; background: transparent !important; color: transparent !important; caret-color: #38bdf8 !important; }
+</style>
+<script id="terminalCursorSync">
+  (function() {
+    function sync() {
+      var inp = document.getElementById('terminalInput');
+      var hl = document.getElementById('terminalInputHighlight');
+      if (!inp || !hl) return;
+      var fs = window.getComputedStyle(inp).fontSize;
+      if (fs) hl.style.fontSize = fs;
+      hl.scrollTop = inp.scrollTop; hl.scrollLeft = inp.scrollLeft;
+    }
+    window.addEventListener('load', sync);
+    document.addEventListener('input', function(e) { if (e.target && e.target.id === 'terminalInput') sync(); });
+    document.addEventListener('click', function(e) {
+      if (e.target && (e.target.id === 'terminalFontUp' || e.target.id === 'terminalFontDown' || e.target.id === 'fontUp' || e.target.id === 'fontDown')) setTimeout(sync, 25);
+    });
+    setInterval(sync, 400);
+  })();
+</script>
+
+
+
+
+<style id="portalActionChipsStyle">
+  .welcome-hub-title, .welcome-hub-pill, .dashboard-welcome-hub h2, .dashboard-welcome-hub p { display: none !important; }
+  .dashboard-welcome-hub { background: transparent !important; border: none !important; padding: 0 !important; margin: 0 0 16px !important; box-shadow: none !important; }
+
+  .student-quick-actions, .teacher-quick-actions, .welcome-hub-actions {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+    align-items: center !important;
+    margin: 0 0 16px !important;
+    padding: 0 !important;
+  }
+
+  .student-action-chip, .teacher-action-chip, .hub-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 8px 16px !important;
+    margin: 0 !important;
+    border-radius: 8px !important;
+    font-size: 13px !important;
+    font-weight: 650 !important;
+    text-decoration: none !important;
+    background: var(--surface, #0c1727) !important;
+    color: var(--text, #dce6f4) !important;
+    border: 1px solid var(--border, #263850) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease !important;
+    white-space: nowrap !important;
+    cursor: pointer !important;
+  }
+
+  .student-action-chip:hover, .teacher-action-chip:hover, .hub-btn:hover {
+    transform: translateY(-1px) !important;
+    border-color: var(--accent-strong, #6366f1) !important;
+    background-color: color-mix(in srgb, var(--accent-strong, #6366f1) 18%, var(--surface, #0c1727)) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-strong, #6366f1) 30%, #000000) !important;
+    text-decoration: none !important;
+  }
+
+  .student-action-chip:focus-visible, .teacher-action-chip:focus-visible, .hub-btn:focus-visible {
+    outline: 2px solid var(--accent-strong, #6366f1) !important;
+    outline-offset: 2px !important;
+  }
+
+  .student-action-chip.chip-primary, .teacher-action-chip.chip-primary, .hub-btn-primary {
+    background: linear-gradient(135deg, var(--accent, #6366f1), var(--accent-strong, #4f46e5)) !important;
+    color: #ffffff !important;
+    border: 1px solid var(--accent-strong, #4f46e5) !important;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-strong, #6366f1) 25%, transparent) !important;
+  }
+
+  .student-action-chip.chip-primary:hover, .teacher-action-chip.chip-primary:hover, .hub-btn-primary:hover {
+    filter: brightness(1.1) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--accent-strong, #6366f1) 45%, transparent) !important;
+    color: #ffffff !important;
+  }
+
+  .chip-icon, .hub-btn span {
+    text-decoration: none !important;
+  }
+</style>
+
 </head>
-<body class="dashboard-page" data-user-role="{{ portal_role }}" data-default-accent="{{ global_default_accent }}">
+
+<body class="dashboard-page professional-ui" data-user-role="{{ portal_role }}" data-user-id="{{ user.pk }}" data-default-accent="{{ global_default_accent }}">
+  <a class="skip-link" href="#pageContent">Skip to content</a>
   <div class="dashboard-shell">
     <aside class="sidebar" aria-label="Main navigation">
       <a class="brand" href="/portal/" aria-label="Online Oracle Compiler home"><span class="brand-mark">O<span>+</span></span><span class="brand-name">Online Oracle<br>Compiler</span></a>
-      <div class="sidebar-label">WORKSPACE</div>
-      <nav class="side-nav" aria-label="Workspace sections">
-        <a class="side-link{% if not is_profile_page and not is_compiler_page and not is_attendance_page and not is_activity_page and not is_history_page and not is_remote_code_page and not is_tests_page and not is_announcements_page %} active{% endif %}" href="{% if is_profile_page or is_compiler_page or is_activity_page or is_attendance_page or is_history_page or is_remote_code_page or is_tests_page or is_announcements_page %}{{ dashboard_home_path|default:'/teacher/' }}{% else %}#overview{% endif %}"{% if not is_profile_page and not is_compiler_page and not is_attendance_page and not is_activity_page and not is_history_page and not is_remote_code_page and not is_tests_page and not is_announcements_page %} data-dashboard-link aria-current="page"{% endif %}><span aria-hidden="true">⌂</span>Overview</a>
-        {% if is_profile_page %}<a class="side-link active" href="/portal/profile/" aria-current="page"><span aria-hidden="true">◉</span>Profile</a>{% else %}
-        <a class="side-link" href="{% if is_activity_page or is_attendance_page or is_history_page or is_remote_code_page or is_announcements_page %}{{ dashboard_home_path }}#courses{% else %}#courses{% endif %}" data-dashboard-link><span aria-hidden="true">▦</span>{% if portal_role == "TEACHER" %}My classes{% else %}My courses{% endif %}</a>
-        {% if portal_role == "TEACHER" %}<a class="side-link{% if is_activity_page %} active{% endif %}" href="/portal/teacher/activity/"{% if is_activity_page %} aria-current="page"{% endif %}><span aria-hidden="true">◷</span>Live activity</a>{% endif %}
-        {% if portal_role == "TEACHER" %}<a class="side-link{% if is_history_page %} active{% endif %}" href="/portal/teacher/history/"{% if is_history_page %} aria-current="page"{% endif %}><span aria-hidden="true">▤</span>History</a>{% endif %}
-        {% if portal_role == "TEACHER" %}<a class="side-link{% if is_announcements_page %} active{% endif %}" href="/portal/teacher/announcements/"{% if is_announcements_page %} aria-current="page"{% endif %}><span aria-hidden="true">◉</span>Announcements</a>{% endif %}
-        {% if portal_role == "TEACHER" %}<a class="side-link{% if is_remote_code_page %} active{% endif %}" href="/portal/teacher/remote-code/"{% if is_remote_code_page %} aria-current="page"{% endif %}><span aria-hidden="true">&lt;/&gt;</span>Remote code</a>{% endif %}
-        {% if portal_role == "TEACHER" %}<a class="side-link{% if is_attendance_page %} active{% endif %}" href="/portal/teacher/attendance/"{% if is_attendance_page %} aria-current="page"{% endif %}><span aria-hidden="true">✓</span>Attendance</a>{% endif %}
-        <a class="side-link" href="{% if is_activity_page or is_attendance_page or is_history_page or is_remote_code_page or is_tests_page or is_announcements_page %}{{ dashboard_home_path }}#work{% else %}#work{% endif %}" data-dashboard-link><span aria-hidden="true">⌘</span>Assignments</a>
-        {% if portal_role == "TEACHER" or portal_role == "STUDENT" %}<a class="side-link{% if is_tests_page %} active{% endif %}" href="/portal/tests/"{% if is_tests_page %} aria-current="page"{% endif %}><span aria-hidden="true">▣</span>Tests</a>{% endif %}
-        <a class="side-link{% if is_compiler_page %} active{% endif %}" href="/online-compiler"{% if is_compiler_page %} aria-current="page"{% endif %}><span aria-hidden="true">&lt;/&gt;</span>Online Compiler</a>
-        {% if portal_role == "STUDENT" %}<a class="side-link" href="#announcements" data-dashboard-link><span aria-hidden="true">◉</span>Announcements</a>{% endif %}
-        {% if portal_role == "TEACHER" and user.can_approve_students %}<a class="side-link" href="#approvals" data-dashboard-link><span aria-hidden="true">✓</span>Approvals</a>{% endif %}
-        {% for item in dashboard_navigation_items %}<a class="side-link" href="{{ item.target }}" data-dashboard-link><span aria-hidden="true">{{ item.icon }}</span>{{ item.label }}</a>{% endfor %}{% endif %}
-      </nav>
-      <div class="sidebar-bottom"><div class="help-card"><span>✦</span><strong>Need a hand?</strong><p>Contact your portal administrator for account or workspace help.</p></div></div>
+      {% include "workspace-navigation.html" %}
+      <div class="sidebar-bottom">
+        <div class="sidebar-user-card">
+          <div class="sidebar-user-avatar">{{ user.first_name|default:user.username|slice:":1"|upper }}</div>
+          <div class="sidebar-user-details">
+            <strong class="sidebar-user-name">{{ user.get_full_name|default:user.username }}</strong>
+            <span class="sidebar-user-role-tag">{% if portal_role == "TEACHER" %}👨‍🏫 Faculty{% elif portal_role == "ADMIN" %}⚡ Admin{% else %}👨‍🎓 Student{% endif %}</span>
+          </div>
+        </div>
+        <div class="help-card"><span>✦</span><strong>Need help?</strong><p>Ask your administrator or use the keyboard shortcuts <kbd>?</kbd>.</p></div>
+      </div>
     </aside>
     <main class="dashboard-main" id="overview">
-      <header class="dashboard-topbar"><div class="breadcrumb"><span>Workspace</span><b>/</b><strong>{% if portal_role == "TEACHER" %}Teacher{% else %}Student{% endif %}</strong></div><div class="top-actions"><span class="online-indicator"><i></i> Portal connected</span>
+      <header class="dashboard-topbar"><button type="button" class="workspace-menu-button" data-workspace-menu aria-controls="workspaceNavigation" aria-expanded="false" data-icon="menu" aria-label="Open navigation"></button><div class="breadcrumb"><span>Workspace</span><b>/</b><strong>{% if portal_role == "ADMIN" %}Admin{% elif portal_role == "TEACHER" %}Teacher{% else %}Student{% endif %}</strong></div><div class="top-actions"><span class="online-indicator" data-state="connected"><i></i> Portal connected</span>
         <details class="palette-picker" data-palette-picker>
           <summary aria-label="Choose website accent color"><span class="palette-preview" aria-hidden="true"></span>Color</summary>
           <div class="palette-options" role="radiogroup" aria-label="Website accent color">
@@ -45,8 +235,8 @@
         {% if has_multiple_roles %}<a class="dashboard-help-button" href="/portal/choose-role/">Switch role</a>{% endif %}<button class="dashboard-help-button" type="button" data-shortcuts-help aria-haspopup="dialog" title="Keyboard help">Keyboard help <kbd>?</kbd></button>
         <div class="profile-menu"><button class="avatar-button" type="button" data-profile-menu aria-label="Account options" aria-haspopup="menu" aria-expanded="false" aria-controls="profileMenu"><img class="avatar-image" data-avatar-image alt="" {% if user.avatar_image %}src="/api/portal/avatar?v={{ user.avatar_image.name|urlencode }}"{% else %}hidden{% endif %}><span data-avatar-initial {% if user.avatar_image %}hidden{% endif %}>{{ user.first_name|default:user.username|slice:":1"|upper }}</span></button><div class="profile-menu-list" id="profileMenu" role="menu" hidden><button type="button" role="menuitem" data-open-profile>View Profile</button><button type="button" role="menuitem" data-avatar-upload-trigger {% if portal_role == "STUDENT" %}disabled aria-disabled="true" aria-label="Profile Photo, unavailable to students"{% endif %}>Profile Photo</button><input class="avatar-upload-input" data-avatar-upload type="file" accept="image/jpeg,image/png,image/webp" aria-label="Choose a profile photo"><button type="button" role="menuitem" data-open-password>Reset Password</button><button type="button" role="menuitem" data-logout>Sign out</button></div></div></div></header>
       <div class="dashboard-content"><section class="page-heading"><div><p class="section-kicker">{% if portal_role == "TEACHER" %}TEACHING OVERVIEW{% else %}LEARNING OVERVIEW{% endif %}</p><h1>{% block page_heading %}Dashboard{% endblock %}</h1><p>{% block page_intro %}{% endblock %}</p></div><div class="today-badge"><span>◷</span><span><small>TODAY</small><strong id="todayDate"></strong></span></div></section>
-        {% block dashboard_content %}{% endblock %}
-        <footer class="dashboard-footer"><span>© <span id="year"></span> Online Oracle Compiler</span><span>Built for curious minds <b>♥</b></span></footer>
+        <div id="pageContent" tabindex="-1"></div>{% block dashboard_content %}{% endblock %}
+        <footer class="dashboard-footer"><span>© <span id="year"></span> Online Oracle Compiler</span><span>Built for curious minds <b><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" style="vertical-align:-3px"><path d="M12 5C10 1 5 2 5 6C1 6 1 11 3 13C1 17 4 21 7 20C8 23 12 22 12 19V5ZM12 5C14 1 19 2 19 6C23 6 23 11 21 13C23 17 20 21 17 20C16 23 12 22 12 19"/><path d="M5 6c0 2 1 3 3 3M3 13c2-1 4 0 4 2M7 20c-1-2 0-4 2-4M19 6c0 2-1 3-3 3M21 13c-2-1-4 0-4 2M17 20c1-2 0-4-2-4"/></svg></b></span></footer>
       </div>
     </main>
   </div>

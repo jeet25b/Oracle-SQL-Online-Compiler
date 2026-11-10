@@ -1,0 +1,12 @@
+{% if preview %}
+<section class="content-card daily-tasks daily-workflow" aria-label="Preview imported questions">
+  <h2>Preview questions</h2><p class="daily-muted"><strong>Task: {{ preview.task_title }}</strong></p><p class="daily-muted">Edit each question and uncheck any you do not want. Nothing is saved until you confirm. All selected questions belong to this one task, with one permanent code. Class/lab mapping applies to the whole task. This preview expires after two hours.</p>
+  <form method="post" class="daily-form">
+    {% csrf_token %}<input type="hidden" name="action" value="commit_import"><input type="hidden" name="stage_token" value="{{ stage_token }}">
+    {{ preview.management_form }}{{ preview.non_form_errors }}
+    <div class="daily-list">{% for question in preview %}<fieldset class="daily-card"><legend>Question {{ forloop.counter }}</legend>{{ question.non_field_errors }}{% for field in question %}<div class="daily-field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endfor %}</fieldset>{% endfor %}</div>
+    <button class="daily-button" type="submit">Save task to library</button>
+    <a class="daily-button daily-secondary-button" href="/portal/daily-tasks/">Discard preview</a>
+  </form>
+</section>
+{% endif %}

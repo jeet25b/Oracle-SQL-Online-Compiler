@@ -1,3 +1,6 @@
+from workbench.question_import import preview_upload
+from workbench.assessment_library import manage_mapping, delete_assessment
+from workbench import native_compiler
 from workbench.paste_activity import compiler_client_activity_event, paste_activity
 from workbench.contact_verification import contact_verification_api
 from workbench.password_reset import password_reset_api
@@ -5,14 +8,38 @@ from django.contrib import admin
 from django.urls import path, re_path
 from workbench import views
 from workbench import portal_views
+from workbench.daily_tasks import (
+    daily_task_history, daily_tasks, student_daily_task_feed, student_test_feed,
+    submit_daily_task_answer, submit_latest_sqlcl_daily_task_answer,
+    submit_latest_sqlcl_test_answer, submit_test_history_answer,
+)
+from workbench.class_management import class_management, class_student_search, choose_class
+from workbench.timetable import timetable
+
+from workbench import setup_guide
+from workbench.project_runner import project_start, project_resume, project_run_detail, project_runner_page, project_runner_configure, project_reports, project_runner_capacity
+from workbench.assessment_sandbox import assessment_page, assessment_action
 
 urlpatterns = [
+    path("portal/assessment-library/<int:assessment_id>/delete/", delete_assessment, name="assessment_delete"),
+    path("api/portal/questions/parse", preview_upload, name="question_import_preview"),
+    path("portal/assessment-library/<int:assessment_id>/map/", manage_mapping, name="assessment_mapping"),
+    path("portal/compiler/<str:language>/", native_compiler.compiler_page, name="native_compiler"),
+    path("api/compiler/native/status", native_compiler.compiler_status, name="native_compiler_status"),
+    path("api/compiler/native/run", native_compiler.compile_run, name="native_compiler_run"),
+    path("api/portal/setup-guide", setup_guide.guide_state, name="setup_guide_state"),
+    path("api/teacher/setup-guide", setup_guide.teacher_settings, name="setup_guide_settings"),
     path("api/compiler/paste-events", paste_activity, name="compiler_paste_events"),
     path("api/compiler/activity-events", compiler_client_activity_event, name="compiler_client_activity_event"),
     path("api/portal/profile/contact-verification", contact_verification_api, name="contact_verification"),
     path("api/portal/password-reset/<str:action>", password_reset_api, name="portal_password_reset"),
     path("admin/", admin.site.urls),
     path("portal/", portal_views.portal_home, name="portal_home"),
+    path("portal/classes/", class_management, name="class_management"),
+    path("portal/student-management/", class_management, name="student_management"),
+    path("portal/classes/students/search/", class_student_search, name="class_student_search"),
+    path("portal/timetable/", timetable, name="timetable"),
+    path("portal/choose-class/", choose_class, name="choose_class"),
     path("portal/choose-role/", portal_views.portal_choose_role, name="portal_choose_role"),
     path("portal/profile/", portal_views.portal_profile_page, name="portal_profile_page"),
     path("portal/profile/edit/", portal_views.portal_profile_edit_page, name="portal_profile_edit_page"),
@@ -35,7 +62,24 @@ urlpatterns = [
     path("api/compiler/remote-terminal/<int:student_id>", views.compiler_remote_terminal, name="compiler_remote_terminal"),
     path("api/compiler/remote-terminal/<uuid:command_id>/complete", views.compiler_remote_terminal_complete, name="compiler_remote_terminal_complete"),
     path("portal/student/", portal_views.student_dashboard, name="student_dashboard"),
+    path("portal/student/project-check/", project_runner_page, name="student_project_check"),
     path("portal/tests/", portal_views.portal_tests, name="portal_tests"),
+    path('portal/sandbox/<str:kind>/<int:item_id>/',assessment_page,name='assessment_sandbox'),
+    path('api/portal/sandbox/<str:kind>/<int:item_id>',assessment_action,name='assessment_sandbox_action'),
+    path("portal/daily-tasks/", daily_tasks, name="daily_tasks"),
+    path("api/portal/daily-tasks/available", student_daily_task_feed, name="student_daily_task_feed"),
+    path("api/portal/daily-tasks/submit-latest-sqlcl", submit_latest_sqlcl_daily_task_answer, name="submit_latest_sqlcl_daily_task_answer"),
+    path("api/portal/daily-tasks/submit-answer", submit_daily_task_answer, name="submit_daily_task_answer"),
+    path("api/portal/daily-tasks/history", daily_task_history, name="daily_task_history"),
+    path("api/teacher/project-runs", project_start, name="project_start"),
+    path("api/teacher/project-runs/config", project_runner_configure, name="project_runner_configure"),
+    path('api/teacher/project-runs/capacity', project_runner_capacity, name='project_runner_capacity'),
+    path('api/teacher/project-reports', project_reports, name='project_reports'),
+    path("api/teacher/project-runs/<int:run_id>/resume", project_resume, name="project_resume"),
+    path("api/teacher/project-runs/<int:run_id>", project_run_detail, name="project_run_detail"),
+    path("api/portal/tests/available", student_test_feed, name="student_test_feed"),
+    path("api/portal/tests/submit-history", submit_test_history_answer, name="submit_test_history_answer"),
+    path("api/portal/tests/submit-latest-sqlcl", submit_latest_sqlcl_test_answer, name="submit_latest_sqlcl_test_answer"),
     path("api/portal/login", portal_views.portal_login_api, name="portal_login"),
     path('api/teacher/session-limits', portal_views.teacher_session_limits),
     path('api/portal/session-status', portal_views.student_session_status),
@@ -55,7 +99,6 @@ urlpatterns = [
     path("api/portal/password/update", portal_views.portal_password_update_api, name="portal_password_update"),
     path("api/portal/logout", portal_views.portal_logout_api, name="portal_logout"),
     path("api/portal/activity/heartbeat", portal_views.compiler_activity_heartbeat, name="compiler_activity_heartbeat"),
-    path("api/compiler/labs", portal_views.compiler_labs, name="compiler_labs"),
     path("api/teacher/compiler-activity", portal_views.teacher_compiler_activity, name="teacher_compiler_activity"),
     path("api/teacher/presence-timeout", portal_views.teacher_presence_timeout, name="teacher_presence_timeout"),
     path("api/teacher/attendance-report", portal_views.teacher_attendance_report, name="teacher_attendance_report"),
@@ -64,13 +107,15 @@ urlpatterns = [
     path("portal/teacher/activity/", portal_views.teacher_activity_dashboard, name="teacher_activity_dashboard"),
     path("portal/teacher/attendance/", portal_views.teacher_attendance_dashboard, name="teacher_attendance_dashboard"),
     path("portal/teacher/history/", portal_views.teacher_history_dashboard, name="teacher_history_dashboard"),
+    path("portal/teacher/project-runs/", project_runner_page, name="project_runner_page"),
+    path("portal/teacher/attendance/project-runs/", project_runner_page, name="teacher_project_runner_legacy"),
     path("portal/teacher/announcements/", portal_views.teacher_announcements, name="teacher_announcements"),
     path("portal/teacher/remote-code/", portal_views.teacher_remote_code_dashboard, name="teacher_remote_code_dashboard"),
-    path("", views.workbench_home, name="home"),
+    path("", portal_views.portal_home, name="home"),
     path("online-compiler", views.compiler_selection, name="online_compiler"),
     path("online-compiler/", views.compiler_selection, name="online_compiler_slash"),
     path("oraclesql/", views.compiler_selection, name="workbench"),
-    path("oraclesql/workspace/", views.compiler_workspace, name="compiler_workspace"),
+    path("oraclesql/workspace/", views.oracle_sql_workspace, name="compiler_workspace"),
     path("oracle-sql/", views.oracle_sql_workspace, name="oracle_sql_workspace"),
     path("api/connect", views.connect_oracle),
     path("api/legacy/connect", views.legacy_connect_oracle),
@@ -78,9 +123,10 @@ urlpatterns = [
     path("api/disconnect", views.disconnect_oracle),
     path("api/status", views.oracle_status),
     path("api/execute", views.execute_sql),
+    path("api/explain", views.explain_sql),
     path("api/objects", views.list_objects),
     re_path(r"^api/objects/(?P<owner>[^/]+)/(?P<name>[^/]+)$", views.object_details),
     path("api/files", views.sql_files),
     re_path(r"^api/files/(?P<name>[^/]+)$", views.sql_file),
-    re_path(r"^(?P<asset>index\.html|app\.js|styles\.css|output\.css|global-controls\.js|global-controls\.css)$", views.frontend_asset),
+    re_path(r"^(?P<asset>app\.js|styles\.css|output\.css|global-controls\.js|global-controls\.css)$", views.frontend_asset),
 ]

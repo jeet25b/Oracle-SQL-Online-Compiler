@@ -15,3 +15,5 @@ class WorkbenchConfig(AppConfig):
         from django.db.models.signals import pre_delete
         from .models import PortalUser
         pre_delete.connect(protect_superuser_deletion, sender=PortalUser, dispatch_uid="workbench.protect_superuser_deletion")
+        from .user_change_log import connect_signals
+        connect_signals()

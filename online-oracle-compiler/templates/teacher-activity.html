@@ -1,43 +1,102 @@
 {% extends "base-dashboard.html" %}
 {% block page_title %}Live student activity{% endblock %}
 {% block page_heading %}Live student activity{% endblock %}
-{% block page_intro %}Review saved attendance history and monitor live compiler activity by class, lab, and student.{% endblock %}
+{% block page_intro %}See who is working now, who has gone idle, and who is offline so you can follow up quickly.{% endblock %}
 {% block dashboard_content %}
 <section class="activity-toolbar content-card" aria-label="Activity filters">
-  <label>Class<select id="activityClass"><option value="">{% if can_view_all_compiler_activity %}All classes{% else %}All assigned classes{% endif %}</option>{% for class_section in activity_classes %}<option value="{{ class_section.id }}">{{ class_section.course.code }} · {{ class_section.name }} {{ class_section.section }}</option>{% endfor %}</select></label>
-  <label>Lab<select id="activityLab"><option value="">All labs</option></select></label>
-  <label class="activity-roster-search">Search students<input id="activityStudentSearch" type="search" data-search-suggestions placeholder="Search by name or ID…" autocomplete="off"></label><button class="submit-button activity-create-lab" type="button" id="showCreateLab">＋ Create lab</button>
+  <label>Class<select id="activityClass"><option value="">{% if can_view_all_compiler_activity %}All classes{% else %}All assigned classes{% endif %}</option>{% for class_section in activity_classes %}<option value="{{ class_section.id }}">{{ class_section.display_label }}</option>{% endfor %}</select></label>
+  <label>Subject<select id="activitySubject"><option value="">All subjects</option>{% for assignment in activity_assignments %}{% if assignment.class_subject %}<option value="{{ assignment.class_subject.subject.code }}">{{ assignment.class_subject.subject.name }}</option>{% elif assignment.subject %}<option value="{{ assignment.subject }}">{{ assignment.subject }}</option>{% endif %}{% endfor %}</select></label>
+  <label>Type<select id="activityTeachingType"><option value="">Select type</option><option value="lecture">Theory</option><option value="laboratory">Lab</option></select></label>
+  <label>Status<select id="activityStatus"><option value="">Everyone</option><option value="logged-in" selected>Logged in</option><option value="active">Working now</option><option value="idle">Idle</option><option value="offline">Offline</option></select></label>
+  <label>Compiler date<input id="activityDate" type="date"></label>
+  <label class="activity-roster-search">Search students<input id="activityStudentSearch" type="search" data-search-suggestions placeholder="Search by name or ID…" autocomplete="off"></label>
+  <label class="live-toggle"><input id="activityLive" type="checkbox" checked> Live updates</label>
+  <label>Mark my students offline after<select id="presenceOfflineTimeout" aria-label="Mark my students offline after"><option value="30">30 seconds</option><option value="60">1 minute</option><option value="90" selected>1 minute 30 seconds</option><option value="120">2 minutes</option><option value="180">3 minutes</option><option value="300">5 minutes</option><option value="600">10 minutes</option></select></label>
+  <span id="presenceTimeoutStatus" role="status" class="activity-footnote"></span><div class="activity-toolbar-actions"><button class="dashboard-help-button" type="button" id="refreshActivity">↻ Refresh</button><button class="dashboard-help-button" type="button" id="exportActivity">↓ Export CSV</button></div>
 </section>
-<section class="activity-metrics attendance-summary" aria-label="Attendance summary"><article class="activity-metric"><span>Students</span><strong id="metricStudents">—</strong><small>in selected group</small></article><article class="activity-metric"><span>Present in range</span><strong id="metricPresent">—</strong><small>at least one login day</small></article><article class="activity-metric"><span>No attendance</span><strong id="metricAbsent">—</strong><small>no login days in range</small></article></section>
 <section id="compilerStatusPanel" class="activity-view-panel" aria-label="Live student monitor">
-<section class="activity-toolbar content-card compiler-toolbar" aria-label="Compiler filters"><label>Compiler date<input id="activityDate" type="date"></label><label class="live-toggle"><input id="activityLive" type="checkbox" checked> Live updates</label><label>Mark my students offline after<select id="presenceOfflineTimeout" aria-label="Mark my students offline after"><option value="30">30 seconds</option><option value="60">1 minute</option><option value="90" selected>1 minute 30 seconds</option><option value="120">2 minutes</option><option value="180">3 minutes</option><option value="300">5 minutes</option><option value="600">10 minutes</option></select></label><span id="presenceTimeoutStatus" role="status" class="activity-footnote"></span><button class="dashboard-help-button" type="button" id="refreshActivity">↻ Refresh</button><button class="dashboard-help-button" type="button" id="exportActivity">↓ Export CSV</button></section>
-<section class="content-card activity-summary-card">
-  <div class="section-heading"><div><p class="section-kicker">SESSION SUMMARY</p><h2>Active and idle time</h2></div><span class="activity-updated"><i></i><span id="activityUpdated">Waiting for activity data…</span></span></div>
-  <div class="activity-time-summary"><div><small>Active time</small><strong id="metricActiveTime">—</strong></div><div><small>Idle time</small><strong id="metricIdleTime">—</strong></div><div><small>Average active time per present student</small><strong id="metricAverageTime">—</strong></div></div>
-</section>
-<section class="activity-metrics" aria-label="Live summary">
-  <article class="activity-metric active"><span>Active now</span><strong id="metricActive">—</strong><small>using compiler recently</small></article>
-  <article class="activity-metric idle"><span>Online, not active in compiler</span><strong id="metricIdle">—</strong><small>idle or working elsewhere in portal</small></article>
-  <article class="activity-metric"><span>Offline</span><strong id="metricOffline">—</strong><small>no active heartbeat</small></article>
-  <article class="activity-metric"><span>Statements</span><strong><span id="metricSuccess">0</span> / <span id="metricFailed">0</span></strong><small>successful / failed</small></article>
-  <article class="activity-metric"><span>Typed / pasted characters</span><strong id="metricEditSource">—</strong><small id="metricEditSourceScope">across executions</small></article>
-  <article class="activity-metric"><span>Paste / edits after paste or history recall</span><strong id="metricPasteEdits">—</strong><small>events / edits</small></article>
-  <article class="activity-metric"><span>Editor paste events</span><strong id="metricPasteEvents">—</strong><small>timestamped paste actions</small></article>
-  <article class="activity-metric"><span>Tab hidden / window blur</span><strong id="metricSwitchEvents">—</strong><small>browser focus signals</small></article>
-</section>
+
 <section class="content-card activity-roster-card">
-  <div class="section-heading"><div><p class="section-kicker">LIVE STUDENT MONITOR</p><h2>Live student monitor</h2></div><span class="count-pill" id="compilerRosterCount">0 students</span></div>
-  <div class="activity-table-wrap"><table class="activity-table"><thead><tr><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="studentName">Student</button></th><th aria-sort="descending"><button class="activity-sort-button" type="button" data-roster-sort="lastActivity">Last active</button></th><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="sessionActiveSeconds">Active / idle</button></th><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="totalExecutions">Statements · success / failed</button></th><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="typedChars">Typed / pasted / edits / history recall</button></th><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="pasteEvents">Pastes · tab hidden · focus lost</button></th><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="lastExecution">Last execution</button></th></tr></thead><tbody id="activityRoster"><tr><td colspan="7" class="activity-empty">Loading live activity…</td></tr></tbody></table></div>
+
+  <div class="activity-table-wrap" tabindex="0" role="region" aria-label="Live student monitor records">
+    <div class="section-heading"><div><p class="section-kicker">LIVE STUDENT MONITOR</p><h2>Live student monitor</h2></div></div>
+    <table id="liveStudentMonitorTable" data-column-storage-version="split-statements" class="activity-table" data-column-toggle-last><thead><tr><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="studentName">Student</button></th><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="status">Status</button></th><th aria-sort="descending"><button class="activity-sort-button" type="button" data-roster-sort="lastActivity">Last activity</button></th><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="sessionActiveSeconds">Active / idle</button></th><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="successfulExecutions">Successful</button></th><th aria-sort="none"><button class="activity-sort-button" type="button" data-roster-sort="failedExecutions">Failed</button></th><th aria-sort="none" class="activity-last-action-heading"><div class="activity-heading-content"><button class="activity-sort-button" type="button" data-roster-sort="lastExecution">Last action</button><div class="activity-roster-counts" aria-live="polite"><span class="count-pill" id="compilerRosterCount">0 students</span><span class="count-pill activity-count-active" id="compilerActiveCount">0 active</span><span class="count-pill activity-count-inactive" id="compilerInactiveCount">0 inactive</span></div></div></th></tr></thead><tbody id="activityRoster"><tr><td colspan="7" class="activity-empty">Loading live activity…</td></tr></tbody></table></div>
   <p class="activity-footnote">Online and active status follow recent compiler or portal heartbeats, including when a tab is hidden or the browser is minimized. This shows an open signed-in session, not continuous keyboard activity. Paste entries show text pasted into the compiler and its timestamp; browsers cannot identify the source app or tab. Hidden/blur signals can reflect tab changes, window minimization, or switching apps and may overlap.</p>
 </section>
 </section>
 <section id="attendancePanel" class="activity-view-panel" aria-label="Student attendance">
-  <section class="content-card attendance-report-card"><div class="section-heading"><div><p class="section-kicker">ATTENDANCE DETAIL</p><h2>Login, logout and time present</h2><p class="activity-footnote">Attendance is based on portal login days. Percentages use weekdays (Monday–Friday); late/on-time status is shown when an expected start time is configured in Attendance.</p></div><span class="count-pill" id="attendanceRosterCount">0 students</span></div>
+  <section class="content-card attendance-report-card"><div class="activity-table-wrap" tabindex="0" role="region" aria-label="Login, logout and time present records">
+    <div class="attendance-sticky-context"><div class="section-heading"><div><p class="section-kicker">ATTENDANCE DETAIL</p><h2>Login, logout and time present</h2><p class="activity-footnote">Attendance is based on portal login days. Percentages use weekdays (Monday–Friday); late/on-time status is shown when an expected start time is configured in Attendance.</p></div><span class="count-pill" id="attendanceRosterCount">0 students</span></div>
     <div class="attendance-range"><label>From<input id="attendanceDateFrom" type="date"></label><label>To<input id="attendanceDateTo" type="date"></label><button class="dashboard-help-button" type="button" id="refreshAttendance">↻ Refresh attendance</button><button class="dashboard-help-button" type="button" id="exportAttendance">↓ Export CSV</button></div>
-    <div class="activity-table-wrap"><table class="activity-table attendance-table"><thead><tr><th aria-sort="ascending"><button class="activity-sort-button" type="button" data-attendance-sort="studentName">Student</button></th><th class="attendance-days-percent-header"><button class="activity-sort-button" type="button" data-attendance-sort="presentDays">Present days</button><button class="activity-sort-button" type="button" data-attendance-sort="attendancePercent">Attendance %</button></th><th class="attendance-login-logout-header"><span>Last login</span><span>Last logout</span></th><th>Arrival</th><th>On time / late</th><th>Time present</th><th>Last present</th></tr></thead><tbody id="attendanceRoster"><tr><td colspan="7" class="activity-empty">Loading attendance…</td></tr></tbody></table></div><p class="attendance-resize-hint">Drag a divider in the table header to resize a column. Widths are saved in this browser.</p><p class="activity-updated" id="attendanceUpdated">Attendance records are saved from student portal sessions.</p>
+    </div>
+    <table class="activity-table attendance-table"><thead><tr><th aria-sort="ascending"><button class="activity-sort-button" type="button" data-attendance-sort="studentName">Student</button></th><th class="attendance-days-percent-header"><button class="activity-sort-button" type="button" data-attendance-sort="presentDays">Present days</button><button class="activity-sort-button" type="button" data-attendance-sort="attendancePercent">Attendance %</button></th><th class="attendance-login-logout-header"><span>Last login</span><span>Last logout</span></th><th>Arrival</th><th>On time / late</th><th>Time present</th><th>Last present</th></tr></thead><tbody id="attendanceRoster"><tr><td colspan="7" class="activity-empty">Loading attendance…</td></tr></tbody></table></div><p class="attendance-resize-hint">Drag a divider in the table header to resize a column. Widths are saved in this browser.</p><p class="activity-updated" id="attendanceUpdated">Attendance records are saved from student portal sessions.</p>
   </section>
 </section>
-<dialog class="activity-dialog" id="createLabDialog"><form id="createLabForm"><h2>Create a compiler lab</h2><label>Assigned class<select id="newLabClass" required><option value="">Choose a class</option>{% for assignment in activity_assignments %}<option value="{{ assignment.class_section_id }}">{{ assignment.class_section.course.code }} · {{ assignment.class_section.name }} {{ assignment.class_section.section }}</option>{% endfor %}</select></label><label>Lab name<input id="newLabName" maxlength="120" required placeholder="e.g. Joins practice"></label><p class="activity-form-status" id="createLabStatus" role="status"></p><div><button class="dashboard-help-button" type="button" id="cancelCreateLab">Cancel</button><button class="submit-button" type="submit">Save lab</button></div></form></dialog>
 <dialog class="activity-dialog" id="studentActivityDialog"><div class="activity-dialog-head"><div><p class="section-kicker">STUDENT DETAIL</p><h2 id="studentActivityTitle">Activity timeline</h2></div><button class="dashboard-help-button" type="button" id="closeStudentActivity" aria-label="Close details">×</button></div><div class="activity-timeline" id="studentActivityTimeline"></div></dialog>
-<script src="/portal/assets/teacher-activity.js?v=20261028-search-suggestions" defer></script>
+<script src="/portal/assets/teacher-activity.js?v=20261104-split-statement-sort" defer onerror="document.querySelector('#activityRoster').innerHTML='<tr><td colspan=\"7\" class=\"activity-empty error\">Could not load the activity monitor script. Refresh this page.</td></tr>'"></script>
+<style>
+  .activity-execution-summary{padding:12px 0;border-bottom:1px solid var(--line);color:var(--muted)}
+  .activity-execution-success{color:var(--status-success)}
+  .activity-execution-failed{color:var(--status-error)}
+  html[data-theme] #liveStudentMonitorTable .activity-statement-count{color:var(--status-success)}
+  html[data-theme] #liveStudentMonitorTable .activity-statement-failed{color:var(--status-error)}
+  .activity-heading-content{display:flex;align-items:center;justify-content:space-between;gap:24px}
+  .activity-heading-content>.activity-sort-button{flex:0 0 auto;white-space:nowrap}
+  .activity-roster-counts{display:flex;align-items:center;flex-wrap:nowrap;gap:6px;padding-left:16px;border-left:1px solid var(--line)}
+  html[data-theme] .activity-roster-counts .count-pill{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:4px 10px;box-sizing:border-box;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);color:var(--muted);font-size:11px;font-weight:500;line-height:1.4;white-space:nowrap;font-variant-numeric:tabular-nums;letter-spacing:0}
+  #liveStudentMonitorTable th{vertical-align:middle}
+  #liveStudentMonitorTable td{font-variant-numeric:tabular-nums}
+  @media(max-width:900px){.activity-heading-content{gap:14px}.activity-roster-counts{padding-left:12px;gap:4px}html[data-theme] .activity-roster-counts .count-pill{padding:4px 8px}}
+  html[data-theme] .activity-roster-counts .count-pill.activity-count-active{color:var(--status-success)}
+  html[data-theme] .activity-roster-counts .count-pill.activity-count-inactive{color:var(--status-warning)}
+  .dashboard-main{min-height:100vh!important}
+  .dashboard-content{display:flex!important;flex-direction:column!important;gap:10px!important;min-height:calc(100vh - 66px)!important;box-sizing:border-box;padding-bottom:70px!important}
+  .dashboard-content>.dashboard-footer{position:fixed!important;left:252px;right:0;bottom:0;z-index:20;margin:0!important;padding:14px clamp(24px,4vw,58px)!important;border-top:1px solid var(--line);background:var(--paper);box-sizing:border-box}
+  @media(max-width:1000px){.dashboard-content>.dashboard-footer{left:214px}}
+  @media(max-width:640px){.dashboard-content>.dashboard-footer{left:0}}
+  .dashboard-content>#pageContent{display:none!important}
+  .dashboard-content>.activity-toolbar{outline:0!important}
+  .dashboard-content>.activity-toolbar:focus-visible,.dashboard-content>.activity-toolbar:focus-within{outline:0!important;box-shadow:none}
+  .dashboard-content>.activity-toolbar{order:3!important}
+  .dashboard-content>.attendance-summary{order:1!important}
+  .dashboard-content>#compilerStatusPanel{order:2!important;display:contents}
+  .dashboard-content>.activity-metrics{margin:0!important}
+  #compilerStatusPanel>.activity-status-summary{margin:0!important}
+  .dashboard-content>.activity-toolbar{margin:0!important}
+  #compilerStatusPanel>.compiler-toolbar{order:2}
+  #compilerStatusPanel>.activity-status-summary{order:2!important}
+  #compilerStatusPanel>.activity-roster-card{order:4!important}
+  .dashboard-content>.activity-view-panel#attendancePanel{order:5}
+  .dashboard-content>.activity-toolbar{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:end;gap:12px;width:100%;box-sizing:border-box}
+  .dashboard-content>.activity-toolbar> :nth-child(6){grid-column:1 / span 2}
+  .dashboard-content>.activity-toolbar> :nth-child(7){grid-column:3;justify-self:center}
+  .dashboard-content>.activity-toolbar> :nth-child(8){grid-column:4}
+  .dashboard-content>.activity-toolbar> :nth-child(9){grid-column:1 / span 4;grid-row:3}
+  .dashboard-content>.activity-toolbar> :nth-child(9):empty{display:none}
+  .dashboard-content>.activity-toolbar> :nth-child(10){grid-column:5}
+  .activity-toolbar-actions{display:flex;gap:8px;align-items:end}
+  .activity-toolbar-actions button{flex:1;min-width:0;white-space:nowrap}
+  .dashboard-content>.activity-toolbar>label{min-width:0}
+  .dashboard-content>.activity-toolbar select,.dashboard-content>.activity-toolbar input{width:100%;box-sizing:border-box}
+  #compilerStatusPanel>.compiler-toolbar{display:none}
+  #compilerStatusPanel>.activity-status-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+  @media(max-width:900px){.dashboard-content>.activity-toolbar{grid-template-columns:repeat(3,minmax(0,1fr))}.dashboard-content>.activity-toolbar> :nth-child(n+6){grid-column:auto;grid-row:auto}.dashboard-content>.activity-toolbar> :nth-child(6){grid-column:1 / span 2}.dashboard-content>.activity-toolbar> :nth-child(8){grid-column:1 / span 2}.dashboard-content>.activity-toolbar> :nth-child(10){grid-column:3}#compilerStatusPanel>.compiler-toolbar{flex-wrap:wrap}.compiler-toolbar .live-toggle{margin-right:0}}
+  @media(max-width:620px){.dashboard-content>.activity-toolbar{grid-template-columns:1fr 1fr}.dashboard-content>.activity-toolbar> :nth-child(n+6){grid-column:auto;grid-row:auto}.dashboard-content>.activity-toolbar> :nth-child(6),.dashboard-content>.activity-toolbar> :nth-child(8),.dashboard-content>.activity-toolbar> :nth-child(10){grid-column:1 / -1}.activity-toolbar-actions{justify-content:stretch}#compilerStatusPanel>.activity-status-summary{grid-template-columns:1fr}}
+  #attendancePanel{display:none}
+  .monitor-guidance{margin:10px 0 0;padding:0 4px}
+  .activity-status-cell{font-weight:700;white-space:nowrap}.status-active{color:var(--status-success)}.status-idle,.status-portal{color:var(--accent-strong)}.status-offline{color:var(--muted)}
+  .activity-roster-card .section-heading{position:static;background:var(--paper);color:var(--ink);padding:10px 0;margin-top:-10px;border-bottom:1px solid var(--line)}
+  .activity-roster-card>.activity-table-wrap{max-height:max(180px,calc(100dvh - var(--monitor-topbar-height,66px) - 48px));overflow:auto;scrollbar-color:var(--muted) var(--paper);scrollbar-gutter:stable;background:var(--paper);color:var(--ink)}
+  .activity-roster-card .activity-table{border-collapse:separate;border-spacing:0}
+  .activity-roster-card .activity-table thead{position:sticky;top:0;z-index:10}
+  .activity-roster-card .activity-table th{background:var(--surface-2);color:var(--muted);border-bottom:1px solid var(--line)}
+  .activity-roster-card>.activity-table-wrap:focus-visible{outline:2px solid var(--accent-strong);outline-offset:2px}
+  #attendancePanel .attendance-sticky-context{position:static;background:var(--paper);color:var(--ink);padding:10px 0;margin-top:-10px;border-bottom:1px solid var(--line)}
+  #attendancePanel .attendance-sticky-context .attendance-range{margin-bottom:0}
+  #attendancePanel .attendance-report-card>.activity-table-wrap{max-height:max(180px,calc(100dvh - var(--attendance-topbar-height,66px) - 48px));overflow:auto;scrollbar-color:var(--muted) var(--paper);scrollbar-gutter:stable;background:var(--paper);color:var(--ink)}
+  #attendancePanel .attendance-table{border-collapse:separate;border-spacing:0}
+  #attendancePanel .attendance-table thead{position:sticky;top:0;z-index:10}
+  #attendancePanel .attendance-table th{background:var(--surface-2);color:var(--muted);border-bottom:1px solid var(--line)}
+  #attendancePanel .activity-table-wrap:focus-visible{outline:2px solid var(--accent-strong);outline-offset:2px}
+</style>
 {% endblock %}

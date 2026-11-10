@@ -20,6 +20,17 @@
     try { localStorage.setItem(key, mode); } catch { /* The current selection still applies to this page. */ }
   }
 
+  document.addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.repeat || event.isComposing) return;
+    if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyL') {
+      event.preventDefault();
+      applyMode(mode === 'dark' ? 'light' : 'dark');
+    }
+  });
+  document.querySelectorAll('[data-theme-toggle]').forEach(button => {
+    button.setAttribute('aria-keyshortcuts', 'Alt+Shift+L');
+    button.setAttribute('data-theme-tooltip', 'Toggle light / dark mode (Alt + Shift + L)');
+  });
   applyMode(mode);
   document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
     button.addEventListener('click', () => applyMode(mode === 'dark' ? 'light' : 'dark'));
@@ -69,18 +80,25 @@
   document.addEventListener('fullscreenchange', mountShade);
   const slider = panel.querySelector('input');
   const output = panel.querySelector('output');
-  const key = 'ooc-workspace-brightness';
-  function apply(value) {
+  const brightnessKey = () => document.documentElement.dataset.theme === 'light'
+    ? 'ooc-workspace-brightness-light' : 'ooc-workspace-brightness';
+  function apply(value, save = true) {
     const number = Number(value);
     const brightness = Number.isFinite(number) ? Math.max(60, Math.min(100, number)) : 100;
     slider.value = String(brightness);
     output.value = `${brightness}%`;
     shade.style.opacity = String(1 - brightness / 100);
-    try { localStorage.setItem(key, String(brightness)); } catch { /* Session control remains available. */ }
+    if (save) {
+      try { localStorage.setItem(brightnessKey(), String(brightness)); } catch { /* Session control remains available. */ }
+    }
   }
-  let saved = 100;
-  try { saved = localStorage.getItem(key) ?? 100; } catch { /* Use normal brightness. */ }
-  apply(saved);
+  function restoreBrightness() {
+    let saved = 100;
+    try { saved = localStorage.getItem(brightnessKey()) ?? 100; } catch { /* Use normal brightness. */ }
+    apply(saved, false);
+  }
+  restoreBrightness();
+  document.addEventListener('ooc-theme-change', restoreBrightness);
   slider.addEventListener('input', () => apply(slider.value));
   panel.querySelector('button').addEventListener('click', () => apply(100));
   function setOpen(open) {
@@ -178,4 +196,87 @@
   document.addEventListener('keydown', event => { if (event.key === 'Escape') hide(); });
   document.addEventListener('scroll', hide, true);
   window.addEventListener('resize', hide);
+})();
+
+
+// Keep a horizontal scroll control at the visible bottom of long portal blocks.
+(() => {
+  const root = document.querySelector('.dashboard-main, .ide-main');
+  if (!root) return;
+  const entries = new Map();
+  let frame = 0;
+  const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+  const sizes = new ResizeObserver(schedule);
+  function update() {
+    frame = 0;
+    for (const [source, entry] of entries) {
+      if (!source.isConnected) {
+        sizes.unobserve(source);
+        entry.bar.remove();
+        entries.delete(source);
+        continue;
+      }
+      const rect = source.getBoundingClientRect();
+      let top = Math.max(0, rect.top), bottom = Math.min(innerHeight, rect.bottom);
+      for (let parent = source.parentElement; parent; parent = parent.parentElement) {
+        if (parent !== document.body && parent !== document.documentElement &&
+          /(auto|scroll|hidden|clip)/.test(getComputedStyle(parent).overflowY)) {
+          const clip = parent.getBoundingClientRect();
+          top = Math.max(top, clip.top);
+          bottom = Math.min(bottom, clip.bottom);
+        }
+      }
+      const left = Math.max(0, rect.left + source.clientLeft);
+      const right = Math.min(innerWidth, rect.left + source.clientLeft + source.clientWidth);
+      // Keep the control visible even when the native scrollbar auto-hides.
+      const visible = source.scrollWidth > source.clientWidth + 1 &&
+        rect.width > 0 && bottom - top > 32 && right > left;
+      entry.bar.hidden = !visible;
+      if (!visible) continue;
+      if (!entry.contained) {
+        const host = document.fullscreenElement || document.body;
+        if (entry.bar.parentElement !== host) host.append(entry.bar);
+        entry.bar.style.left = `${left}px`;
+        entry.bar.style.top = `${bottom - 18}px`;
+      }
+      entry.bar.style.width = `${right - left}px`;
+      entry.track.style.width = `${source.scrollWidth - source.clientWidth + entry.bar.clientWidth}px`;
+      entry.bar.scrollLeft = source.scrollLeft;
+    }
+  }
+  function scan() {
+    root.querySelectorAll('*').forEach(source => {
+      // The fixed-height history table already exposes its native bottom scrollbar.
+      if (entries.has(source) || source.matches('input, textarea, select, .history-table-wrap, .daily-review-table, .portal-bottom-scrollbar, .portal-bottom-scrollbar *')) return;
+      if (!/^(auto|scroll)$/.test(getComputedStyle(source).overflowX)) return;
+      const bar = document.createElement('div');
+      bar.className = 'portal-bottom-scrollbar';
+      bar.hidden = true;
+      bar.tabIndex = 0;
+      bar.setAttribute('role', 'region');
+      bar.setAttribute('aria-label', 'Scroll content horizontally');
+      const track = bar.appendChild(document.createElement('div'));
+      const contained = source.matches('.activity-table-wrap, .history-table-wrap');
+      if (contained) {
+        bar.classList.add('portal-table-scrollbar');
+        source.insertAdjacentElement('afterend', bar);
+      } else document.body.append(bar);
+      entries.set(source, {bar, track, contained});
+      sizes.observe(source);
+      bar.addEventListener('scroll', () => {
+        if (Math.abs(source.scrollLeft - bar.scrollLeft) > 1) source.scrollLeft = bar.scrollLeft;
+      }, {passive: true});
+    });
+    schedule();
+  }
+  new MutationObserver(records => {
+    if (records.some(record => !record.target.closest?.('.portal-bottom-scrollbar') &&
+      (record.type === 'attributes' ||
+        [...record.addedNodes, ...record.removedNodes].some(node => !node.classList?.contains('portal-bottom-scrollbar'))))) scan();
+  }).observe(root, {subtree: true, childList: true, attributes: true,
+    attributeFilter: ['class', 'style', 'hidden']});
+  document.addEventListener('scroll', schedule, {capture: true, passive: true});
+  window.addEventListener('resize', scan);
+  document.addEventListener('fullscreenchange', scan);
+  scan();
 })();

@@ -1,0 +1,127 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+<div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></div>
+{% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}
+{% endblock %}
+
+{% block nav-global %}{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  /* One shared scrollbar for every wide Django Admin list. */
+  body.change-list.admin-has-bottom-scroll { padding-bottom: 25px; }
+  body.change-list.admin-has-bottom-scroll #changelist-form .results { scrollbar-width: none; }
+  body.change-list.admin-has-bottom-scroll #changelist-form .results::-webkit-scrollbar { display: none; }
+  #admin-bottom-scroll {
+    position: fixed;
+    bottom: 0;
+    height: 18px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    z-index: 1000;
+    border: 1px solid var(--hairline-color);
+    background: var(--body-bg);
+    color: var(--body-fg);
+    scrollbar-color: var(--body-quiet-color) var(--body-bg);
+    box-sizing: border-box;
+  }
+  #admin-bottom-scroll[hidden] { display: none; }
+  #admin-bottom-scroll > div { height: 1px; }
+  #admin-search-clear {
+    margin: 0 4px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--body-bg);
+    color: var(--body-fg);
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: normal;
+    line-height: normal;
+    vertical-align: middle;
+    box-shadow: 0 -15px 20px -10px rgba(0, 0, 0, 0.15) inset;
+    cursor: pointer;
+  }
+  #admin-search-clear[hidden] { display: none; }
+  #admin-search-clear:hover,
+  #admin-search-clear:focus-visible {
+    border-color: var(--body-quiet-color);
+    color: var(--body-fg);
+    outline: 2px solid var(--body-quiet-color);
+    outline-offset: 1px;
+  }
+</style>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const search = document.querySelector('#changelist-search #searchbar');
+  const clear = document.querySelector('#admin-search-clear');
+  if (search && clear) {
+    const toggleClear = () => { clear.hidden = !search.value; };
+    search.addEventListener('input', toggleClear);
+    clear.addEventListener('click', () => {
+      search.value = '';
+      search.form.requestSubmit();
+    });
+    toggleClear();
+  }
+  const results = document.querySelector('body.change-list #changelist-form .results');
+  if (!results) return;
+  const bar = document.createElement('div');
+  const track = document.createElement('div');
+  bar.id = 'admin-bottom-scroll';
+  bar.setAttribute('role', 'scrollbar');
+  bar.setAttribute('aria-label', 'Scroll admin table horizontally');
+  bar.setAttribute('aria-orientation', 'horizontal');
+  bar.tabIndex = 0;
+  bar.append(track);
+  document.body.append(bar);
+  let syncing = false;
+  function update() {
+    const rect = results.getBoundingClientRect();
+    const overflow = results.scrollWidth > results.clientWidth + 1;
+    bar.hidden = !overflow || rect.width < 1;
+    document.body.classList.toggle('admin-has-bottom-scroll', !bar.hidden);
+    if (bar.hidden) return;
+    bar.style.left = `${Math.max(0, rect.left)}px`;
+    bar.style.width = `${Math.min(rect.width, innerWidth - Math.max(0, rect.left))}px`;
+    track.style.width = `${results.scrollWidth}px`;
+    bar.scrollLeft = results.scrollLeft;
+    bar.setAttribute('aria-valuemin', '0');
+    bar.setAttribute('aria-valuemax', String(results.scrollWidth - results.clientWidth));
+    bar.setAttribute('aria-valuenow', String(Math.round(results.scrollLeft)));
+  }
+  bar.addEventListener('scroll', () => {
+    if (syncing) return;
+    syncing = true;
+    results.scrollLeft = bar.scrollLeft;
+    bar.setAttribute('aria-valuenow', String(Math.round(bar.scrollLeft)));
+    syncing = false;
+  });
+  results.addEventListener('scroll', () => {
+    if (syncing) return;
+    syncing = true;
+    bar.scrollLeft = results.scrollLeft;
+    bar.setAttribute('aria-valuenow', String(Math.round(results.scrollLeft)));
+    syncing = false;
+  });
+  window.addEventListener('resize', update);
+  window.addEventListener('scroll', update, {passive: true});
+  if (window.ResizeObserver) {
+    const observer = new ResizeObserver(update);
+    observer.observe(results);
+    const table = results.querySelector('table');
+    if (table) observer.observe(table);
+  }
+  update();
+});
+</script>
+{% endblock %}

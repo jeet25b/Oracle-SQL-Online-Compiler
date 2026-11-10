@@ -192,7 +192,15 @@ def monitor_log(path, message):
 
 
 def health_check(url, host_header):
-    request = urllib.request.Request(url, headers={"Host": host_header, "Connection": "close"})
+    scheme = "https" if url.lower().startswith("https:") else "http"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Host": host_header,
+            "Origin": f"{scheme}://{host_header}",
+            "Connection": "close",
+        },
+    )
     try:
         import ssl
 

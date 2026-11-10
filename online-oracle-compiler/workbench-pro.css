@@ -1,0 +1,36 @@
+/* Theme-aware advanced authoring and grid controls. */
+.pro-tools,.pro-grid-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;color:var(--ide-text)}
+.pro-tools h2{flex:1;margin:0;font-size:18px}
+.pro-tools .tool-button{font-size:11px}
+.pro-editor-message{color:var(--ide-muted);font-size:11px;margin:4px 0}
+.pro-editor-mounted{position:relative;min-width:0}
+.code-editor.pro-editor-mounted{display:block;min-height:320px;height:100%}
+.code-editor.pro-editor-mounted>#sqlEditor,.code-editor.pro-editor-mounted>#syntaxHighlight,.code-editor.pro-editor-mounted>#lineNumbers{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none;overflow:hidden;clip-path:inset(50%)}
+.terminal-input-wrap.pro-editor-mounted>#terminalInput,.terminal-input-wrap.pro-editor-mounted>#terminalInputHighlight{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none;clip-path:inset(50%)}
+.pro-monaco{min-width:0;width:100%;height:100%;min-height:320px}
+.pro-terminal{height:180px;min-height:100px;max-height:45vh}
+.code-editor.pro-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.pro-reference{height:100%;min-height:320px;border-left:1px solid var(--ide-border)}
+.pro-dialog{width:min(1200px,94vw);max-height:92vh;overflow:auto;padding:20px;border:1px solid var(--ide-border);border-radius:12px;background:var(--ide-panel);color:var(--ide-text)}
+.pro-dialog::backdrop{background:color-mix(in srgb,var(--ide-bg) 75%,transparent)}
+.pro-dialog input,.pro-dialog textarea,.pro-grid input{padding:8px 10px;border:1px solid var(--ide-border);border-radius:6px;background:var(--ide-panel-2);color:var(--ide-text);font:inherit;min-width:0}
+.pro-dialog textarea{display:block;box-sizing:border-box;width:100%;font-family:Hack,monospace;margin:8px 0}
+.pro-dialog input{margin:6px 0}
+.pro-diff{height:65vh;min-height:300px}
+.pro-grid{min-width:0;max-width:100%;overflow:auto;color:var(--ide-text);background:var(--ide-panel)}
+.pro-grid-controls{position:sticky;left:0;background:var(--ide-panel);padding:8px}
+.pro-grid-controls input{max-width:240px}
+.pro-grid-controls span{color:var(--ide-muted);font-size:11px}
+.pro-grid th input{width:100%;min-width:90px;box-sizing:border-box}
+.pro-grid th .tool-button{background:transparent;border:0;font:inherit;color:inherit;padding:4px}
+.pro-tools button:hover,.pro-grid button:hover{background:color-mix(in srgb,var(--ide-accent) 12%,var(--ide-panel));color:var(--ide-text)}
+.pro-tools :is(button,input,textarea):focus-visible,.pro-grid :is(button,input):focus-visible{outline:2px solid var(--ide-accent);outline-offset:2px}
+@media(max-width:700px){.code-editor.pro-split{grid-template-columns:minmax(0,1fr);grid-template-rows:1fr 1fr}.pro-monaco,.pro-reference{min-height:200px}.pro-terminal{min-height:100px}}
+
+/* Size Monaco from the editor region; never let its canvas grow the page. */
+.code-editor.pro-editor-mounted{height:auto;min-height:180px;overflow:hidden;flex:1}
+.pro-workbook{position:absolute;inset:0;min-height:0;height:100%}
+.code-editor.pro-split{display:block}
+.code-editor.pro-split>.pro-workbook{width:50%;right:50%}
+.code-editor.pro-split>.pro-reference{position:absolute;left:50%;right:0;top:0;bottom:0;min-height:0}
+.pro-terminal{position:relative;height:180px;min-height:100px}

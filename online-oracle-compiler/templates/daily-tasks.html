@@ -1,0 +1,263 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Daily Task{% endblock %}
+{% block page_heading %}Daily Task{% endblock %}
+{% block page_intro %}{% if portal_role == "TEACHER" %}Add or upload daily questions for your classes and review student answers.{% else %}View daily questions from your teachers and submit your answers. You can retry enabled questions until your teacher marks your answer correct.{% endif %}{% endblock %}
+{% block dashboard_content %}
+{% include "assessment-styles.html" %}
+{% if form %}<nav class="ui-view-tabs" aria-label="Daily task views">
+  <a href="?view=library"{% if daily_view == 'library' %} aria-current="page"{% endif %}>Task library &amp; class mapping</a>
+  <a href="?view=tasks"{% if daily_view == 'tasks' %} aria-current="page"{% endif %} data-icon="tasks">Your tasks</a>
+  <a href="?view=review#submission-review"{% if daily_view == 'review' %} aria-current="page"{% endif %} data-icon="review">Review submissions</a>
+  <a href="?view=create"{% if daily_view == 'create' %} aria-current="page"{% endif %} data-icon="plus">Create / import tasks</a>
+</nav>{% endif %}
+
+{% if message %}<p class="daily-message" role="status">{{ message }}</p>{% endif %}
+{% if form and daily_view == "library" %}{% include "assessment-library.html" %}{% endif %}
+{% include "daily-task-preview.html" %}
+{% if form and daily_view == "create" and not preview %}
+<section class="content-card daily-tasks" id="task-create"><h2>Create daily tasks</h2>
+  <form method="post" enctype="multipart/form-data" class="daily-form" data-recover-draft="daily-task-create">
+    <input type="hidden" name="action" value="preview_import">
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+    {{ form.non_field_errors }}
+    {% for field in form %}<div class="daily-field">{% if field.name == "class_sections" %}{{ field.label_tag }}<div class="daily-class-selection-actions"><button class="daily-button" type="button" data-select-all-classes="daily">Select all classes</button><button class="daily-button daily-secondary-button" type="button" data-clear-classes="daily">Clear selection</button></div>{% else %}{{ field.label_tag }}{% endif %}{{ field }}{{ field.errors }}</div>{% endfor %}
+    <p class="daily-muted">Paste questions above or upload TXT, CSV, or DOCX questions. Pasted text uses the same question detection as uploaded files. Start each question with a number (for example, 1.), -, #, or /*; following unmarked lines stay with that question. CSV questions use the first column. Up to 200 questions, 2 MB. All selected questions are saved together as one daily task with one code. Map the complete task to classes or labs after saving. You can configure automatic evaluation for each saved question. The question date is recorded automatically when enabled for students.</p>
+    <button class="daily-button" type="submit">Preview questions</button>
+  </form>
+</section>
+{% endif %}
+{% if daily_view == "review" %}{% include "daily-task-review.html" %}{% endif %}
+{% if not form or daily_view == "tasks" %}
+<section class="content-card daily-tasks">
+  <div class="daily-section-header">
+    <h2>{% if form %}Your daily tasks{% else %}Assigned daily tasks{% endif %}</h2>
+    {% if form %}
+    <form method="get" class="daily-form" style="margin:0;"><button class="daily-button daily-secondary-button" type="submit" name="report" value="csv">📊 Download CSV report</button></form>
+    {% endif %}
+  </div>
+
+  {% if not form %}
+  <div class="daily-hero-metrics" role="region" aria-label="Student Progress Summary">
+    <div class="metric-card"><span class="metric-icon">📋</span><div class="metric-info"><span class="metric-num">{{ student_metrics.total|default:tasks|length }}</span><span class="metric-lbl">Total Tasks</span></div></div>
+    <div class="metric-card metric-success"><span class="metric-icon">✅</span><div class="metric-info"><span class="metric-num">{{ student_metrics.completed|default:0 }}</span><span class="metric-lbl">Completed</span></div></div>
+    <div class="metric-card metric-warning"><span class="metric-icon">⏳</span><div class="metric-info"><span class="metric-num">{{ student_metrics.pending|default:0 }}</span><span class="metric-lbl">Pending</span></div></div>
+    <div class="metric-card metric-score"><span class="metric-icon">🏆</span><div class="metric-info"><span class="metric-num">{{ student_metrics.earned_score|default:0|floatformat:"-1" }} <span class="metric-sub">/ {{ student_metrics.total_score|default:0|floatformat:"-1" }}</span></span><span class="metric-lbl">Total Score</span></div></div>
+  </div>
+  {% else %}
+  <div class="daily-hero-metrics" role="region" aria-label="Teacher Overview">
+    <div class="metric-card"><span class="metric-icon">📚</span><div class="metric-info"><span class="metric-num">{{ teacher_metrics.total_tasks|default:tasks|length }}</span><span class="metric-lbl">Daily Questions</span></div></div>
+    <div class="metric-card metric-info-card"><span class="metric-icon">🏫</span><div class="metric-info"><span class="metric-num">{{ teacher_metrics.active_classes|default:0 }}</span><span class="metric-lbl">Active Classes</span></div></div>
+    <div class="metric-card metric-success"><span class="metric-icon">📥</span><div class="metric-info"><span class="metric-num">{{ teacher_metrics.total_submissions|default:0 }}</span><span class="metric-lbl">Submissions</span></div></div>
+    <div class="metric-card metric-warning"><span class="metric-icon">⚠️</span><div class="metric-info"><span class="metric-num">{{ teacher_metrics.pending_reviews|default:0 }}</span><span class="metric-lbl">Pending Reviews</span></div></div>
+  </div>
+  {% endif %}
+
+
+{% if not form %}<div class="daily-task-view-switch" data-daily-task-views data-user-id="{{ user.pk }}" data-focus-task="{{ focus_task_id }}" role="group" aria-label="Filter daily tasks"><button class="daily-view-button" type="button" data-task-view="pending" aria-pressed="false">Pending <span data-view-count="pending">0</span></button><button class="daily-view-button" type="button" data-task-view="submitted" aria-pressed="false">Submitted <span data-view-count="submitted">0</span></button><button class="daily-view-button" type="button" data-task-view="revision" aria-pressed="false">Needs revision <span data-view-count="revision">0</span></button><button class="daily-view-button" type="button" data-task-view="completed" aria-pressed="false">Completed <span data-view-count="completed">0</span></button></div>{% endif %}
+{% if form and tasks %}<form id="dailyTaskBulkActionForm" method="post" class="daily-bulk-delete"><input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><label class="daily-select-all"><input type="checkbox" data-daily-select-all> Select all questions</label><span class="daily-muted" data-daily-selection-count>0 selected</span><div class="daily-bulk-actions">
+<details class="daily-bulk-confirm"><summary class="daily-bulk-trigger">Enable selected</summary><p class="daily-muted">Selected questions will be available to their students. Existing answers and submissions will stay saved.</p><button class="daily-button" type="submit" name="action" value="enable_selected" data-daily-confirm-selected disabled>Confirm enable selected</button></details>
+<details class="daily-bulk-confirm"><summary class="daily-bulk-trigger">Enable all questions</summary><p class="daily-muted">All questions you created will be available to students. Existing answers and submissions will stay saved.</p><button class="daily-button" type="submit" name="action" value="enable_all">Confirm enable all</button></details>
+<details class="daily-bulk-confirm"><summary class="daily-bulk-trigger">Disable selected</summary><p class="daily-muted">Selected questions will be hidden from their students. Their answers and submissions will stay saved.</p><button class="daily-button" type="submit" name="action" value="disable_selected" data-daily-confirm-selected disabled>Confirm disable selected</button></details>
+<details class="daily-bulk-confirm"><summary class="daily-bulk-trigger">Disable all questions</summary><p class="daily-muted">All questions you created will be hidden from students. Their answers and submissions will stay saved.</p><button class="daily-button" type="submit" name="action" value="disable_all">Confirm disable all</button></details>
+<details class="daily-bulk-confirm"><summary class="daily-bulk-trigger">🎯 Question marks</summary><p class="daily-muted">Update max score for the selected questions or all your daily questions.</p><label for="bulk-marks-input">Marks per question</label><input type="number" id="bulk-marks-input" name="bulk_marks" value="1" min="0.5" step="0.5" style="max-width:140px; margin: 8px 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px;"><div class="daily-bulk-evaluation-actions"><button class="daily-button" type="submit" name="action" value="set_marks_selected" data-daily-confirm-selected disabled>Apply to selected</button><button class="daily-button" type="submit" name="action" value="set_marks_all">Apply to all questions</button></div></details>
+<details class="daily-bulk-confirm"><summary class="daily-bulk-trigger">Evaluation settings</summary><p class="daily-muted">Apply a grading method to the selected questions or all questions. Automatic methods require a saved reference SQL answer for every question; each question keeps its own reference answer. Existing submissions are not regraded.</p><label for="bulk-grading-mode">Evaluation method</label><select id="bulk-grading-mode" name="grading_mode"><option value="manual">Teacher review</option><option value="sql_match">Match SQL statement</option><option value="result_match">Compare query results (SELECT)</option></select><div class="daily-bulk-evaluation-actions"><button class="daily-button" type="submit" name="action" value="configure_grading_selected" data-daily-confirm-selected disabled>Apply to selected</button><button class="daily-button" type="submit" name="action" value="configure_grading_all">Apply to all questions</button></div></details>
+<details class="daily-delete-confirm"><summary class="daily-delete-trigger">Delete selected</summary><p class="daily-muted">This permanently deletes the selected questions and their student submissions.</p><button class="daily-button daily-delete-button" type="submit" name="action" value="delete_selected" data-daily-confirm-selected disabled>Confirm delete selected</button></details><details class="daily-delete-confirm"><summary class="daily-delete-trigger">Delete all questions</summary><p class="daily-muted">This permanently deletes every daily task you created and all student submissions for them.</p><button class="daily-button daily-delete-button" type="submit" name="action" value="delete_all">Confirm delete all</button></details></div></form>{% endif %}
+<div class="daily-list">{% for task in tasks %}
+  <article class="daily-card"{% if form %} id="daily-task-{{ task.pk }}"{% endif %}{% if not form %} id="daily-task-{{ task.pk }}" data-daily-task-card data-task-state="{{ task.student_state }}" data-completed="{% if task.student_submission.is_correct %}true{% else %}false{% endif %}"{% endif %}><div class="daily-heading">{% if form %}<label class="daily-task-select"><input type="checkbox" form="dailyTaskBulkActionForm" name="task_ids" value="{{ task.pk }}" data-daily-task-select> Select</label>{% endif %}<div class="daily-task-title"><h3>{{ task.title }}</h3><p class="daily-muted daily-task-meta">{{ task.class_section.course.name }} · {{ task.class_section.name }} · Question date: {% if task.enabled_at %}{{ task.enabled_at|date:"M j, Y · g:i A" }}{% else %}Not recorded yet{% endif %}</p></div><span class="daily-state">{% if task.published %}Enabled{% else %}Disabled{% endif %}</span>
+    {% if form %}<div class="daily-task-actions"><form method="post" class="daily-form"><input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><input type="hidden" name="action" value="set_published"><input type="hidden" name="task_id" value="{{ task.pk }}"><input type="hidden" name="published" value="{% if task.published %}0{% else %}1{% endif %}"><button class="daily-button" type="submit">{% if task.published %}Disable question{% else %}Enable question{% endif %}</button></form><details class="daily-delete-confirm"><summary class="daily-delete-trigger">Delete task</summary><p class="daily-muted">This permanently deletes the task and all {{ task.submissions.count }} student submission{{ task.submissions.count|pluralize }}.</p><form method="post" class="daily-form"><input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><input type="hidden" name="action" value="delete_task"><input type="hidden" name="task_id" value="{{ task.pk }}"><button class="daily-button daily-delete-button" type="submit">Confirm delete</button></form></details></div>{% endif %}</div>
+    {% if task.general_instructions %}<div class="daily-question"><strong>Instructions</strong><div>{{ task.general_instructions }}</div></div>{% endif %}
+    <div class="daily-question"><strong>Question</strong><div>{{ task.instructions }}</div></div>
+    <div class="daily-task-metadata">
+      {% if task.tags %}<p class="daily-muted">Tags: {{ task.tags }}</p>{% endif %}
+      {% if task.start_at %}<p class="daily-muted">Release: {{ task.start_at|date:"M j, Y · g:i A" }}</p>{% endif %}
+      {% if task.due_at %}<p class="daily-muted">Deadline: {{ task.due_at|date:"M j, Y · g:i A" }} · {{ task.get_late_policy_display }}</p>{% endif %}
+      {% if task.lab_start_at or task.lab_end_at %}<p class="daily-muted">Lab: {{ task.lab_start_at|date:"M j, Y · g:i A"|default:"Open" }} → {{ task.lab_end_at|date:"M j, Y · g:i A"|default:"No end set" }}</p>{% endif %}
+      {% if task.hint %}<details><summary>Hint</summary><p class="daily-question">{{ task.hint }}</p></details>{% endif %}
+      {% if task.sample_schema %}<details><summary>Attached sample schema</summary><pre class="daily-question">{{ task.sample_schema }}</pre></details>{% endif %}
+      {% if task.starter_sql %}<details><summary>Starter SQL</summary><pre class="daily-question">{{ task.starter_sql }}</pre></details>{% endif %}
+      {% if form %}<details class="daily-workflow"><summary>Release, deadline and lab window</summary><form method="post" class="daily-form">{% csrf_token %}<input type="hidden" name="action" value="configure_schedule"><input type="hidden" name="task_id" value="{{ task.pk }}">{{ task.schedule_form.as_p }}<button class="daily-button" type="submit">Save schedule</button></form></details>
+      {% else %}{% if task.student_submission.is_late %}<span class="daily-state">Late submission</span>{% endif %}{% if task.window_error %}<p class="daily-message">{{ task.window_error }}</p>{% endif %}{% endif %}
+    </div>
+
+    {% if form %}<details class="daily-grading-settings"><summary class="grading-summary-btn"><span>⚙️ Evaluation & Marks Settings</span><span class="grading-summary-mode">{{ task.get_grading_mode_display }} · {{ task.max_score|floatformat:"-1" }} Marks</span></summary><p class="daily-muted">Automatic evaluation runs against Oracle when a student submits. Supports SELECT (Counter multiset match), CREATE TABLE (data dictionary verify), and INSERT/UPDATE/DELETE (state compare with rollback).</p><form method="post" class="daily-form" style="margin-top:10px;"><input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><input type="hidden" name="action" value="configure_grading"><input type="hidden" name="task_id" value="{{ task.pk }}"><div class="grading-grid"><div class="grading-col"><label for="grading-mode-{{ task.pk }}">Evaluation method</label><select id="grading-mode-{{ task.pk }}" name="grading_mode"><option value="manual"{% if task.grading_mode == 'manual' %} selected{% endif %}>Teacher review</option><option value="result_match"{% if task.grading_mode == 'result_match' %} selected{% endif %}>Compare query results (SELECT, DDL, DML)</option><option value="sql_match"{% if task.grading_mode == 'sql_match' %} selected{% endif %}>Match SQL statement</option></select></div><div class="grading-col" style="max-width:160px;"><label for="max-score-{{ task.pk }}">Max Marks</label><input type="number" id="max-score-{{ task.pk }}" name="max_score" value="{{ task.max_score|floatformat:'-1' }}" min="0.5" step="0.5" required></div></div><label for="expected-sql-{{ task.pk }}" style="margin-top:8px;">Reference SQL answer</label><textarea id="expected-sql-{{ task.pk }}" name="expected_sql" rows="4" style="font-family:ui-monospace,monospace;font-size:12px;">{{ task.expected_sql }}</textarea><button class="daily-button" type="submit" style="margin-top:10px;">Save evaluation & marks</button></form></details>{% endif %}
+    {% if form %}<details><summary>Student answers ({{ task.submissions.count }})</summary>
+      {% for submission in task.submissions.all %}<div class="daily-response"><strong>{{ submission.student.get_full_name|default:submission.student.username }}</strong>
+        <p class="daily-muted">First attempt: {{ submission.first_attempt_at|default:submission.submitted_at|date:"M j, Y · g:i A" }} · Last attempt: {{ submission.last_attempt_at|default:submission.submitted_at|date:"M j, Y · g:i A" }}</p>
+        <div class="daily-question">{{ submission.answer }}</div>
+        {% if submission.status == 'auto_graded' or submission.status == 'reviewed' %}<p class="{% if submission.is_correct %}daily-evaluation{% else %}daily-evaluation-incorrect{% endif %}">{% if submission.is_correct %}Correct{% else %}Incorrect{% endif %}{% if submission.is_correct %} · Further attempts locked{% endif %}</p>{% elif submission.status == 'disputed' %}<p class="daily-evaluation-pending">Student dispute · awaiting your review</p>{% elif submission.status == 'submitted' %}<p class="daily-evaluation-pending">Awaiting teacher review</p>{% endif %}
+        {% if submission.status == 'disputed' %}<div class="daily-dispute"><strong>Student dispute</strong><p>{{ submission.dispute_message }}</p><form method="post" class="daily-form"><input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><input type="hidden" name="action" value="resolve_dispute"><input type="hidden" name="task_id" value="{{ task.pk }}"><input type="hidden" name="submission_id" value="{{ submission.pk }}"><label for="dispute-response-{{ submission.pk }}">Response to student</label><textarea id="dispute-response-{{ submission.pk }}" name="dispute_response" rows="2" required></textarea><button class="daily-button" name="verdict" value="accept" type="submit">Accept dispute · mark correct</button><button class="daily-button" name="verdict" value="uphold" type="submit">Uphold evaluation</button></form></div>{% endif %}
+        {% if not submission.is_correct and submission.status != 'disputed' %}
+        <form method="post" class="daily-form"><input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><input type="hidden" name="action" value="review_answer"><input type="hidden" name="task_id" value="{{ task.pk }}"><input type="hidden" name="submission_id" value="{{ submission.pk }}"><input type="hidden" name="answer_version" value="{{ submission.answer_version }}"><label for="feedback-{{ submission.pk }}">Feedback (optional)</label><textarea id="feedback-{{ submission.pk }}" name="feedback" rows="2">{{ submission.feedback }}</textarea><button class="daily-button" name="verdict" value="correct" type="submit">Mark correct and lock attempts</button><button class="daily-button" name="verdict" value="retry" type="submit">Needs another attempt</button></form>
+        {% endif %}
+      </div>{% empty %}<p class="daily-muted">No answers submitted yet.</p>{% endfor %}
+    </details>
+    {% else %}
+      {% if task.student_submission %}
+        {% if task.student_submission.is_correct %}
+        <div class="daily-scorecard daily-scorecard-pass">
+          <div class="scorecard-top">
+            <div class="scorecard-badge">
+              <span class="score-icon">✅</span>
+              <div>
+                <h4 class="score-title">Correct & Verified</h4>
+                <p class="score-sub">Submitted: {{ task.student_submission.last_attempt_at|default:task.student_submission.submitted_at|date:"M j, Y · g:i A" }}</p>
+              </div>
+            </div>
+            <div class="score-pill-wrap">
+              <span class="score-pill score-pill-success">🏆 Score: {{ task.student_submission.score|floatformat:"-1" }} / {{ task.max_score|floatformat:"-1" }} Marks</span>
+            </div>
+          </div>
+          {% if task.student_submission.feedback %}
+          <div class="scorecard-feedback">
+            <strong>Evaluation Feedback:</strong> {{ task.student_submission.feedback }}
+          </div>
+          {% endif %}
+          <details class="daily-answer-view" style="margin-top:10px;">
+            <summary>View your submitted answer</summary>
+            <pre class="daily-code-box">{{ task.student_submission.answer }}</pre>
+          </details>
+        </div>
+        {% else %}
+        <div class="daily-scorecard {% if task.student_submission.status == 'auto_graded' %}daily-scorecard-fail{% else %}daily-scorecard-pending{% endif %}">
+          <div class="scorecard-top">
+            <div class="scorecard-badge">
+              <span class="score-icon">{% if task.student_submission.status == 'disputed' %}⏳{% elif task.student_submission.status == 'auto_graded' %}❌{% else %}📤{% endif %}</span>
+              <div>
+                <h4 class="score-title">{% if task.student_submission.status == 'disputed' %}Dispute Under Teacher Review{% elif task.student_submission.status == 'auto_graded' %}Evaluation: Needs Revision{% else %}Submitted for Teacher Review{% endif %}</h4>
+                <p class="score-sub">Attempted: {{ task.student_submission.last_attempt_at|default:task.student_submission.submitted_at|date:"M j, Y · g:i A" }}</p>
+              </div>
+            </div>
+            <div class="score-pill-wrap">
+              <span class="score-pill {% if task.student_submission.status == 'auto_graded' %}score-pill-fail{% else %}score-pill-pending{% endif %}">Score: 0 / {{ task.max_score|floatformat:"-1" }} Marks</span>
+            </div>
+          </div>
+          {% if task.student_submission.feedback %}
+          <div class="scorecard-feedback scorecard-feedback-error">
+            <strong>Diagnostics:</strong> {{ task.student_submission.feedback }}
+          </div>
+          {% endif %}
+          {% if task.student_submission.dispute_response %}
+          <div class="scorecard-feedback scorecard-feedback-teacher">
+            <strong>Teacher Dispute Response:</strong> {{ task.student_submission.dispute_response }}
+          </div>
+          {% endif %}
+          {% if task.student_submission.status == 'disputed' %}
+          <div class="scorecard-feedback">
+            <strong>Your Objection:</strong> {{ task.student_submission.dispute_message }}
+          </div>
+          {% endif %}
+
+          <div class="daily-action-row" style="margin-top:12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            {% if task.student_submission.status != 'disputed' and not task.window_error %}
+            <a class="daily-sandbox-launch-btn" href="/portal/sandbox/daily_task/{{ task.pk }}/">
+              <span>🚀 Retry in SQL Sandbox</span>
+            </a>
+            {% endif %}
+            {% if task.student_submission.status == 'auto_graded' %}
+            <details class="daily-dispute-collapse">
+              <summary class="dispute-toggle-btn">Raise Objection with Teacher</summary>
+              <form method="post" class="daily-form dispute-inner-form" style="margin-top:8px;">
+                <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+                <input type="hidden" name="action" value="dispute_answer">
+                <input type="hidden" name="submission_id" value="{{ task.student_submission.pk }}">
+                <label for="dispute-message-{{ task.pk }}">Explain why you believe the automatic check is incorrect:</label>
+                <textarea id="dispute-message-{{ task.pk }}" name="dispute_message" rows="3" maxlength="4000" placeholder="State reasons or provide expected output..." required></textarea>
+                <button class="daily-button" type="submit" style="margin-top:6px;">Submit Dispute</button>
+              </form>
+            </details>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+      {% else %}
+        <div class="daily-unattempted-box" style="margin-top:14px; padding:12px; border:1px dashed var(--border); border-radius:10px; background:var(--surface-2); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <span style="font-weight:600; font-size:13px; color:var(--text);">Not attempted yet</span>
+            <p class="daily-muted" style="margin:2px 0 0;">Solve the problem in the interactive sandbox to receive verified marks.</p>
+          </div>
+          {% if not task.window_error %}
+          <a class="daily-sandbox-launch-btn" href="/portal/sandbox/daily_task/{{ task.pk }}/">
+            <span>🚀 Solve in SQL Sandbox</span>
+          </a>
+          {% endif %}
+        </div>
+      {% endif %}
+    {% endif %}
+  </article>
+{% empty %}<p class="daily-muted">{% if form %}No daily tasks yet. Add questions above. If no classes are listed, assign a class in the Test page first.{% else %}Your teachers’ enabled daily questions will appear here.{% endif %}</p>{% endfor %}</div></section>
+{% endif %}
+<style>
+.daily-tasks{background:var(--surface);color:var(--text);margin-bottom:18px}.daily-form,.daily-field,.daily-list{display:grid;gap:10px}.daily-form{margin-top:16px}.daily-field{gap:6px}.daily-field:has(input[type="checkbox"]){grid-template-columns:auto 1fr;align-items:center;justify-items:start}.daily-field input[type="checkbox"]{margin:0}.daily-field label,.daily-form>label{font-size:13px;font-weight:600}.daily-form :is(input:not([type=checkbox],[type=hidden]),select,textarea){width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text);font:inherit}.daily-form textarea{resize:vertical}.daily-form :is(input,select,textarea):focus-visible,.daily-tasks summary:focus-visible{outline:2px solid var(--accent-strong);outline-offset:3px}.daily-card{padding:16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text)}.daily-heading{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.daily-heading h3{margin:0}.daily-state{background:var(--surface-2);color:var(--muted);border:1px solid var(--border);border-radius:12px;padding:3px 8px;font-size:12px}.daily-muted{color:var(--muted);font-size:12px;line-height:1.6}.daily-question{white-space:pre-wrap;overflow-wrap:anywhere;margin:14px 0;line-height:1.6}.daily-button{justify-self:start;background:var(--accent-strong);color:var(--on-accent);padding:10px 16px;border:1px solid var(--accent-strong);border-radius:8px;cursor:pointer;font-weight:600}.daily-button:not(:disabled):is(:hover,:focus-visible){background:var(--accent-strong);color:var(--on-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-strong) 18%,transparent)}.daily-button:focus-visible{outline:2px solid var(--accent-strong);outline-offset:3px}.daily-tasks summary{cursor:pointer;color:var(--accent-strong);padding:8px 0}.daily-delete-confirm{margin-top:12px}.daily-delete-trigger{display:inline-block;border:1px solid var(--status-error);border-radius:8px;padding:10px 16px;color:var(--status-error)!important;background:var(--surface-2)}.daily-delete-trigger:hover,.daily-delete-trigger:focus-visible{background:color-mix(in srgb,var(--status-error) 12%,var(--surface));outline:2px solid color-mix(in srgb,var(--status-error) 30%,transparent);outline-offset:2px}.daily-delete-button{background:var(--status-error);border-color:var(--status-error);color:var(--surface)}.daily-delete-button:not(:disabled):is(:hover,:focus-visible){background:color-mix(in srgb,var(--status-error) 86%,var(--text));border-color:var(--status-error);color:var(--surface)}.daily-response{border-top:1px solid var(--border);padding:12px 0}.daily-success{color:var(--status-success)}.daily-message,.daily-form .errorlist{color:var(--status-error)}
+.daily-task-select,.daily-select-all{display:inline-flex;align-items:center;gap:8px;color:var(--text);font-size:13px;font-weight:600}.daily-task-select input,.daily-select-all input{accent-color:var(--accent-strong)}.daily-bulk-delete{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:12px;margin:12px 0 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);color:var(--text)}.daily-bulk-actions{display:flex;align-items:flex-start;flex-wrap:wrap;gap:10px;width:100%}.daily-bulk-actions .daily-delete-confirm,.daily-bulk-actions .daily-bulk-confirm{margin:0}.daily-bulk-actions :is(.daily-delete-confirm,.daily-bulk-confirm)[open]{flex-basis:100%;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}.daily-bulk-actions :is(.daily-delete-confirm,.daily-bulk-confirm) .daily-button{margin-top:8px}.daily-bulk-trigger{display:inline-block;border:1px solid var(--accent-strong);border-radius:8px;padding:10px 16px;color:var(--text)!important;background:color-mix(in srgb,var(--accent-strong) 10%,var(--surface-2))}.daily-bulk-trigger:hover,.daily-bulk-trigger:focus-visible{background:color-mix(in srgb,var(--accent-strong) 18%,var(--surface-2));outline:2px solid color-mix(in srgb,var(--accent-strong) 30%,transparent);outline-offset:2px}.daily-task-actions{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:start;gap:10px}.daily-task-actions>.daily-form{margin:0}.daily-task-actions>.daily-delete-confirm{min-width:0;margin:0}.daily-task-actions>.daily-delete-confirm .daily-muted{overflow-wrap:anywhere}.daily-task-actions>.daily-delete-confirm .daily-form{margin-top:10px}.daily-history{display:grid;gap:8px}.daily-history-list{display:grid;gap:8px;max-height:360px;overflow:auto;scrollbar-color:var(--border) var(--surface-2)}.daily-history-option{display:grid;gap:6px;text-align:left;width:100%;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text);cursor:pointer}.daily-history-option:is(:hover,:focus-visible){background:color-mix(in srgb,var(--accent-strong) 12%,var(--surface));border-color:var(--accent-strong)}.daily-history-option:focus-visible{outline:2px solid var(--accent-strong);outline-offset:2px}.daily-history-option pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}.daily-history-option small{color:var(--muted)}.daily-button:disabled{background:var(--surface-2);color:var(--muted);border-color:var(--border);cursor:wait;filter:none}@media(max-width:480px){.daily-task-actions{grid-template-columns:1fr}}
+.daily-bulk-confirm>label{display:block;margin-top:10px;font-size:13px;font-weight:600}.daily-bulk-confirm>select{max-width:340px;width:100%;margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text);font:inherit}.daily-bulk-evaluation-actions{display:flex;flex-wrap:wrap;gap:8px}.daily-bulk-confirm>select:focus-visible{outline:2px solid var(--accent-strong);outline-offset:2px}
+.daily-heading{align-items:center;flex-wrap:nowrap;gap:10px}.daily-task-select{flex:0 0 auto}.daily-task-title{display:flex;align-items:baseline;gap:10px;flex:1 1 auto;min-width:0}.daily-task-title h3{flex:0 0 auto;overflow-wrap:anywhere}.daily-task-meta{min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.daily-task-actions{display:flex;align-items:center;flex:0 0 auto;flex-wrap:nowrap;gap:6px}.daily-task-actions>.daily-form{margin:0}.daily-task-actions>.daily-delete-confirm{margin:0;max-width:100%}
+.daily-grading-settings,.daily-dispute{padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);color:var(--text)}.daily-grading-settings>summary{font-weight:600}.daily-dispute{margin:12px 0}.daily-dispute>p{white-space:pre-wrap;overflow-wrap:anywhere}.daily-evaluation{color:var(--status-success);font-weight:700}.daily-evaluation-incorrect{color:var(--status-error);font-weight:700}.daily-evaluation-pending{color:var(--muted);font-size:13px}.daily-task-view-switch{display:flex;gap:8px;margin:12px 0 16px;padding:4px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);width:max-content;max-width:100%}.daily-view-button{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--text);font:inherit;font-size:13px;font-weight:600;cursor:pointer}.daily-view-button:hover,.daily-view-button:focus-visible{background:color-mix(in srgb,var(--accent-strong) 12%,var(--surface));border-color:color-mix(in srgb,var(--accent-strong) 35%,var(--border))}.daily-view-button[aria-pressed="true"]{background:color-mix(in srgb,var(--accent-strong) 22%,var(--surface));border-color:var(--accent-strong);color:var(--text)}.daily-view-button:focus-visible{outline:2px solid var(--accent-strong);outline-offset:2px}.daily-view-button span{color:var(--muted);font-size:12px}
+.daily-task-actions>.daily-form>.daily-button,.daily-task-actions>.daily-delete-confirm>.daily-delete-trigger{min-height:30px;padding:5px 9px;font-size:11px;line-height:1.2;white-space:nowrap}.daily-task-actions>.daily-delete-confirm>.daily-delete-trigger{display:inline-block}
+@media(max-width:900px){.daily-heading{flex-wrap:wrap}.daily-task-title{flex:1 1 240px}.daily-task-actions{flex:1 1 100%;padding-left:24px}}
+.daily-answer-form{gap:4px;margin-top:8px}.daily-answer-form .daily-history{gap:3px}.daily-answer-form .daily-history details[open]{display:grid;gap:4px}.daily-answer-form .daily-history details>summary{padding:2px 0}.daily-answer-form .daily-history [data-history-status]{margin:0}.daily-answer-form .daily-history [data-history-status]:empty{display:none}.daily-answer-form>.daily-button,.daily-history>[data-use-latest],.daily-history>[data-history-more]{min-height:30px;padding:5px 10px;font-size:12px;line-height:1.2}.daily-answer-form>textarea{margin:0}
+ .daily-form select[multiple]{min-height:170px;accent-color:var(--accent-strong)}.daily-class-selection-actions{display:flex;gap:8px;flex-wrap:wrap}.daily-secondary-button{background:var(--surface-2);color:var(--text);border-color:var(--border)}.daily-secondary-button:not(:disabled):is(:hover,:focus-visible){background:color-mix(in srgb,var(--accent-strong) 14%,var(--surface));color:var(--text);border-color:var(--accent-strong);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-strong) 18%,transparent)}
+ .daily-inline-sandbox{display:grid;gap:12px;margin-top:16px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);color:var(--text)}.daily-inline-sandbox label{display:grid;gap:7px;font-weight:600}.daily-inline-sandbox textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font:13px/1.5 ui-monospace,Consolas,monospace;resize:vertical}.daily-inline-actions{display:flex;flex-wrap:wrap;gap:8px}
+/* Student daily-task polish: clearer hierarchy, calmer density, and stronger task focus. */
+.daily-tasks{border-radius:16px;box-shadow:0 12px 34px color-mix(in srgb,var(--ui-text) 7%,transparent)}.daily-tasks>h2{font-size:20px;letter-spacing:-.25px}.daily-task-view-switch{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px;padding:6px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2)}.daily-view-button{flex:1 1 120px;padding:10px 14px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--muted);font-weight:700;cursor:pointer}.daily-view-button:hover{background:color-mix(in srgb,var(--accent-strong) 9%,var(--surface));color:var(--text)}.daily-view-button[aria-pressed=true]{background:var(--accent-strong);color:var(--on-accent);box-shadow:0 4px 12px color-mix(in srgb,var(--accent-strong) 24%,transparent)}.daily-card{border-radius:14px;padding:22px;background:var(--surface);box-shadow:0 8px 25px color-mix(in srgb,var(--ui-text) 6%,transparent)}.daily-card+.daily-card{margin-top:14px}.daily-task-title h3{font-size:18px;letter-spacing:-.2px}.daily-task-meta{font-size:11px}.daily-question{font-size:14px;line-height:1.75;color:var(--text)}.daily-state{font-weight:700}.daily-inline-sandbox{margin-top:20px;padding:18px;border-radius:12px;background:var(--surface-2);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--border) 65%,transparent)}.daily-inline-sandbox textarea{min-height:150px;border-radius:10px;background:var(--surface);font-size:13px}.daily-inline-actions{gap:9px}.daily-inline-actions .daily-button{min-height:40px}.daily-muted{line-height:1.65}
+ .daily-inline-output{margin:0;padding:12px;max-height:280px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font:12px/1.6 ui-monospace,Consolas,monospace}
+</style>
+<script src="/portal/assets/daily-tasks.js?v=20261031-professional-3" defer></script>
+<style>
+.daily-workflow{background:var(--surface);color:var(--text)}
+.daily-workflow :is(input:not([type=hidden],[type=checkbox]),select,textarea){box-sizing:border-box;max-width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text);font:inherit}
+.daily-workflow :is(input,textarea)::placeholder{color:var(--muted);opacity:1}
+.daily-workflow :is(input,select,textarea):focus-visible{outline:2px solid var(--accent-strong);outline-offset:2px}
+.daily-review-filters{display:flex;align-items:end;gap:12px;flex-wrap:wrap}.daily-review-filters label{display:grid;gap:6px}
+.daily-review-table{max-height:650px;overflow:auto;border:1px solid var(--border);border-radius:9px;scrollbar-color:var(--muted) var(--surface-2);background:var(--surface);color:var(--text)}
+.daily-review-table:focus-visible{outline:2px solid var(--accent-strong);outline-offset:2px}
+.daily-review-table table{width:100%;min-width:1000px;border-collapse:separate;border-spacing:0}.daily-review-table :is(th,td){padding:12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--border)}
+.daily-review-table th{position:sticky;top:0;background:var(--surface-2);color:var(--text);z-index:1}.daily-review-table small{color:var(--muted)}
+.daily-workflow pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:480px;background:var(--surface-2);color:var(--text)}.daily-review-table td:last-child{min-width:240px}.daily-review-table .daily-form{margin:0;gap:6px}.daily-review-feedback label{display:grid;gap:4px;margin:6px 0;font-size:12px}.daily-review-actions{display:flex;gap:6px;flex-wrap:wrap}.daily-review-actions .daily-button{font-size:12px;padding:7px 10px}.daily-review-feedback textarea{min-height:60px;width:100%}.daily-review-pagination{display:flex;gap:16px;align-items:center;padding:12px 0}.daily-workflow a{color:var(--accent-strong)}.daily-workflow a.daily-button{color:var(--on-accent)}
+.daily-task-metadata{margin:12px 0}.daily-task-metadata .daily-button{display:inline-block;text-decoration:none}.daily-workflow fieldset{min-width:0}.daily-workflow .errorlist{color:var(--status-error)}
+.daily-history [data-use-latest]{display:none!important}
+</style>
+{% endblock %}
+
+<style>
+/* Professional Daily Task Redesign Styles */
+.daily-section-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.daily-section-header h2 { margin: 0; }
+.daily-hero-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px; }
+.metric-card { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 4%, transparent); }
+.metric-icon { font-size: 24px; line-height: 1; }
+.metric-info { display: flex; flex-direction: column; }
+.metric-num { font-size: 20px; font-weight: 800; color: var(--text); line-height: 1.2; }
+.metric-sub { font-size: 14px; font-weight: 600; color: var(--muted); }
+.metric-lbl { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-top: 2px; }
+.metric-success { border-color: color-mix(in srgb, var(--status-success) 35%, var(--border)); background: color-mix(in srgb, var(--status-success) 6%, var(--surface-2)); }
+.metric-warning { border-color: color-mix(in srgb, var(--status-warning, #f59e0b) 35%, var(--border)); background: color-mix(in srgb, var(--status-warning, #f59e0b) 6%, var(--surface-2)); }
+.metric-score { border-color: color-mix(in srgb, var(--accent-strong) 40%, var(--border)); background: color-mix(in srgb, var(--accent-strong) 8%, var(--surface-2)); }
+.metric-info-card { border-color: color-mix(in srgb, #3b82f6 35%, var(--border)); background: color-mix(in srgb, #3b82f6 6%, var(--surface-2)); }
+
+.daily-scorecard { padding: 16px; border-radius: 12px; margin-top: 14px; border: 1px solid var(--border); }
+.daily-scorecard-pass { background: color-mix(in srgb, var(--status-success) 8%, var(--surface)); border-color: color-mix(in srgb, var(--status-success) 40%, transparent); }
+.daily-scorecard-fail { background: color-mix(in srgb, var(--status-error) 6%, var(--surface)); border-color: color-mix(in srgb, var(--status-error) 35%, transparent); }
+.daily-scorecard-pending { background: var(--surface-2); border-color: var(--border); }
+.scorecard-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+.scorecard-badge { display: flex; align-items: center; gap: 10px; }
+.score-icon { font-size: 20px; }
+.score-title { margin: 0; font-size: 15px; font-weight: 700; color: var(--text); }
+.score-sub { margin: 0; font-size: 11px; color: var(--muted); }
+.score-pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; letter-spacing: 0.3px; }
+.score-pill-success { background: var(--status-success); color: var(--surface); }
+.score-pill-fail { background: var(--status-error); color: var(--surface); }
+.score-pill-pending { background: var(--border); color: var(--text); }
+.scorecard-feedback { margin-top: 8px; padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.5; background: var(--surface); border: 1px solid var(--border); }
+.scorecard-feedback-error { border-color: color-mix(in srgb, var(--status-error) 30%, var(--border)); color: var(--status-error); }
+.scorecard-feedback-teacher { border-color: color-mix(in srgb, var(--accent-strong) 30%, var(--border)); }
+.daily-code-box { margin: 8px 0 0; padding: 10px; border-radius: 8px; background: #0f172a; color: #38bdf8; font: 12px/1.5 ui-monospace,Consolas,monospace; overflow-x: auto; white-space: pre-wrap; }
+
+.daily-sandbox-launch-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 9px; font-size: 13px; font-weight: 700; color: var(--on-accent); background: var(--accent-strong); text-decoration: none; box-shadow: 0 4px 12px color-mix(in srgb, var(--accent-strong) 25%, transparent); transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.daily-sandbox-launch-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px color-mix(in srgb, var(--accent-strong) 35%, transparent); color: var(--on-accent); }
+
+.grading-grid { display: flex; gap: 12px; flex-wrap: wrap; }
+.grading-col { flex: 1 1 200px; }
+.grading-summary-btn { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 13px; }
+.grading-summary-mode { font-size: 11px; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
+.dispute-toggle-btn { font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; padding: 6px 0; }
+</style>

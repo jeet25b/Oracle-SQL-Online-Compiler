@@ -2,6 +2,32 @@
 from django.http import HttpResponse
 
 
+class StudentClassSelectionMiddleware:
+    """Require registered students to choose their class before workspace access."""
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from django.http import JsonResponse
+        from django.shortcuts import redirect
+        from .portal_views import _active_portal_role
+        user = request.user
+        needs_class_selection = False
+        if user.is_authenticated and _active_portal_role(request) == "STUDENT":
+            from .models import Enrollment
+            needs_class_selection = user.class_selection_required or not Enrollment.objects.filter(student=user, active=True).exists()
+        if user.is_authenticated and needs_class_selection and _active_portal_role(request) == "STUDENT":
+            allowed = ("/portal/choose-class/", "/portal/choose-role/", "/portal/assets/", "/api/portal/login",
+                       "/api/portal/logout", "/api/portal/select-role", "/api/portal/avatar", "/api/portal/profile",
+                       "/api/portal/preferences", "/api/portal/setup-guide", "/api/portal/activity/", "/api/portal/session-status", "/favicon.ico")
+            if not request.path.startswith(allowed):
+                if request.path.startswith("/api/"):
+                    return JsonResponse({"error": "Choose your class before using the student workspace.",
+                                         "classSelectionRequired": True, "next": "/portal/choose-class/"}, status=409)
+                return redirect("/portal/choose-class/")
+        return self.get_response(request)
+
+
 class StudentSessionLimitMiddleware:
     """Enforce daily logged-in allowance and a separate inactivity timeout."""
     def __init__(self, get_response):
@@ -25,23 +51,23 @@ class StudentSessionLimitMiddleware:
                     request.session['student_session_token'] = token
                     request.user.active_student_session_token = token
             if not token or token != request.user.active_student_session_token:
-                from .views import _lock, _oracle_sessions
+                from .views import _close_oracle_session, _lock, _oracle_sessions
                 with _lock:
-                    state = _oracle_sessions.pop(request.session.session_key, None)
-                if state:
-                    for kind in ('sqlplus', 'editor'):
-                        if state.get(kind):
-                            try:
-                                state[kind].close()
-                            except Exception:
-                                pass
+                    state = _oracle_sessions.get(request.session.session_key)
+                _close_oracle_session(state)
+                from oraplay.oracle_service import close_remote_oracle_session
+                close_remote_oracle_session(request.session.session_key)
                 logout(request)
                 if request.path.startswith('/api/'):
-                    return JsonResponse({'error': 'Your account was signed in elsewhere. Please sign in again.', 'sessionExpired': True, 'next': '/portal/'}, status=401)
-                return redirect('/portal/')
+                    response = JsonResponse({'error': 'Your account was signed in elsewhere. Please sign in again.', 'sessionExpired': True, 'next': '/portal/'}, status=401)
+                else:
+                    response = redirect('/portal/')
+                response.delete_cookie('ora_compiler_session', samesite='Strict')
+                return response
             from .models import AttendanceSession
             from .session_policy import daily_allowance
             attendance = AttendanceSession.objects.filter(pk=request.session.get('attendance_session_id'), user=request.user).select_related('lab__class_section', 'class_section').first()
+            request.student_attendance = attendance
             now = timezone.now()
             last_active = attendance.last_activity_at.timestamp() if attendance else request.session.get('portal_login_at', now.timestamp())
             allowance = daily_allowance(request.user, attendance, now)
@@ -50,17 +76,14 @@ class StudentSessionLimitMiddleware:
             restricted = allowance.get('restricted', True)
             deadline = min(idle_deadline, now.timestamp() + allowance['remainingSeconds']) if restricted else now.timestamp() + 86400
             if restricted and (now.timestamp() >= idle_deadline or allowance['remainingSeconds'] <= 0):
-                from .views import _lock, _oracle_sessions
+                from .views import _close_oracle_session, _lock, _oracle_sessions, _reset_teacher_editor_session_access
                 from .models import AttendanceSession, CompilerActivitySlice
                 with _lock:
-                    state = _oracle_sessions.pop(request.session.session_key, None)
-                if state:
-                    for key in ("sqlplus", "editor"):
-                        if state.get(key):
-                            try:
-                                state[key].close()
-                            except Exception:
-                                pass
+                    state = _oracle_sessions.get(request.session.session_key)
+                _close_oracle_session(state)
+                from oraplay.oracle_service import close_remote_oracle_session
+                close_remote_oracle_session(request.session.session_key)
+                _reset_teacher_editor_session_access(request.user.pk)
                 ended = timezone.datetime.fromtimestamp(deadline, tz=timezone.get_current_timezone())
                 attendance_id = request.session.get("attendance_session_id")
                 AttendanceSession.objects.filter(pk=attendance_id, user=request.user, logout_at__isnull=True).update(logout_at=ended, logout_estimated=False, end_reason="session_timeout", compiler_active=False, is_active_now=False)
@@ -69,8 +92,11 @@ class StudentSessionLimitMiddleware:
                 logout(request)
                 if request.path.startswith('/api/'):
                     message = 'Your daily portal allowance is used. Ask your teacher to reset it, or return tomorrow.' if allowance['remainingSeconds'] <= 0 else 'You were inactive for 30 minutes. Please sign in again.'
-                    return JsonResponse({"error": message, "sessionExpired": True, "next": "/portal/"}, status=401)
-                return redirect('/portal/')
+                    response = JsonResponse({"error": message, "sessionExpired": True, "next": "/portal/"}, status=401)
+                else:
+                    response = redirect('/portal/')
+                response.delete_cookie('ora_compiler_session', samesite='Strict')
+                return response
         response = self.get_response(request)
         if deadline and response.status_code == 200 and not response.streaming and 'text/html' in response.get('Content-Type', ''):
             script = b'<script src="/portal/assets/student-session.js?v=20261028-heartbeat-reuse" defer></script>'

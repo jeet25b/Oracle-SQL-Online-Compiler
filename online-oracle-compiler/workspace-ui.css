@@ -1,0 +1,95 @@
+/* Shared presentation for the portal, SQL workspace and account screens. */
+body.professional-ui{--ui-surface:var(--surface);--ui-surface-2:var(--surface-2);--ui-text:var(--text);--ui-muted:var(--muted);--ui-border:var(--border);--ui-accent:var(--accent-strong);--ui-on-accent:var(--on-accent)}
+body.oracle-ide-page.professional-ui{--ui-surface:var(--ide-panel);--ui-surface-2:var(--ide-panel-2);--ui-text:var(--ide-text);--ui-muted:var(--ide-muted);--ui-border:var(--ide-border);--ui-accent:var(--ide-accent)}
+html[data-theme] body.professional-ui{font-size:14px;line-height:1.55}
+html[data-theme] .professional-ui :is(button,a,[role=button],summary){-webkit-tap-highlight-color:transparent}
+html[data-theme] .professional-ui :is(button,a,[role=button],summary):focus-visible{outline:2px solid var(--ui-accent);outline-offset:3px}
+html[data-theme] .professional-ui :is(input,select,textarea){color-scheme:inherit}
+html[data-theme] .professional-ui :is(input,textarea)::placeholder{color:var(--ui-muted);opacity:1}
+html[data-theme] .professional-ui :is(button,input,select,textarea):disabled{color:var(--ui-muted);background:var(--ui-surface-2);cursor:not-allowed}
+html[data-theme] .professional-ui :is(button,a,[role=button],summary){transform:none;transform-style:flat;text-shadow:none}
+.professional-ui .workspace-icon{width:19px;height:19px;flex:0 0 19px;vertical-align:middle;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.professional-ui :is(a,button)[data-icon]{display:inline-flex;align-items:center;gap:9px}
+.professional-ui .skip-link{position:fixed;z-index:2147483000;top:-100px;left:16px;padding:12px 18px;border:2px solid var(--ui-accent);border-radius:8px;background:var(--ui-surface);color:var(--ui-text)}
+.professional-ui .skip-link:focus{top:12px}
+html[data-theme] .professional-ui.dashboard-page .sidebar{overflow-y:auto;background:var(--ui-surface);color:var(--ui-text);border-right:1px solid var(--ui-border);scrollbar-color:var(--ui-muted) var(--ui-surface)}
+html[data-theme] .professional-ui .sidebar .sidebar-label{margin:20px 12px 8px;font-size:11px;letter-spacing:.12em;color:var(--ui-muted)}
+html[data-theme] .professional-ui .side-link{min-height:42px;box-sizing:border-box;width:100%;font-size:13px;gap:10px;padding:9px 12px;border:1px solid transparent;border-left:3px solid transparent;border-radius:8px;color:var(--ui-text);background:transparent;text-decoration:none;box-shadow:none;transform:none}
+html[data-theme] .professional-ui .side-link:is(:hover,:focus-visible){color:var(--ui-text);background:color-mix(in srgb,var(--ui-accent) 10%,var(--ui-surface));border-color:transparent;border-left-color:transparent;box-shadow:none;transform:none}
+html[data-theme] .professional-ui .side-link.active,html[data-theme] .professional-ui .side-link[aria-current=page]{color:var(--ui-accent)!important;background:color-mix(in srgb,var(--ui-accent) 21%,var(--ui-surface))!important;border-left-color:var(--ui-accent);font-weight:650;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ui-accent) 20%,transparent)}
+html[data-theme] .professional-ui .side-link.active:is(:hover,:focus-visible),html[data-theme] .professional-ui .side-link[aria-current=page]:is(:hover,:focus-visible){background:color-mix(in srgb,var(--ui-accent) 27%,var(--ui-surface))!important;border-left-color:var(--ui-accent);box-shadow:inset 0 0 0 1px var(--ui-accent)}
+.professional-ui .workspace-menu-button{display:none;min-width:40px;min-height:40px;border:1px solid var(--ui-border);border-radius:8px;background:var(--ui-surface);color:var(--ui-text)}
+html[data-theme] .professional-ui .dashboard-main{min-width:0;overflow-x:clip}
+html[data-theme] .professional-ui .welcome-row{margin:28px 0 24px}
+html[data-theme] .professional-ui .welcome-row h1{font-size:clamp(24px,2.2vw,30px);line-height:1.25;letter-spacing:-.025em}
+html[data-theme] .professional-ui :is(.welcome-row p,.content-card>p,.daily-muted,.muted-note,.test-instructions,.academic-muted){font-size:13px;line-height:1.6;color:var(--ui-muted)}
+html[data-theme] .professional-ui :is(.content-card,.metric-card,.course-card,.test-card,.daily-card){border-radius:12px;border-color:var(--ui-border);background:var(--ui-surface);color:var(--ui-text);box-shadow:none;transform:none}
+html[data-theme] .professional-ui :is(.content-card,.metric-card,.test-card,.daily-card):hover{transform:none;box-shadow:none}
+html[data-theme] .professional-ui :is(.metric-card p,.metric-card small,.count-pill,.section-heading>span,.course-code,.course-section,.submission-main span,.assignment-row span,.class-main span){font-size:12px;line-height:1.5}
+html[data-theme] .professional-ui :is(.metric-card strong){font-size:28px;line-height:1.2}
+html[data-theme] .professional-ui :is(.section-heading h2,.content-card>h2){font-size:19px;line-height:1.35}
+html[data-theme] .professional-ui :is(.section-kicker,.section-eyebrow){font-size:11px;letter-spacing:.1em}
+.professional-ui :is(.course-card,.class-row,.assignment-row,.submission-row)[href]{color:var(--ui-text);text-decoration:none;border-radius:9px}
+.professional-ui :is(.course-card,.class-row,.assignment-row,.submission-row)[href]:is(:hover,:focus-visible){background:color-mix(in srgb,var(--ui-accent) 8%,var(--ui-surface));box-shadow:inset 0 0 0 1px var(--ui-accent);transform:none}
+html[data-theme] .professional-ui :is(.daily-form,.test-form,.academic-form,.profile-form,.activity-toolbar,.attendance-range,.history-filters) :is(label,small){font-size:13px;line-height:1.5}
+html[data-theme] .professional-ui :is(.daily-form,.test-form,.academic-form,.profile-form,.activity-toolbar,.attendance-range,.history-filters) :is(input:not([type=checkbox],[type=radio],[type=hidden],[type=range]),select){min-height:40px;font-size:14px;background:var(--ui-surface-2);color:var(--ui-text);border-color:var(--ui-border)}
+html[data-theme] .professional-ui :is(.daily-form,.test-form,.academic-form,.profile-form) textarea{font-size:14px;line-height:1.6;background:var(--ui-surface-2);color:var(--ui-text);border-color:var(--ui-border)}
+html[data-theme] .professional-ui :is(.theme-select-trigger,.theme-select-option){font-size:13px!important;min-height:38px;color:var(--ui-text);background:var(--ui-surface-2)}
+html[data-theme] .professional-ui :is(.daily-button,.test-primary-button,.academic-button,.dashboard-help-button,.history-export-button,.tool-button,.run-button){min-height:36px;font-size:13px;line-height:1.35;box-shadow:none;transform:none}
+.professional-ui :is(.ui-page-actions,.ui-view-tabs){display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 22px}
+.professional-ui :is(.ui-primary-action,.ui-secondary-action,.ui-view-tabs a){min-height:40px;box-sizing:border-box;display:inline-flex;gap:8px;align-items:center;padding:9px 14px;border:1px solid var(--ui-border);border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;background:var(--ui-surface);color:var(--ui-text)}
+.professional-ui .ui-primary-action{background:var(--ui-accent);color:var(--ui-on-accent);border-color:var(--ui-accent)}
+.professional-ui :is(.ui-secondary-action,.ui-view-tabs a):is(:hover,:focus-visible){background:color-mix(in srgb,var(--ui-accent) 10%,var(--ui-surface));color:var(--ui-text);border-color:var(--ui-accent)}
+.professional-ui .ui-primary-action:is(:hover,:focus-visible){background:var(--ui-accent);color:var(--ui-on-accent);box-shadow:inset 0 0 0 1px var(--ui-on-accent)}
+.professional-ui .ui-view-tabs a[aria-current=page],.professional-ui .ui-view-tabs a[aria-current=page]:is(:hover,:focus-visible){border-color:var(--ui-accent);background:color-mix(in srgb,var(--ui-accent) 23%,var(--ui-surface));color:var(--ui-text);box-shadow:inset 3px 0 0 var(--ui-accent)}
+.professional-ui .ui-muted{color:var(--ui-muted);font-weight:400;font-size:13px}
+.professional-ui .ui-setup-details>summary{cursor:pointer;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px;font-weight:600;color:var(--ui-text)}
+.professional-ui .ui-setup-details:not([open])>:not(summary){display:none!important}
+.professional-ui .ui-setup-details[open]>:not(summary){margin-top:16px}
+.professional-ui .ui-status{display:inline-flex;align-items:center;white-space:nowrap;gap:6px;font-size:12px;font-weight:600;padding:4px 8px;border:1px solid var(--ui-border);border-radius:6px;background:var(--ui-surface-2);color:var(--ui-text)}
+.professional-ui .ui-status[data-state=completed]{color:var(--status-success);background:color-mix(in srgb,var(--status-success) 10%,var(--ui-surface));border-color:color-mix(in srgb,var(--status-success) 30%,var(--ui-border))}
+.professional-ui .ui-status[data-state=revision]{color:var(--status-error);background:color-mix(in srgb,var(--status-error) 8%,var(--ui-surface));border-color:color-mix(in srgb,var(--status-error) 30%,var(--ui-border))}
+.professional-ui .ui-status[data-state=submitted]{color:var(--status-warning);background:color-mix(in srgb,var(--status-warning) 8%,var(--ui-surface));border-color:color-mix(in srgb,var(--status-warning) 30%,var(--ui-border))}
+.professional-ui .ui-table-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0;font-size:13px;color:var(--ui-muted);background:var(--ui-surface)}
+.professional-ui .ui-columns{position:relative;margin-left:auto;color:var(--ui-text);background:var(--ui-surface)}
+.professional-ui .ui-columns>summary{cursor:pointer;list-style:none;border:1px solid var(--ui-border);border-radius:8px;padding:7px 12px;min-height:36px;box-sizing:border-box;color:var(--ui-text);background:var(--ui-surface-2)}
+.professional-ui .ui-column-options{position:absolute;right:0;top:100%;margin-top:5px;z-index:110;min-width:220px;max-height:320px;overflow:auto;padding:12px;display:grid;gap:9px;border:1px solid var(--ui-border);border-radius:9px;background:var(--ui-surface);color:var(--ui-text);box-shadow:0 8px 24px color-mix(in srgb,var(--ui-text) 12%,transparent)}
+.professional-ui .ui-column-options label{display:flex;gap:9px;align-items:center;font-size:13px}
+html[data-theme] .professional-ui :is(.activity-table,.history-table,.attendance-table,.teacher-history-table,.daily-review-table table) th{font-size:12px;line-height:1.4;padding:12px;background:var(--ui-surface-2);color:var(--ui-text);border-color:var(--ui-border)}
+html[data-theme] .professional-ui :is(.activity-table,.history-table,.attendance-table,.teacher-history-table,.daily-review-table table) td{font-size:13px;line-height:1.5;padding:12px;color:var(--ui-text);border-color:var(--ui-border)}
+html[data-theme] .professional-ui :is(.activity-table,.history-table,.attendance-table) td small{font-size:11px;color:var(--ui-muted)}
+.professional-ui .ui-column-hidden{display:none!important}
+.professional-ui .ui-row-details-button{display:block;margin-top:6px;padding:4px 7px;border:1px solid var(--ui-border);border-radius:6px;background:var(--ui-surface-2);color:var(--ui-text);font:inherit;font-size:12px;cursor:pointer}
+.professional-ui .ui-row-details-button:is(:hover,:focus-visible){border-color:var(--ui-accent);background:color-mix(in srgb,var(--ui-accent) 10%,var(--ui-surface));color:var(--ui-text)}
+.professional-ui .ui-detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;padding:8px;background:var(--ui-surface-2);color:var(--ui-text)}
+.professional-ui .ui-detail-grid dt{font-size:12px;font-weight:600;color:var(--ui-muted)}
+.professional-ui .ui-detail-grid dd{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ui-text)}
+.professional-ui .ui-form-feedback{margin:10px 0;font-size:13px;background:var(--ui-surface);color:var(--ui-muted)}
+.professional-ui .ui-form-feedback[data-state=error]{color:var(--status-error)}
+html[data-theme] .professional-ui :is(.activity-table-wrap,.history-table-wrap,.daily-review-table,.attendance-table-wrap){scrollbar-color:var(--ui-muted) var(--ui-surface-2);overscroll-behavior:contain}
+.professional-ui .ui-create-panel>summary{cursor:pointer;font-size:18px;font-weight:600;color:var(--ui-text)}
+.professional-ui .ui-create-panel[open]>summary{margin-bottom:18px}
+.professional-ui .daily-task-view-switch{flex-wrap:wrap;width:auto;max-width:100%}
+.professional-ui .daily-card[id]{scroll-margin-top:100px}
+.professional-ui .history-heading{flex-wrap:wrap}.professional-ui .history-heading-actions{max-width:100%;min-width:0}
+@media(max-width:1050px){.professional-ui.dashboard-page .dashboard-shell{grid-template-columns:220px minmax(0,1fr)}.professional-ui .metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.professional-ui .dashboard-columns{grid-template-columns:1fr}.professional-ui .online-indicator{display:none}}
+@media(max-width:760px){html[data-theme] .professional-ui.dashboard-page .dashboard-shell{display:block}.professional-ui .workspace-menu-button{display:inline-flex;justify-content:center;align-items:center}.professional-ui .sidebar{display:none!important}.professional-ui.navigation-open .sidebar{display:block!important;position:fixed;inset:0 auto 0 0;z-index:1000;width:min(290px,85vw);height:100dvh;box-sizing:border-box;padding:20px;box-shadow:8px 0 24px color-mix(in srgb,var(--ui-text) 15%,transparent)}.professional-ui .dashboard-main{padding:0 16px 24px}.professional-ui .top-actions{gap:6px}.professional-ui .top-actions .online-indicator{display:none}.professional-ui .dashboard-topbar .breadcrumb{font-size:12px}.professional-ui .top-actions>[data-palette-picker]{display:none}.professional-ui .content-card{padding:18px}.professional-ui .ui-view-tabs{gap:6px}.professional-ui .ui-view-tabs a{padding:8px 10px;font-size:12px}.professional-ui .daily-heading{align-items:flex-start}.professional-ui :is(.class-row,.submission-row,.assignment-row){flex-wrap:wrap;gap:10px}.professional-ui :is(.course-card,.test-card,.daily-card){min-width:0}.professional-ui .history-scope-views{overflow-x:auto;padding-bottom:5px}.professional-ui .metric-grid{gap:12px}.professional-ui .metric-card{padding:14px}.professional-ui .ui-column-options{position:fixed;inset:auto 16px 16px;max-height:50vh;min-width:0}}
+@media(prefers-reduced-motion:reduce){.professional-ui *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+@media(max-width:760px){html[data-theme] .professional-ui.navigation-open .sidebar .side-nav{display:block}html[data-theme] .professional-ui.navigation-open .sidebar .side-link{display:flex;justify-content:flex-start;height:auto;min-height:42px}html[data-theme] .professional-ui.navigation-open .sidebar .sidebar-label{display:block}.professional-ui .workspace-menu-button{display:inline-flex!important}}
+.professional-ui .ui-form-feedback{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.professional-ui .ui-form-feedback:empty{display:none}.professional-ui .ui-create-panel[id]{scroll-margin-top:100px}
+
+.professional-ui .workspace-session-status{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;flex:0 0 auto;padding:8px 12px;margin-bottom:8px;border:1px solid var(--ui-border);border-radius:8px;background:var(--ui-surface-2);color:var(--ui-muted);font-size:12px}
+.professional-ui .workspace-session-status>[data-pending=true]{color:var(--status-warning);font-weight:600}
+.professional-ui .compiler-view{display:flex;flex-direction:column}.professional-ui .compiler-view .compiler-layout{flex:1;min-height:0}
+html[data-theme] .professional-ui:not(.oracle-ide-page):not(.dashboard-page) :is(.input-wrap,input,select,textarea){background:var(--ui-surface-2);color:var(--ui-text);border-color:var(--ui-border)}
+html[data-theme] .professional-ui:not(.oracle-ide-page):not(.dashboard-page) :is(.input-wrap input,.register-form input){font-size:15px;min-height:42px;color:var(--ui-text);background:var(--ui-surface-2)}
+
+html[data-theme] body.professional-ui [hidden]{display:none!important}
+
+html[data-theme] .professional-ui :is(.activity-table,.history-table,.attendance-table,.teacher-history-table) td.success{color:var(--status-success)}
+html[data-theme] .professional-ui :is(.activity-table,.history-table,.attendance-table,.teacher-history-table) td.error{color:var(--status-error)}
+
+html[data-theme] .professional-ui button.workspace-menu-button{display:none}
+html[data-theme] .professional-ui .metric-icon{background:color-mix(in srgb,var(--ui-accent) 12%,var(--ui-surface));color:var(--ui-accent);border:1px solid color-mix(in srgb,var(--ui-accent) 22%,var(--ui-border))}
+@media(max-width:760px){html[data-theme] .professional-ui button.workspace-menu-button{display:inline-flex}}

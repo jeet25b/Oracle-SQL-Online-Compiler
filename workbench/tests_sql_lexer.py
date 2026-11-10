@@ -50,7 +50,29 @@ class SqlLexicalTests(SimpleTestCase):
         from django.test import RequestFactory
         from .views import execute_sql
         request = RequestFactory().post('/api/execute', {'sql': 'SELECT 1 FROM DUAL; SELECT 2 FROM DUAL;', 'executionMode': 'statement'}, content_type='application/json')
+        from types import SimpleNamespace
+        request.user = SimpleNamespace(is_authenticated=True)
         with patch('workbench.views.same_origin', return_value=True), patch('workbench.views.current_oracle_session', return_value={'settings': {}}), patch('workbench.views.open_oracle_connection') as connect:
             response = execute_sql(request)
         self.assertEqual(response.status_code, 400)
         connect.assert_not_called()
+
+
+class TriggerBindTests(SimpleTestCase):
+    def test_trigger_records_are_not_input_binds(self):
+        for header in ('CREATE TRIGGER', 'CREATE OR REPLACE TRIGGER', 'CREATE OR REPLACE NONEDITIONABLE TRIGGER'):
+            sql = '-- comment\n' + header + " t BEFORE UPDATE ON employee FOR EACH ROW BEGIN IF :NEW.salary < :OLD.salary THEN RAISE_APPLICATION_ERROR(-20001, 'No decrease'); END IF; END;"
+            self.assertEqual(bind_names(sql), set())
+
+    def test_aliases_and_actual_bind_names(self):
+        sql = 'CREATE OR REPLACE TRIGGER t BEFORE INSERT ON employee REFERENCING NEW AS fresh OLD AS previous FOR EACH ROW BEGIN :fresh.salary := :previous.salary + :actual; END;'
+        self.assertEqual(bind_names(sql), {'ACTUAL'})
+        self.assertEqual(bind_names('SELECT :NEW, :OLD, :PARENT FROM dual'), {'NEW', 'OLD', 'PARENT'})
+
+    def test_project_checker_does_not_request_trigger_records(self):
+        from .project_sqlplus import SQLPlusSession
+        from unittest.mock import Mock
+        session = SQLPlusSession.__new__(SQLPlusSession)
+        session._exchange = Mock()
+        self.assertEqual(session._missing_binds('CREATE TRIGGER t BEFORE UPDATE ON emp FOR EACH ROW BEGIN :NEW.salary := :OLD.salary; END;'), [])
+        session._exchange.assert_not_called()

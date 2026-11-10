@@ -1,0 +1,761 @@
+{% extends "base-dashboard.html" %}
+{% block page_title %}Tests{% endblock %}
+{% block page_heading %}{% if portal_role == "TEACHER" %}Class tests{% else %}My tests{% endif %}{% endblock %}
+{% block page_intro %}{% if portal_role == "TEACHER" %}Create a question-by-question test for a class, then review student answers.{% else %}Take tests assigned to your classes and submit an answer for every question.{% endif %}{% endblock %}
+{% block dashboard_content %}
+{% if message %}<section class="content-card test-message" role="status">{{ message }}</section>{% endif %}
+{% if portal_role == "TEACHER" %}
+<div class="ui-page-actions"><a class="ui-primary-action" href="#create-test" data-icon="plus">Create test</a><a class="ui-secondary-action" href="?report=csv" data-icon="download">Download CSV report</a><a class="ui-secondary-action" href="#class-setup" data-icon="classes">Class setup</a></div>
+
+
+<section class="content-card"><div class="section-heading"><div><p class="section-kicker">YOUR TESTS</p><h2>Tests and responses</h2></div><span class="count-pill">{{ tests|length }} tests</span></div>
+  {% if has_tests %}<form method="post" action="/portal/tests/" class="test-answer-input-setting" data-test-form><input type="hidden" name="csrfmiddlewaretoken" value=""><input type="hidden" name="action" value="configure_all_test_answer_input"><label class="test-publish"><input type="checkbox" name="allow_typed_answer"{% if all_tests_allow_typed %} checked{% endif %}> Allow typed answers in History for all my tests</label><button class="test-primary-button" type="submit">Apply to all tests</button></form>{% endif %}
+  {% if tests %}<div class="test-list">{% for test in tests %}<article class="test-card"><div class="test-card-heading"><div><h3>{{ test.title }}</h3><p>{{ test.class_section.course.name }} · {{ test.class_section.name }} · {{ test.questions.count }} questions</p></div><span class="test-state {% if test.published %}is-published{% endif %}">{% if test.published %}Published{% else %}Draft{% endif %}</span></div><p class="test-instructions">{{ test.schedule_label }}</p>{% if test.instructions %}<p class="test-instructions">{{ test.instructions }}</p>{% endif %}<ol class="test-question-preview">{% for question in test.questions.all %}<li>{{ question.prompt }}</li>{% endfor %}</ol>
+    <p class="test-instructions">Grading: {{ test.grading_label }} · {{ test.total_marks }} marks</p><form method="post" action="/portal/tests/" class="test-answer-input-setting" data-test-form><input type="hidden" name="csrfmiddlewaretoken" value=""><input type="hidden" name="action" value="configure_test_answer_input"><input type="hidden" name="test_id" value="{{ test.pk }}"><label class="test-publish"><input type="checkbox" name="allow_typed_answer"{% if test.allow_typed_answer %} checked{% endif %}> Allow typed answers in History for this test (all questions)</label><button class="test-primary-button" type="submit">Save answer input setting</button></form><details class="test-responses"><summary>Sample table setup (optional)</summary><form method="post" action="/portal/tests/" class="test-form" data-test-form><input type="hidden" name="csrfmiddlewaretoken" value=""><input type="hidden" name="action" value="configure_test_sample"><input type="hidden" name="test_id" value="{{ test.pk }}"><label>Setup SQL<textarea name="sample_schema" rows="5">{{ test.sample_schema }}</textarea></label><small>Applies to new sandboxes. Existing test sessions keep their current tables.</small><button class="ui-secondary-action" type="submit">Save sample setup</button></form></details><details class="test-responses"><summary>Student responses ({{ test.attempts.count }})</summary>
+      {% if test.attempts.count > 0 %}
+      <form method="post" action="/portal/tests/" style="margin: 8px 0;" data-test-form>
+        <input type="hidden" name="csrfmiddlewaretoken" value="">
+        <input type="hidden" name="action" value="email_all_test_results">
+        <input type="hidden" name="test_id" value="{{ test.pk }}">
+        <button class="test-primary-button" type="submit" style="font-size: 11px; padding: 5px 10px;">✉ Email Results to All Students</button>
+      </form>
+      {% endif %}{% for attempt in test.attempts.all %}<article class="test-response">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <strong>{{ attempt.student.get_full_name|default:attempt.student.username }}</strong>
+          {% if attempt.submitted_at and attempt.student.email %}
+          <form method="post" action="/portal/tests/" style="display:inline;" data-test-form>
+            <input type="hidden" name="csrfmiddlewaretoken" value="">
+            <input type="hidden" name="action" value="email_single_student_result">
+            <input type="hidden" name="attempt_id" value="{{ attempt.pk }}">
+            <button class="test-primary-button test-secondary-button" type="submit" style="font-size: 10px; padding: 3px 7px;">✉ Email Result</button>
+          </form>
+          <form method="post" action="/portal/tests/" style="display:inline; margin-left:6px;" data-test-form>
+            <input type="hidden" name="csrfmiddlewaretoken" value="">
+            <input type="hidden" name="action" value="toggle_full_duration">
+            <input type="hidden" name="attempt_id" value="{{ attempt.pk }}">
+            <button class="test-primary-button test-secondary-button" type="submit" style="font-size: 10px; padding: 3px 7px;" title="Toggle between full time duration and scheduled end time only">
+              {% if attempt.allow_full_duration %}⏱ Full Time (Click for End-Time Only){% else %}⏱ End-Time Only (Click for Full Time){% endif %}
+            </button>
+          </form>
+          {% endif %}
+        </div><small>{% if attempt.submitted_at %}Submitted {{ attempt.submitted_at|date:"M j, Y · g:i A" }}{% else %}{% if attempt.status == "suspended" %}Suspended by another activity{% else %}In progress{% endif %}{% endif %}{% if attempt.score != None %} · Score {{ attempt.score }} / {{ test.total_marks }}{% elif attempt.submitted_at and test.grading_mode != "manual" %} · Automatic grading pending review{% endif %}</small>{% for answer in attempt.answers.all %}<div><b>{{ answer.question.position }}.</b> {{ answer.question.prompt }}<p>{{ answer.answer|default:"No answer" }}</p>{% if answer.question.expected_sql %}<details><summary>Reference SQL</summary><pre class="test-reference-sql">{{ answer.question.expected_sql }}</pre></details>{% endif %}{% if answer.score != None %}<small>{% if answer.is_correct %}Correct{% else %}Incorrect{% endif %} · {{ answer.score }} / {{ answer.question.marks }}</small>{% endif %}{% if answer.feedback %}<p class="test-feedback">{{ answer.feedback }}</p>{% endif %}</div>{% endfor %}</article>{% empty %}<p class="muted-note">No students have submitted this test yet.</p>{% endfor %}</details>
+  </article>{% endfor %}</div>{% else %}<div class="empty-state"><strong>No tests created yet</strong><p>Choose Create test to add your first assessment.</p></div>{% endif %}
+</section>
+<details id="create-test" class="content-card test-create-card ui-create-panel"{% if message %} open{% endif %}>
+  <summary style="font-size: 15px; font-weight: 700; cursor: pointer; padding: 4px 0;">Create a test</summary>
+  <div class="section-heading" style="margin-top:14px;">
+    <div><p class="section-kicker">ASSESSMENT CREATION</p><h2>New Test Setup</h2></div>
+  </div>
+
+  <form method="post" action="/portal/tests/" enctype="multipart/form-data" class="test-form" data-test-form data-recover-draft="test-create" id="teacherTestForm">
+    <input type="hidden" name="csrfmiddlewaretoken" value="">
+
+    <!-- Step 1: Basic Information -->
+    <div class="form-section-card">
+      <div class="form-section-header">
+        <h3><span class="form-step-badge">Step 1</span> Basic Information &amp; Schedule</h3>
+      </div>
+      <div class="test-form-grid">
+        <label>Test title
+          <input name="title" maxlength="200" required placeholder="e.g., SQL Joins & Subqueries Mid-Term">
+        </label>
+        <div class="test-class-field">
+          <label for="testClasses">Assigned Classes</label>
+          <div class="test-class-selection-actions">
+            <button class="test-primary-button" type="button" data-select-all-classes="test">Select all</button>
+            <button class="test-primary-button test-secondary-button" type="button" data-clear-classes="test">Clear</button>
+          </div>
+          <select id="testClasses" name="class_sections" required multiple size="5" data-test-class>
+            {% for class_section in teaching_classes %}
+            <option value="{{ class_section.pk }}">{{ class_section.course.name }} · {{ class_section.name }}{% if class_section.section %} · {{ class_section.section }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <label>Suggested time (minutes)
+          <input name="duration" type="number" min="1" max="600" value="60">
+        </label>
+        <label>Evaluation / Grading method
+          <select name="grading_mode">
+            <option value="manual">Teacher manual review</option>
+            <option value="sql_match">Automatic · match SQL syntax/tokens</option>
+            <option value="result_match" selected>Automatic · compare query results &amp; DDL/DML state</option>
+          </select>
+        </label>
+        <label>Availability Schedule
+          <select name="schedule_frequency" data-schedule-frequency>
+            <option value="anytime">Anytime (always open)</option>
+            <option value="daily">Daily time window</option>
+            <option value="weekly">Weekly on specific days</option>
+          </select>
+        </label>
+        <label>Available from
+          <input name="schedule_start_time" type="time" data-schedule-time disabled>
+        </label>
+        <label>Available until
+          <input name="schedule_end_time" type="time" data-schedule-time disabled>
+        </label>
+      </div>
+
+      <fieldset class="test-weekdays" data-weekdays disabled style="margin-top:14px;"><legend>Available on</legend>
+        <label><input type="checkbox" name="schedule_weekdays" value="0"> Mon</label>
+        <label><input type="checkbox" name="schedule_weekdays" value="1"> Tue</label>
+        <label><input type="checkbox" name="schedule_weekdays" value="2"> Wed</label>
+        <label><input type="checkbox" name="schedule_weekdays" value="3"> Thu</label>
+        <label><input type="checkbox" name="schedule_weekdays" value="4"> Fri</label>
+        <label><input type="checkbox" name="schedule_weekdays" value="5"> Sat</label>
+        <label><input type="checkbox" name="schedule_weekdays" value="6"> Sun</label>
+      </fieldset>
+
+      <details style="margin-top: 14px; padding: 10px; border: 1px dashed var(--border); border-radius: 8px;">
+        <summary style="cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--accent-strong);">＋ Optional Sample Schema &amp; Instructions</summary>
+        <div style="display:grid; gap:12px; margin-top:12px;">
+          <label>Sample table setup SQL
+            <textarea name="sample_schema" rows="4" placeholder="CREATE TABLE emp (id NUMBER, name VARCHAR2(50));&#10;INSERT INTO emp VALUES (1, 'Alice');"></textarea>
+            <small class="test-file-hint">Executed once in each student's isolated test sandbox before questions begin.</small>
+          </label>
+          <label>General Test Instructions
+            <textarea name="instructions" rows="2" placeholder="e.g., Use proper column aliases and order by employee id."></textarea>
+          </label>
+        </div>
+      </details>
+    </div>
+
+    <!-- Step 2: Questions & Reference SQL Answers -->
+    <div class="form-section-card">
+      <div class="form-section-header">
+        <h3><span class="form-step-badge">Step 2</span> Questions &amp; Reference Solutions</h3>
+        <div class="form-live-summary">
+          <div class="summary-pill">📋 Total Questions: <strong id="liveQCount">1</strong></div>
+          <div class="summary-pill marks-pill">🎯 Total Marks: <strong id="liveMarksTotal">1.0</strong></div>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:6px; background:var(--surface-2); padding:5px 10px; border-radius:6px; border:1px solid var(--border);">
+          <span style="font-size:12px; color:var(--muted); font-weight:600;">Marks for all:</span>
+          <input type="number" id="bulkMarksInput" name="default_question_marks" value="1" min="0.5" step="0.5" style="width:60px; padding:4px 6px; font-size:12px; border-radius:4px; border:1px solid var(--border); background:var(--surface); color:var(--text);">
+          <button type="button" id="applyBulkMarksBtn" class="test-primary-button test-secondary-button" style="font-size:11px; padding:4px 9px;">Apply to all</button>
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <label class="test-primary-button test-secondary-button" style="cursor:pointer; font-size:11px; padding:6px 10px; display:inline-flex; align-items:center; gap:4px; margin:0;">
+            📂 Import from File
+            <input type="file" name="question_file" accept=".txt,.csv,.docx" data-question-file style="display:none;">
+          </label>
+          <button type="button" class="dashboard-help-button" data-add-question style="font-size:12px;">＋ Add question</button>
+        </div>
+      </div>
+
+      <div data-question-list id="questionsListWrapper">
+        <div class="test-question-card" data-q-card="1">
+          <div class="q-card-header">
+            <span class="q-card-num">Question #1</span>
+            <div class="q-card-actions">
+              <span class="card-pill-badge badge-marks"><span class="q-badge-mark">1</span> Mark(s)</span>
+              <button type="button" class="q-delete-btn" style="display:none;" title="Remove this question">🗑 Delete</button>
+            </div>
+          </div>
+          <label>Question
+            <textarea name="question" rows="3" required placeholder="Write the question students should answer (e.g., Display all employee names earning > 50,000)"></textarea>
+          </label>
+          <div style="display:grid; grid-template-columns: 1fr 140px; gap: 10px;">
+            <label>Reference SQL answer
+              <textarea name="expected_sql" rows="3" placeholder="SELECT emp_name FROM employee WHERE salary > 50000;"></textarea>
+            </label>
+            <label>Marks
+              <input type="number" name="question_marks" class="q-mark-input" value="1" min="0.5" step="0.5" required>
+            </label>
+          </div>
+        </div>
+      </div>
+      <small class="test-file-hint" style="display:block; margin-top:8px;">For automatic evaluation, provide a reference SQL answer for each question. Queries run in the student's isolated sandbox.</small>
+    </div>
+
+    <!-- Step 3: Publishing & Notifications -->
+    <div class="form-section-card">
+      <div class="form-section-header">
+        <h3><span class="form-step-badge">Step 3</span> Publish &amp; Notification Settings</h3>
+      </div>
+      <div class="publish-toggles-grid">
+        <label class="toggle-card">
+          <input type="checkbox" name="published" checked>
+          <span><b>Publish immediately</b><br><small style="color:var(--muted); font-weight:normal;">Enrolled students will be able to view and start this test.</small></span>
+        </label>
+        <label class="toggle-card">
+          <input type="checkbox" name="allow_typed_answer">
+          <span><b>Allow typed answers in History</b><br><small style="color:var(--muted); font-weight:normal;">Permits students to type or paste answers manually from query history.</small></span>
+        </label>
+        <label class="toggle-card">
+          <input type="checkbox" name="send_email_notification" value="1">
+          <span><b>Send email notification to students</b><br><small style="color:var(--muted); font-weight:normal;">Alert enrolled students via Gmail SMTP when test is created (Off by default).</small></span>
+        </label>
+        <label class="toggle-card">
+          <input type="checkbox" name="email_results_on_submit" value="1">
+          <span><b>Email test results upon submission</b><br><small style="color:var(--muted); font-weight:normal;">Automatically send scorecards to students when they submit (Off by default).</small></span>
+        </label>
+      </div>
+      <div style="margin-top: 20px; display:flex; justify-content:flex-end;">
+        <button class="test-primary-button" type="submit" style="font-size: 14px; padding: 11px 24px;">🚀 Create &amp; Publish Test</button>
+      </div>
+    </div>
+  </form>
+</details></details>
+<details id="class-setup" class="content-card class-setup-card ui-create-panel" {% if not teaching_classes %}open{% endif %}><summary><span><b>Set up a class</b><small>No class to choose? Create or assign one here, then it will appear in the test form.</small></span><span>＋</span></summary>
+  <form method="post" action="/portal/tests/" class="test-form" data-test-form><input type="hidden" name="csrfmiddlewaretoken" value=""><input type="hidden" name="action" value="setup_class">
+    <div class="test-form-grid"><label>Course code<input name="course_code" maxlength="32" required placeholder="e.g. SQL101"></label><label>Course name<input name="course_name" maxlength="160" required placeholder="e.g. Database Fundamentals"></label><label>Class name<input name="new_class_name" maxlength="80" required placeholder="e.g. Class 10"></label><label>Branch<input name="new_branch" maxlength="80" required placeholder="e.g. Computer Science"></label><label>Semester<input name="new_semester" type="number" min="1" max="20" required></label><label>Section<input name="new_section" maxlength="32" required placeholder="e.g. A"></label><label>Group<input name="new_group" maxlength="32" required placeholder="e.g. G1"></label><label>Academic year (optional)<input name="academic_year" maxlength="20" placeholder="e.g. 2026–27"></label></div>
+    <fieldset class="class-student-picker"><legend>Enroll students (optional)</legend>{% for student in students %}<label><input type="checkbox" name="student_ids" value="{{ student.pk }}"> {{ student.get_full_name|default:student.username }}{% if student.student_number %} · {{ student.student_number }}{% endif %}</label>{% empty %}<p class="muted-note">No active student accounts are available.</p>{% endfor %}</fieldset>
+    <button class="test-primary-button" type="submit">Create class</button>
+  </form>
+</details>
+{% else %}
+<section class="content-card">
+  <div class="section-heading">
+    <div><p class="section-kicker">ASSESSMENTS</p><h2>Available tests</h2></div>
+    <span class="count-pill">{{ tests|length }} tests</span>
+  </div>
+  {% if tests %}
+  <div class="test-list">
+    {% for test in tests %}
+    <article class="test-card">
+      <div class="test-card-heading">
+        <div>
+          <h3 class="test-card-title">{{ test.title }}</h3>
+          <div class="card-badges-row">
+            <span class="card-pill-badge badge-course">{{ test.class_section.course.name|default:test.course.name }}{% if test.class_section %} · {{ test.class_section.name }}{% endif %}</span>
+            <span class="card-pill-badge">📋 {{ test.questions.count }} Questions</span>
+            <span class="card-pill-badge badge-marks">🎯 {{ test.total_marks }} Marks</span>
+            <span class="card-pill-badge">⏱ {{ test.duration_minutes }} Mins</span>
+          </div>
+        </div>
+        <span class="test-state {% if test.student_attempt and test.student_attempt.submitted_at %}is-published{% endif %}">
+          {% if test.student_attempt and test.student_attempt.submitted_at %}● Completed{% elif test.schedule_open %}● Open{% else %}○ Closed{% endif %}
+        </span>
+      </div>
+
+      {% if test.instructions %}<p class="test-instructions" style="margin-top:10px;">{{ test.instructions }}</p>{% endif %}
+
+      {% if test.student_attempt and test.student_attempt.submitted_at %}
+      <div class="test-score-banner">
+        <div class="score-banner-top">
+          <div>
+            <span class="score-kicker">ASSESSMENT RESULT</span>
+            <div class="score-headline">
+              {% if test.student_attempt.score != None %}
+                Score: <strong>{{ test.student_attempt.score }}</strong> / {{ test.total_marks }}
+              {% else %}
+                Automatic grading pending teacher review
+              {% endif %}
+            </div>
+          </div>
+          <span class="score-time-badge">Submitted {{ test.student_attempt.submitted_at|date:"M j, Y · g:i A" }}</span>
+        </div>
+        {% if test.student_attempt.score != None and test.total_marks > 0 %}
+        <div class="test-progress-track">
+          <div class="test-progress-bar" style="width: {% widthratio test.student_attempt.score test.total_marks 100 %}%;"></div>
+        </div>
+        {% endif %}
+      </div>
+
+      <details class="test-responses" style="margin-top:14px;">
+        <summary>View Question-by-Question Breakdown</summary>
+        <div class="test-graded-answers" style="margin-top:10px;">
+          {% for answer in test.student_attempt.answers.all %}
+          <article class="test-graded-answer-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <strong>{{ answer.question.position }}. {{ answer.question.prompt }}</strong>
+              {% if answer.score != None %}
+              <span class="answer-verdict {% if answer.is_correct %}is-correct{% else %}is-incorrect{% endif %}">
+                {% if answer.is_correct %}✔ Correct{% else %}✖ Incorrect{% endif %} · {{ answer.score }} / {{ answer.question.marks }}
+              </span>
+              {% endif %}
+            </div>
+            {% if answer.feedback %}<p class="test-feedback" style="margin:4px 0 0;">{{ answer.feedback }}</p>{% endif %}
+          </article>
+          {% endfor %}
+        </div>
+      </details>
+      {% elif test.student_attempt and not test.student_attempt.submitted_at %}
+      <div class="test-score-banner" style="background:color-mix(in srgb, #f59e0b 10%, var(--surface-2)); border-color:color-mix(in srgb, #f59e0b 35%, transparent);">
+        <div class="score-banner-top">
+          <div>
+            <span class="score-kicker" style="color:#f59e0b;">⏳ TEST IN PROGRESS</span>
+            <div class="score-headline" style="font-size:15px; margin-top:4px;">
+              Duration: <strong>{{ test.duration_minutes }} Mins</strong> · Started at {{ test.student_attempt.started_at|date:"g:i A" }}
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <span style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">Time Left</span>
+            <div class="timer-display live-card-timer" data-started="{{ test.student_attempt.started_at.isoformat }}" data-duration="{{ test.duration_minutes }}" style="font-size:18px;">--:--</div>
+          </div>
+        </div>
+      </div>
+      <div class="test-action-banner" style="margin-top:12px;">
+        <p class="test-instructions" style="margin:0;">Test timer is currently running. Resume to complete and submit answers.</p>
+        <a class="ui-primary-action test-start-btn" href="/portal/sandbox/test/{{ test.pk }}/" style="background:#f59e0b; border-color:#f59e0b; color:#000;">▶ Resume Test Sandbox</a>
+      </div>
+      {% elif test.schedule_open %}
+      <div class="test-action-banner">
+        <p class="test-instructions" style="margin:0;">Time Limit: <strong>{{ test.duration_minutes }} Minutes</strong>. Click below to begin your test session.</p>
+        <a class="ui-primary-action test-start-btn" href="/portal/sandbox/test/{{ test.pk }}/">▶ Start Test Sandbox</a>
+      </div>
+      {% else %}
+      <div class="test-closed">{{ test.schedule_label }} · Test is not currently open.</div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state"><strong>No tests available</strong><p>Published tests for your classes will appear here.</p></div>
+  {% endif %}
+</section>
+{% endif %}
+<style>
+  .test-create-card,.test-list,.class-setup-card{margin-bottom:16px}.test-answer-input-setting{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2);color:var(--text)}.test-answer-input-setting .test-primary-button{font:inherit;font-size:12px;padding:7px 11px;border:1px solid var(--accent-strong);background:var(--surface);color:var(--text)}.test-answer-input-setting .test-primary-button:hover,.test-answer-input-setting .test-primary-button:focus-visible{background:color-mix(in srgb,var(--accent-strong) 14%,var(--surface));color:var(--text);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-strong) 16%,transparent)}.class-setup-card>summary{display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer;list-style:none}.class-setup-card>summary::-webkit-details-marker{display:none}.class-setup-card>summary span:first-child{display:grid;gap:4px}.class-setup-card>summary b{font-size:14px}.class-setup-card>summary small{font-size:11px;color:var(--muted,#91a3bd)}.class-setup-card[open]>summary{margin-bottom:14px}.test-form{display:grid;gap:14px}.test-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.test-form label,.test-answer-question{display:grid;gap:7px;color:var(--muted,#91a3bd);font-size:12px;font-weight:600}.test-form input:not([type=checkbox]),.test-form select,.test-form textarea{width:100%;border:1px solid var(--border,#2a3d56);border-radius:9px;padding:10px 12px;background:var(--surface-2,#0e1a29);color:var(--text,#dce6f4);font:inherit}.test-form input[type=file]{padding:8px}.test-file-hint{color:var(--muted,#91a3bd);font-size:11px;font-weight:400;line-height:1.5}.test-form textarea{resize:vertical;line-height:1.5}.test-question-editor{display:grid;gap:8px}.test-question-row{display:grid;gap:9px;border:1px solid var(--border,#2a3d56);border-radius:10px;padding:12px}.test-question-row span,.test-answer-question span{color:var(--accent-strong);font-size:11px}.test-weekdays,.class-student-picker{display:flex;flex-wrap:wrap;gap:10px;border:1px solid var(--border,#2a3d56);border-radius:9px;padding:10px}.test-weekdays legend,.class-student-picker legend{padding:0 5px;color:var(--muted,#91a3bd);font-size:11px}.test-weekdays label,.class-student-picker label{display:flex;align-items:center;gap:5px}.class-student-picker{max-height:180px;overflow:auto}.class-student-picker p{margin:0}.test-question-preview{margin:12px 0 0;padding-left:22px;color:var(--text,#dce6f4);font-size:12px;line-height:1.6}.test-question-preview li{padding-left:3px;white-space:pre-wrap}.test-publish{display:flex!important;align-items:center;gap:8px!important}.test-primary-button{justify-self:start;border:0;border-radius:9px;padding:10px 16px;background:var(--accent-strong);color:var(--on-accent);font-weight:700;cursor:pointer}.test-message{margin-bottom:12px;color:var(--status-warning)}.test-list{display:grid;gap:10px}.test-card{border:1px solid var(--border,#2a3d56);border-radius:11px;padding:14px}.test-card-heading{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.test-card h3{margin:0 0 5px;font-size:15px}.test-card-heading p,.test-instructions{margin:0;color:var(--muted,#91a3bd);font-size:12px;line-height:1.5}.test-state{white-space:nowrap;border:1px solid var(--border,#2a3d56);border-radius:999px;padding:4px 8px;color:var(--muted,#91a3bd);font-size:10px}.test-state.is-published{color:var(--status-success);border-color:#28664f}.test-responses{margin-top:12px;border-top:1px solid var(--border,#2a3d56);padding-top:10px}.test-responses summary{cursor:pointer;color:var(--accent-strong);font-size:12px;font-weight:700}.test-response{display:grid;gap:8px;border-bottom:1px solid var(--border,#2a3d56);padding:12px 0;font-size:12px}.test-response small{color:var(--muted,#91a3bd)}.test-response p{margin:5px 0 0;white-space:pre-wrap}.test-feedback{color:var(--muted,#91a3bd)}.test-answer-question{margin:12px 0}.test-answer-question strong{color:var(--text,#dce6f4);white-space:pre-wrap}.test-submitted{margin-top:12px;color:var(--status-success);font-size:12px}.test-graded-answers{display:grid;gap:8px;margin-top:10px}.test-graded-answers article{display:grid;gap:5px;padding:9px;border:1px solid var(--border,#2a3d56);border-radius:8px;background:var(--surface-2,#0e1a29);color:var(--text,#dce6f4);font-size:12px}.test-graded-answers span{color:var(--status-success)}.test-graded-answers small{color:var(--muted,#91a3bd)}.test-closed{margin-top:12px;color:var(--status-warning)}.student-test-form{margin-top:12px}@media(max-width:700px){.test-form-grid{grid-template-columns:1fr}.test-card-heading{align-items:flex-start;flex-direction:column}}
+.test-reference-sql{max-height:240px;overflow:auto;padding:10px;border:1px solid var(--border,#2a3d56);border-radius:8px;background:var(--surface-2,#0e1a29);color:var(--text,#dce6f4);white-space:pre-wrap}.test-question-row label{display:grid;gap:7px;color:var(--muted,#91a3bd);font-size:12px;font-weight:600}.test-graded-answers{display:grid;gap:8px;margin-top:10px}.test-graded-answers article{display:grid;gap:5px;padding:9px;border:1px solid var(--border,#2a3d56);border-radius:8px;background:var(--surface-2,#0e1a29);color:var(--text,#dce6f4);font-size:12px}.test-graded-answers span{color:var(--status-success)}.test-graded-answers small{color:var(--muted,#91a3bd)}
+
+/* Professional Test Cards Styles */
+.test-card {
+  border: 1px solid var(--border, #2a3d56);
+  border-radius: 14px;
+  padding: 20px;
+  background: var(--surface);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.15);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  margin-bottom: 14px;
+}
+.test-card:hover {
+  border-color: color-mix(in srgb, var(--accent-strong) 40%, var(--border));
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+.test-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.test-card-title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+.card-badges-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+.card-pill-badge {
+  font-size: 11.5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted, #91a3bd);
+  border: 1px solid var(--border, #2a3d56);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.card-pill-badge.badge-marks {
+  background: color-mix(in srgb, #f59e0b 14%, var(--surface));
+  color: #f59e0b;
+  border-color: color-mix(in srgb, #f59e0b 30%, transparent);
+}
+.card-pill-badge.badge-course {
+  background: color-mix(in srgb, var(--accent-strong) 14%, var(--surface));
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent-strong) 30%, transparent);
+}
+.test-state {
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.test-state.is-published {
+  background: color-mix(in srgb, var(--status-success) 16%, var(--surface));
+  color: var(--status-success);
+  border-color: color-mix(in srgb, var(--status-success) 35%, transparent);
+}
+
+/* Score Hero Banner */
+.test-score-banner {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--status-success) 10%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--status-success) 28%, var(--border));
+  display: grid;
+  gap: 12px;
+}
+.score-banner-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.score-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--status-success);
+  text-transform: uppercase;
+}
+.score-headline {
+  font-size: 18px;
+  color: var(--text);
+  font-weight: 600;
+  margin-top: 2px;
+}
+.score-headline strong {
+  font-size: 22px;
+  color: var(--status-success);
+  font-weight: 800;
+}
+.score-time-badge {
+  font-size: 12px;
+  color: var(--muted);
+}
+.test-progress-track {
+  width: 100%;
+  height: 8px;
+  background: var(--surface);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--status-success) 20%, transparent);
+}
+.test-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #34d399);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+/* Graded Answer Cards */
+.test-graded-answer-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  margin-bottom: 8px;
+}
+.answer-verdict {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+.answer-verdict.is-correct {
+  background: color-mix(in srgb, var(--status-success) 18%, var(--surface));
+  color: var(--status-success);
+  border: 1px solid color-mix(in srgb, var(--status-success) 35%, transparent);
+}
+.answer-verdict.is-incorrect {
+  background: color-mix(in srgb, var(--status-error) 18%, var(--surface));
+  color: var(--status-error);
+  border: 1px solid color-mix(in srgb, var(--status-error) 35%, transparent);
+}
+.test-action-banner {
+  margin-top: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.test-start-btn {
+  padding: 10px 18px;
+  font-weight: 700;
+  font-size: 13.5px;
+  text-decoration: none;
+  border-radius: 8px;
+}
+
+
+/* Professional Test Creation Form Styles */
+.form-section-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.form-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+  margin-bottom: 18px;
+}
+.form-section-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.form-step-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--accent-strong);
+  color: var(--on-accent, #fff);
+  font-weight: 700;
+}
+.form-live-summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.summary-pill {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.summary-pill strong { color: var(--accent-strong); font-size: 13px; }
+.summary-pill.marks-pill strong { color: #f59e0b; }
+
+/* Enhanced Question Cards */
+.test-question-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  padding: 16px;
+  margin-bottom: 14px;
+  display: grid;
+  gap: 12px;
+  transition: border-color 0.15s ease;
+}
+.test-question-card:hover {
+  border-color: color-mix(in srgb, var(--accent-strong) 35%, var(--border));
+}
+.q-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  padding-bottom: 8px;
+}
+.q-card-num {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.q-card-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.q-delete-btn {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--status-error) 40%, transparent);
+  color: var(--status-error);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.q-delete-btn:hover {
+  background: var(--status-error);
+  color: #fff;
+}
+.publish-toggles-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+@media (max-width: 640px) {
+  .publish-toggles-grid { grid-template-columns: 1fr; }
+}
+.toggle-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 600;
+}
+.toggle-card input[type=checkbox] {
+  margin-top: 2px;
+  accent-color: var(--accent-strong);
+  width: 16px;
+  height: 16px;
+}
+
+</style>
+<style>
+.test-class-field{display:grid;gap:7px;color:var(--muted,#91a3bd);font-size:12px;font-weight:600}.test-class-selection-actions{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 5px}.test-class-selection-actions button{font:inherit;font-size:12px;padding:6px 10px}.test-class-selection-actions .test-secondary-button{background:var(--surface-2);color:var(--text);border-color:var(--border)}.test-class-selection-actions .test-secondary-button:hover,.test-class-selection-actions .test-secondary-button:focus-visible{background:color-mix(in srgb,var(--accent-strong) 14%,var(--surface));border-color:var(--accent-strong)}.test-form select[multiple]{min-height:170px;accent-color:var(--accent-strong)}
+.test-publish input[type="checkbox"],.test-answer-input-setting input[type="checkbox"]{accent-color:var(--accent-strong)}
+.test-answer-input-setting .test-primary-button:focus-visible{outline:2px solid var(--accent-strong);outline-offset:2px}
+.test-answer-input-setting .test-primary-button:disabled{opacity:.6;cursor:not-allowed}
+</style>
+<script>
+document.querySelectorAll('[data-select-all-classes="test"], [data-clear-classes="test"]').forEach(button=>button.addEventListener('click',()=>{const select=document.querySelector('[data-test-class]');if(!select)return;const selectAll=button.hasAttribute('data-select-all-classes');[...select.options].forEach(option=>option.selected=selectAll);select.dispatchEvent(new Event('change',{bubbles:true}));}));
+
+// Teacher Test Creation Form JS Enhancements
+(function initTeacherFormEnhancements() {
+  const wrapper = document.querySelector('#questionsListWrapper');
+  const liveCount = document.querySelector('#liveQCount');
+  const liveMarks = document.querySelector('#liveMarksTotal');
+  const addBtn = document.querySelector('[data-add-question]');
+  const bulkInput = document.querySelector('#bulkMarksInput');
+  const applyBulkBtn = document.querySelector('#applyBulkMarksBtn');
+
+  // Recalculate Live Totals
+  function updateLiveTotals() {
+    if (!wrapper) return;
+    const cards = wrapper.querySelectorAll('.test-question-card');
+    let totalMarks = 0;
+    cards.forEach((card, idx) => {
+      // Re-index question number
+      const numSpan = card.querySelector('.q-card-num');
+      if (numSpan) numSpan.textContent = `Question #${idx + 1}`;
+      
+      const markInput = card.querySelector('.q-mark-input');
+      const badgeMark = card.querySelector('.q-badge-mark');
+      const val = parseFloat(markInput?.value) || 0;
+      if (badgeMark) badgeMark.textContent = val;
+      totalMarks += val;
+
+      // Show delete button only if more than 1 question
+      const delBtn = card.querySelector('.q-delete-btn');
+      if (delBtn) delBtn.style.display = cards.length > 1 ? 'inline-block' : 'none';
+    });
+
+    if (liveCount) liveCount.textContent = cards.length;
+    if (liveMarks) liveMarks.textContent = totalMarks.toFixed(1);
+  }
+
+  // Hook input events on marks
+  wrapper?.addEventListener('input', (e) => {
+    if (e.target.classList.contains('q-mark-input')) {
+      updateLiveTotals();
+    }
+  });
+
+  // Delete question card
+  wrapper?.addEventListener('click', (e) => {
+    if (e.target.classList.contains('q-delete-btn')) {
+      const card = e.target.closest('.test-question-card');
+      if (card && wrapper.querySelectorAll('.test-question-card').length > 1) {
+        card.remove();
+        updateLiveTotals();
+      }
+    }
+  });
+
+  // Apply Bulk Marks
+  applyBulkBtn?.addEventListener('click', () => {
+    const val = parseFloat(bulkInput?.value);
+    if (!isNaN(val) && val > 0) {
+      wrapper?.querySelectorAll('.q-mark-input').forEach(input => {
+        input.value = val;
+      });
+      updateLiveTotals();
+    }
+  });
+
+  // Dynamic Add Question
+  addBtn?.addEventListener('click', (e) => {
+    e.stopImmediatePropagation(); // Avoid duplicate firing
+    if (!wrapper) return;
+    const currentCards = wrapper.querySelectorAll('.test-question-card');
+    const newIdx = currentCards.length + 1;
+    const defaultMark = parseFloat(bulkInput?.value) || 1.0;
+
+    const newCard = document.createElement('div');
+    newCard.className = 'test-question-card';
+    newCard.dataset.qCard = String(newIdx);
+    newCard.innerHTML = `
+      <div class="q-card-header">
+        <span class="q-card-num">Question #${newIdx}</span>
+        <div class="q-card-actions">
+          <span class="card-pill-badge badge-marks"><span class="q-badge-mark">${defaultMark}</span> Mark(s)</span>
+          <button type="button" class="q-delete-btn" title="Remove this question">🗑 Delete</button>
+        </div>
+      </div>
+      <label>Question
+        <textarea name="question" rows="3" required placeholder="Write the question students should answer"></textarea>
+      </label>
+      <div style="display:grid; grid-template-columns: 1fr 140px; gap: 10px;">
+        <label>Reference SQL answer
+          <textarea name="expected_sql" rows="3" placeholder="Used by automatic grading"></textarea>
+        </label>
+        <label>Marks
+          <input type="number" name="question_marks" class="q-mark-input" value="${defaultMark}" min="0.5" step="0.5" required>
+        </label>
+      </div>
+    `;
+    wrapper.append(newCard);
+    updateLiveTotals();
+  });
+
+  updateLiveTotals();
+})();
+
+
+// Live Card Timers for Active In-Progress Tests
+document.querySelectorAll('.live-card-timer').forEach(elem => {
+  const startedIso = elem.dataset.started;
+  const durationMins = parseInt(elem.dataset.duration || '60', 10);
+  if (!startedIso) return;
+  const startTs = new Date(startedIso).getTime();
+  const totalSecs = durationMins * 60;
+
+  function update() {
+    const elapsed = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
+    const rem = Math.max(0, totalSecs - elapsed);
+    const m = Math.floor(rem / 60);
+    const s = rem % 60;
+    elem.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    if (rem <= 300) elem.classList.add('is-urgent');
+  }
+  update();
+  setInterval(update, 1000);
+});
+
+</script>
+<script>
+(()=>{const csrf=document.cookie.split('; ').find(x=>x.startsWith('ora_csrf='));const token=csrf?decodeURIComponent(csrf.slice('ora_csrf='.length)):'';document.querySelectorAll('[data-test-form] input[name="csrfmiddlewaretoken"]').forEach(x=>x.value=token);const list=document.querySelector('[data-question-list]');const add=document.querySelector('[data-add-question]');const questionFile=document.querySelector('[data-question-file]');const syncQuestionRequirements=()=>{if(!list)return;const hasFile=!!questionFile?.files?.length;list.querySelectorAll('textarea[name="question"]').forEach(x=>{x.required=!hasFile;});};if(list&&add){let index=1;
+const bulkInput = document.getElementById('bulkMarksInput');
+const applyBulkBtn = document.getElementById('applyBulkMarksBtn');
+if (applyBulkBtn && bulkInput) {
+  applyBulkBtn.addEventListener('click', () => {
+    const val = parseFloat(bulkInput.value);
+    if (!isNaN(val) && val > 0) {
+      document.querySelectorAll('input[name="question_marks"]').forEach(input => {
+        input.value = val;
+      });
+    }
+  });
+}
+add.addEventListener('click',()=>{index++;const row=document.createElement('div');row.className='test-question-row';const span=document.createElement('span');span.textContent=`${index}.`;const questionLabel=document.createElement('label');questionLabel.append('Question');const question=document.createElement('textarea');question.name='question';question.rows=3;question.required=!questionFile?.files?.length;question.placeholder='Write the question students should answer';questionLabel.append(question);const grid=document.createElement('div');grid.style.cssText='display:grid;grid-template-columns:1fr 140px;gap:10px;';const answerLabel=document.createElement('label');answerLabel.append('Reference SQL answer');const answer=document.createElement('textarea');answer.name='expected_sql';answer.rows=3;answer.placeholder='Used by automatic grading';answerLabel.append(answer);const marksLabel=document.createElement('label');marksLabel.append('Marks');const currentDefault=document.getElementById('bulkMarksInput')?.value||'1';const marksInput=document.createElement('input');marksInput.type='number';marksInput.name='question_marks';marksInput.value=currentDefault;marksInput.min='0.5';marksInput.step='0.5';marksInput.required=true;marksLabel.append(marksInput);grid.append(answerLabel,marksLabel);row.append(span,questionLabel,grid);list.append(row);});}if(questionFile){questionFile.addEventListener('change',syncQuestionRequirements);syncQuestionRequirements();}const classSelect=document.querySelector('[data-test-class]');const labSelect=document.querySelector('[data-test-lab]');if(classSelect&&labSelect){const update=()=>{for(const option of labSelect.options){if(!option.value)continue;option.hidden=option.dataset.class!==classSelect.value;}if(labSelect.selectedOptions[0]?.hidden)labSelect.value='';};classSelect.addEventListener('change',update);update();}const frequency=document.querySelector('[data-schedule-frequency]');if(frequency){const sync=()=>{const scheduled=frequency.value!=='anytime';document.querySelectorAll('[data-schedule-time]').forEach(x=>{x.disabled=!scheduled;x.required=scheduled;});const weekly=frequency.value==='weekly';const days=document.querySelector('[data-weekdays]');days.disabled=!weekly;days.querySelectorAll('input').forEach(x=>{x.disabled=!weekly;});};frequency.addEventListener('change',sync);sync();}})();
+</script>
+<script>
+(()=>{const mode=document.querySelector('[name="grading_mode"]');const list=document.querySelector('[data-question-list]');if(!mode||!list)return;const sync=()=>list.querySelectorAll('textarea[name="expected_sql"]').forEach(field=>{field.required=mode.value!=='manual';});mode.addEventListener('change',sync);new MutationObserver(sync).observe(list,{childList:true,subtree:true});sync();})();
+</script>
+{% endblock %}

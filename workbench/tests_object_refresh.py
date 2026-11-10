@@ -19,6 +19,8 @@ class ObjectRefreshTests(SimpleTestCase):
         query = cursor.execute.call_args.args[0]
         self.assertIn('FROM user_constraints c', query)
         self.assertIn('LEFT JOIN user_cons_columns cc', query)
+        self.assertIn('AS referenced_column_name', query)
+        self.assertIn('refcol.position=cc.position', query)
         self.assertIn('ref.owner=c.r_owner', query)
         self.assertEqual(json.loads(response.content)['constraints'][0]['REFERENCED_TABLE_NAME'], 'DEPARTMENTS')
         conn.close.assert_called_once()

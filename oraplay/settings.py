@@ -16,6 +16,7 @@ def load_env_file():
 
 load_env_file()
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "development-only-change-before-deployment")
+DB_CREDENTIALS_ENCRYPTION_KEY = os.environ.get("DB_CREDENTIALS_ENCRYPTION_KEY", "")
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 ALLOWED_HOSTS = [item.strip() for item in os.environ.get("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost,JEET-PC").split(",") if item.strip()]
 CSRF_TRUSTED_ORIGINS = [f"https://{host.lower()}:3000" for host in ALLOWED_HOSTS if host != "*"]
@@ -32,10 +33,12 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "workbench.middleware.StudentClassSelectionMiddleware",
     "workbench.middleware.StudentSessionLimitMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "workbench.middleware.LoginAutofillPolicyMiddleware",
+    "workbench.password_privacy.PasswordPrivacyMiddleware",
 ]
 ROOT_URLCONF = "oraplay.urls"
 TEMPLATES = [{
@@ -48,18 +51,17 @@ TEMPLATES = [{
 }]
 WSGI_APPLICATION = "oraplay.wsgi.application"
 ASGI_APPLICATION = "oraplay.asgi.application"
-if os.environ.get("LMS_DB_ENGINE", "sqlite").lower() == "oracle":
-    DATABASES = {"default": {
-        "ENGINE": "django.db.backends.oracle",
-        "NAME": os.environ.get("LMS_ORACLE_DSN", ""),
-        "USER": os.environ.get("LMS_ORACLE_USER", ""),
-        "PASSWORD": os.environ.get("LMS_ORACLE_PASSWORD", ""),
-        "HOST": "", "PORT": "",
-        "CONN_MAX_AGE": 60,
-        "CONN_HEALTH_CHECKS": True,
-    }}
-else:
-    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "lms.sqlite3"}}
+if os.environ.get("LMS_DB_ENGINE", "oracle").lower() != "oracle":
+    raise RuntimeError("SQLite is not supported. Configure LMS_DB_ENGINE=oracle.")
+DATABASES = {"default": {
+    "ENGINE": "django.db.backends.oracle",
+    "NAME": os.environ.get("LMS_ORACLE_DSN", ""),
+    "USER": os.environ.get("LMS_ORACLE_USER", ""),
+    "PASSWORD": os.environ.get("LMS_ORACLE_PASSWORD", ""),
+    "HOST": "", "PORT": "",
+    "CONN_MAX_AGE": 60,
+    "CONN_HEALTH_CHECKS": True,
+}}
 AUTH_USER_MODEL = "workbench.PortalUser"
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -117,3 +119,19 @@ LOGGING = {
 }
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
+
+# A staged batch contains up to 200 questions with editable metadata and schema text.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 2500
+DATA_UPLOAD_MAX_MEMORY_SIZE = 32 * 1024 * 1024
+
+# Opt-in production policy. Local HTTPS/certificate behavior remains unchanged.
+WORKBENCH_PRODUCTION = os.environ.get("WORKBENCH_DEPLOYMENT", "local").lower() == "production"
+SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", str(WORKBENCH_PRODUCTION)).lower() == "true"
+SECURE_HSTS_SECONDS = max(0, int(os.environ.get("SECURE_HSTS_SECONDS", "0")))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = os.environ.get("SECURE_HSTS_INCLUDE_SUBDOMAINS", "false").lower() == "true"
+SECURE_HSTS_PRELOAD = False
+if WORKBENCH_PRODUCTION:
+    from django.core.exceptions import ImproperlyConfigured
+    if DEBUG or SECRET_KEY == "development-only-change-before-deployment" or "*" in ALLOWED_HOSTS:
+        raise ImproperlyConfigured("Production requires DEBUG=False, an explicit secret key, and explicit allowed hosts.")
+    SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = True

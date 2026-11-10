@@ -2,11 +2,40 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
+from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 import uuid
 
 from .account_notifications import notify_account_event
-from .models import AuditEvent, CompilerOption, DashboardNavigationItem, PortalSetting, PortalUser, RegistrationField
+from .models import (
+    AuditEvent, ClassSection, CompilerLab, CompilerOption, DashboardNavigationItem,
+    Enrollment, LabEnrollment, PortalSetting, PortalUser, RegistrationField,
+    PortalUserChangeLog, StudentManagement, TimetableEntry,
+)
+from .user_change_log import user_change_actor
+
+
+@admin.register(TimetableEntry)
+class TimetableAdmin(admin.ModelAdmin):
+    def changelist_view(self, request, extra_context=None):
+        from django.shortcuts import redirect
+        return redirect("/portal/timetable/")
+
+
+@admin.register(ClassSection)
+class ClassManagementAdmin(admin.ModelAdmin):
+    """Keep the administration entry point on the shared portal theme."""
+    def changelist_view(self, request, extra_context=None):
+        from django.shortcuts import redirect
+        return redirect("/portal/classes/")
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        for name in ("branch", "semester", "section", "group"):
+            if name in form.base_fields:
+                form.base_fields[name].required = True
+        return form
 
 ADDITIONAL_ROLE_CHOICES = tuple(
     choice for choice in PortalUser.Role.choices
@@ -33,7 +62,7 @@ class PortalUserCreationForm(UserCreationForm):
 
     class Meta(UserCreationForm.Meta):
         model = PortalUser
-        fields = ("username", "email", "first_name", "middle_name", "last_name", "role", "mobile_number", "can_approve_students", "can_view_all_compiler_activity", "additional_roles")
+        fields = ("username", "email", "first_name", "middle_name", "last_name", "role", "mobile_number", "can_approve_students", "can_view_all_compiler_activity", "can_manage_classes", "can_manage_timetable", "additional_roles")
 
     def clean_username(self):
         value = self.cleaned_data.get("username")
@@ -46,6 +75,8 @@ class PortalUserCreationForm(UserCreationForm):
         if primary_role != PortalUser.Role.TEACHER and PortalUser.Role.TEACHER not in extra_roles:
             self.fields["can_approve_students"].disabled = True
             self.fields["can_view_all_compiler_activity"].disabled = True
+            self.fields["can_manage_classes"].disabled = True
+            self.fields["can_manage_timetable"].disabled = True
 
     def clean_additional_roles(self):
         return [role for role in self.cleaned_data.get("additional_roles", []) if role != self.cleaned_data.get("role")]
@@ -89,6 +120,8 @@ class PortalUserChangeForm(UserChangeForm):
         if primary_role != PortalUser.Role.TEACHER and PortalUser.Role.TEACHER not in extra_roles:
             self.fields["can_approve_students"].disabled = True
             self.fields["can_view_all_compiler_activity"].disabled = True
+            self.fields["can_manage_classes"].disabled = True
+            self.fields["can_manage_timetable"].disabled = True
 
     def clean_additional_roles(self):
         return [role for role in self.cleaned_data.get("additional_roles", []) if role != self.cleaned_data.get("role")]
@@ -117,14 +150,14 @@ class PortalUserAdmin(UserAdmin):
         ("Personal info", {"fields": ("first_name", "middle_name", "last_name", "email")} ),
         *UserAdmin.fieldsets[2:],
         ('Session time', {'fields': ('unrestricted_session_time',), 'description': 'Admin-role accounts and members of the Admin group are always exempt from time limits.'}),
-        ("Portal access", {"fields": ("role", "additional_roles", "registration_status", "mobile_number", "email_verified", "mobile_verified", "teacher_number", "student_number", "profile_data", "can_approve_students", "can_view_all_compiler_activity", "approval_record", "approved_at")}),
+        ("Portal access", {"fields": ("role", "additional_roles", "registration_status", "mobile_number", "email_verified", "mobile_verified", "teacher_number", "student_number", "profile_data", "can_approve_students", "can_view_all_compiler_activity", "can_manage_classes", "can_manage_timetable", "approval_record", "approved_at")}),
         ("Oracle connection credentials", {"fields": ("oracle_username", "oracle_password", "oracle_connect_string", "clear_oracle_credentials"), "description": "The password is stored encrypted and is never displayed here. Leave its field blank to preserve the saved password."}),
     )
-    add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "first_name", "middle_name", "last_name", "role", "additional_roles", "mobile_number", "can_approve_students", "can_view_all_compiler_activity", "password1", "password2")}),)
+    add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "first_name", "middle_name", "last_name", "role", "additional_roles", "mobile_number", "can_approve_students", "can_view_all_compiler_activity", "can_manage_classes", "can_manage_timetable", "password1", "password2")}),)
     actions = ("approve_student_registrations", "reject_student_registrations", "delete_selected_users")
 
     class Media:
-        js = ("workbench/admin/portaluser-role-permissions.js?v=20261019-2",)
+        js = ("workbench/admin/portaluser-role-permissions.js?v=20261029-class-timetable",)
 
     readonly_fields = ("email_verified", "mobile_verified", "approval_record", "approved_at")
 
@@ -158,8 +191,28 @@ class PortalUserAdmin(UserAdmin):
             self.message_user(request, "You do not have permission to delete portal users.", level=messages.ERROR)
             return
         protected_count = queryset.filter(is_superuser=True).count()
-        delete_count = queryset.exclude(is_superuser=True).count()
-        queryset.exclude(is_superuser=True).delete()
+        delete_count = 0
+        # Isolate each account so protected teaching records do not abort the
+        # entire selection or leave the database transaction unusable.
+        for user in queryset.exclude(is_superuser=True).iterator():
+            try:
+                with transaction.atomic(using=queryset.db):
+                    with user_change_actor(request.user):
+                        user.delete(using=queryset.db)
+            except ProtectedError as error:
+                related_types = ", ".join(sorted({
+                    str(record._meta.verbose_name_plural)
+                    for record in error.protected_objects
+                }))
+                self.message_user(
+                    request,
+                    f"Cannot delete {user.username}: linked {related_types} must be "
+                    "reassigned or removed first. You can deactivate the account "
+                    "by clearing Active to prevent login while keeping its records.",
+                    level=messages.ERROR,
+                )
+            else:
+                delete_count += 1
         if delete_count:
             self.message_user(request, f"Deleted {delete_count} portal user(s).", level=messages.SUCCESS)
         if protected_count:
@@ -167,6 +220,8 @@ class PortalUserAdmin(UserAdmin):
 
     def save_model(self, request, obj, form, change):
         just_approved = False
+        if not change and PortalUser.Role.STUDENT in obj.portal_roles:
+            obj.class_selection_required = True
         if change:
             previous = PortalUser.objects.filter(pk=obj.pk).only("registration_status").first()
             if previous and previous.registration_status != PortalUser.RegistrationStatus.APPROVED and obj.registration_status == PortalUser.RegistrationStatus.APPROVED:
@@ -194,17 +249,35 @@ class PortalUserAdmin(UserAdmin):
                 form.cleaned_data["oracle_password"],
                 obj.oracle_connect_string,
             )
-        super().save_model(request, obj, form, change)
+        with user_change_actor(request.user):
+            super().save_model(request, obj, form, change)
         if just_approved:
             failures = notify_account_event(obj, "approved", request=request)
             if failures:
                 self.message_user(request, "The account was approved, but its email or WhatsApp confirmation could not be sent. Check the server log and notification settings.", level=messages.WARNING)
 
+    def delete_model(self, request, obj):
+        with user_change_actor(request.user):
+            super().delete_model(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        with user_change_actor(request.user):
+            super().delete_queryset(request, queryset)
+
+
     @admin.action(description="Approve selected pending student or teacher registrations")
     def approve_student_registrations(self, request, queryset):
         registrations = queryset.filter(role__in=(PortalUser.Role.STUDENT, PortalUser.Role.TEACHER), registration_status=PortalUser.RegistrationStatus.PENDING_ADMIN)
-        users = list(registrations.only("pk", "role", "username", "first_name", "email", "mobile_number"))
-        registrations.update(registration_status=PortalUser.RegistrationStatus.APPROVED, is_active=True, approved_by=request.user, approved_at=timezone.now())
+        with transaction.atomic(using=queryset.db):
+            users = list(registrations.select_for_update().only("pk", "role", "username", "first_name", "email", "mobile_number"))
+            registrations.update(registration_status=PortalUser.RegistrationStatus.APPROVED, is_active=True, approved_by=request.user, approved_at=timezone.now())
+            PortalUserChangeLog.objects.using(queryset.db).bulk_create([
+                PortalUserChangeLog(subject=user, subject_id_snapshot=user.pk,
+                                    username_snapshot=user.username, action=PortalUserChangeLog.Action.UPDATED,
+                                    changed_fields=["registration_status", "is_active", "approved_by", "approved_at"],
+                                    actor=request.user, actor_name_snapshot=request.user.username)
+                for user in users
+            ])
         failed_users = sum(bool(notify_account_event(user, "approved", request=request)) for user in users)
         for user in users:
             AuditEvent.objects.create(actor=request.user, action=f"{user.role.lower()}_registration_approved", target=str(user.pk))
@@ -215,11 +288,49 @@ class PortalUserAdmin(UserAdmin):
     @admin.action(description="Reject selected pending student or teacher registrations")
     def reject_student_registrations(self, request, queryset):
         registrations = queryset.filter(role__in=(PortalUser.Role.STUDENT, PortalUser.Role.TEACHER), registration_status=PortalUser.RegistrationStatus.PENDING_ADMIN)
-        users = list(registrations.only("pk", "role"))
-        registrations.update(registration_status=PortalUser.RegistrationStatus.REJECTED, is_active=False)
+        with transaction.atomic(using=queryset.db):
+            users = list(registrations.select_for_update().only("pk", "role", "username"))
+            registrations.update(registration_status=PortalUser.RegistrationStatus.REJECTED, is_active=False)
+            PortalUserChangeLog.objects.using(queryset.db).bulk_create([
+                PortalUserChangeLog(subject=user, subject_id_snapshot=user.pk,
+                                    username_snapshot=user.username, action=PortalUserChangeLog.Action.UPDATED,
+                                    changed_fields=["registration_status", "is_active"],
+                                    actor=request.user, actor_name_snapshot=request.user.username)
+                for user in users
+            ])
         for user in users:
             AuditEvent.objects.create(actor=request.user, action=f"{user.role.lower()}_registration_rejected", target=str(user.pk))
         self.message_user(request, f"Rejected {len(users)} student or teacher registration(s).", level=messages.SUCCESS)
+
+
+@admin.register(PortalUserChangeLog)
+class PortalUserChangeLogAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "action", "username_snapshot", "subject_id_snapshot", "actor_name_snapshot", "origin", "changed_field_names")
+    list_filter = ("action", "origin", "created_at")
+    search_fields = ("username_snapshot", "actor_name_snapshot")
+    readonly_fields = ("created_at", "action", "origin", "subject", "subject_id_snapshot", "username_snapshot", "changed_fields", "actor", "actor_name_snapshot")
+    list_select_related = ("actor",)
+
+    @admin.display(description="Changed fields")
+    def changed_field_names(self, obj):
+        return ", ".join(obj.changed_fields)
+
+    def has_module_permission(self, request):
+        return request.user.is_active and request.user.is_staff and (
+            request.user.is_superuser or request.user.role == PortalUser.Role.ADMIN
+        )
+
+    def has_view_permission(self, request, obj=None):
+        return self.has_module_permission(request)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class PortalSettingAdminForm(forms.ModelForm):
@@ -351,3 +462,87 @@ class CompilerOptionAdmin(admin.ModelAdmin):
     @admin.action(description="Remove selected compiler options from the chooser")
     def disable_compilers(self, request, queryset):
         queryset.update(is_active=False)
+class StudentMembershipAdminForm(forms.ModelForm):
+    """Safe student-management form with membership controls only."""
+    classes = forms.ModelMultipleChoiceField(
+        label="Classes",
+        queryset=ClassSection.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Select the classes this student belongs to. Clear all selections to remove class memberships.",
+    )
+    labs = forms.ModelMultipleChoiceField(
+        label="Compiler labs",
+        queryset=CompilerLab.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Select the compiler labs this student can use. Clear all selections to remove lab memberships.",
+    )
+
+    class Meta:
+        model = PortalUser
+        fields = ("username", "first_name", "middle_name", "last_name", "email", "mobile_number", "student_number", "is_active")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["classes"].queryset = ClassSection.objects.filter(is_active=True).select_related("course").order_by("course__code", "name")
+        self.fields["labs"].queryset = CompilerLab.objects.filter(is_active=True).select_related("class_section", "class_section__course").order_by("class_section__name", "name")
+        if self.instance and self.instance.pk:
+            self.initial["classes"] = Enrollment.objects.filter(student=self.instance, active=True).values_list("class_section_id", flat=True)
+            self.initial["labs"] = LabEnrollment.objects.filter(student=self.instance, active=True).values_list("lab_id", flat=True)
+
+    def save(self, commit=True):
+        student = super().save(commit=commit)
+        self._student_for_memberships = student
+        if commit:
+            self.save_m2m()
+        return student
+
+    def _save_m2m(self):
+        super()._save_m2m()
+        student = getattr(self, "_student_for_memberships", None)
+        if not student or not student.pk:
+            return
+        selected_classes = set(self.cleaned_data.get("classes", ()).values_list("pk", flat=True))
+        selected_labs = set(self.cleaned_data.get("labs", ()).values_list("pk", flat=True))
+        with transaction.atomic():
+            for membership in Enrollment.objects.filter(student=student):
+                membership.active = membership.class_section_id in selected_classes
+                membership.save(update_fields=("active",))
+            existing = set(Enrollment.objects.filter(student=student).values_list("class_section_id", flat=True))
+            Enrollment.objects.bulk_create([Enrollment(student=student, class_section_id=pk) for pk in selected_classes - existing])
+            for membership in LabEnrollment.objects.filter(student=student):
+                membership.active = membership.lab_id in selected_labs
+                membership.save(update_fields=("active",))
+            existing_labs = set(LabEnrollment.objects.filter(student=student).values_list("lab_id", flat=True))
+            LabEnrollment.objects.bulk_create([LabEnrollment(student=student, lab_id=pk) for pk in selected_labs - existing_labs])
+
+
+@admin.register(StudentManagement)
+class StudentManagementAdmin(PortalUserAdmin):
+    """Student-only directory with safe class and lab membership controls."""
+    form = StudentMembershipAdminForm
+    fieldsets = (
+        ("Student", {"fields": ("username", "first_name", "middle_name", "last_name", "email", "mobile_number", "student_number", "is_active")}),
+        ("Class and lab membership", {"fields": ("classes", "labs")}),
+    )
+    readonly_fields = ("username", "student_number")
+    list_display = ("username", "get_full_name", "email", "student_number", "membership_summary", "is_active")
+    search_fields = ("username", "first_name", "middle_name", "last_name", "email", "student_number")
+    list_filter = ("is_active",)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(role=PortalUser.Role.STUDENT)
+
+    def save_related(self, request, form, formsets, change):
+        # Django's change form saves custom (non-model) membership fields in
+        # the related-save phase. Keep this explicit so deselected memberships
+        # are reliably deactivated after the student row is saved.
+        super().save_related(request, form, formsets, change)
+        self.message_user(request, "Student class and lab memberships updated.", level=messages.SUCCESS)
+
+    @admin.display(description="Classes / labs")
+    def membership_summary(self, obj):
+        classes = Enrollment.objects.filter(student=obj, active=True).count()
+        labs = LabEnrollment.objects.filter(student=obj, active=True).count()
+        return f"{classes} class(es), {labs} lab(s)"

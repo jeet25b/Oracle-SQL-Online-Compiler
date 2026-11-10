@@ -47,3 +47,478 @@
 2026-10-28 21:29:54 Intentional shutdown recorded for server PID 25844.
 2026-10-28 21:37:09 Intentional shutdown recorded for server PID 25216.
 2026-10-28 21:41:00 Intentional shutdown recorded for server PID 20660.
+2026-10-28 23:06:32 Intentional shutdown recorded for server PID 8492.
+2026-10-28 23:06:57 Crash report sent to jit25b@gmail.com: The server process is still running, but the local health endpoint failed three consecutive checks. Latest check: HTTPError: HTTP Error 403: Forbidden
+2026-10-28 23:34:44 Intentional shutdown recorded for server PID 21752.
+2026-10-28 23:35:12 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:35:27 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:35:42 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:35:58 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:36:13 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:36:28 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:36:43 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:36:58 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:37:13 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:37:28 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:37:43 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:37:59 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:38:14 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:38:29 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:38:44 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:38:59 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:39:14 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:39:29 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:39:44 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:40:00 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:40:15 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:40:30 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:40:45 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:41:00 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:41:16 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:41:31 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:41:46 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:42:01 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:42:16 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:42:31 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:42:46 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:43:01 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:43:16 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:43:32 Could not send crash report: DatabaseError: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+2026-10-28 23:43:50 Crash report sent to jit25b@gmail.com: The server process is still running, but the local health endpoint failed three consecutive checks. Latest check: HTTPError: HTTP Error 403: Forbidden
+2026-10-28 23:48:06 Intentional shutdown recorded for server PID 26960.
+2026-10-28 23:51:33 Intentional shutdown recorded for server PID 26364.
+2026-10-29 00:08:34 Intentional shutdown recorded for server PID 23836.
+2026-10-29 00:10:27 Intentional shutdown recorded for server PID 27472.
+2026-10-29 07:04:59 Intentional shutdown recorded for server PID 17556.
+2026-10-29 07:27:47 Intentional shutdown recorded for server PID 4132.
+2026-10-29 07:32:07 Intentional shutdown recorded for server PID 5068.
+2026-10-29 08:07:38 Intentional shutdown recorded for server PID 3448.
+2026-10-29 08:37:42 Intentional shutdown recorded for server PID 20956.
+2026-10-29 08:55:06 Intentional shutdown recorded for server PID 11364.
+2026-10-29 13:53:34 Intentional shutdown recorded for server PID 12360.
+2026-10-29 19:43:08 Intentional shutdown recorded for server PID 8848.
+2026-10-29 20:51:35 Intentional shutdown recorded for server PID 21724.
+2026-10-29 21:42:41 Intentional shutdown recorded for server PID 20544.
+2026-10-29 22:00:47 Intentional shutdown recorded for server PID 24196.
+2026-10-29 22:33:27 Intentional shutdown recorded for server PID 5724.
+2026-10-29 23:01:00 Intentional shutdown recorded for server PID 23836.
+2026-10-29 23:08:36 Intentional shutdown recorded for server PID 24052.
+2026-10-29 23:10:44 Intentional shutdown recorded for server PID 26432.
+2026-10-29 23:35:06 Intentional shutdown recorded for server PID 25784.
+2026-10-29 23:39:55 Intentional shutdown recorded for server PID 25216.
+2026-10-29 23:50:42 Intentional shutdown recorded for server PID 5820.
+2026-10-29 23:59:07 Intentional shutdown recorded for server PID 26296.
+2026-10-30 00:03:13 Intentional shutdown recorded for server PID 9064.
+2026-10-30 00:13:29 Intentional shutdown recorded for server PID 1252.
+2026-10-30 00:21:18 Intentional shutdown recorded for server PID 21652.
+2026-10-30 00:30:45 Intentional shutdown recorded for server PID 25852.
+2026-10-30 00:41:27 Intentional shutdown recorded for server PID 22520.
+2026-10-30 00:47:35 Intentional shutdown recorded for server PID 9244.
+2026-10-30 01:06:24 Intentional shutdown recorded for server PID 25832.
+2026-10-30 01:54:05 Intentional shutdown recorded for server PID 13708.
+2026-10-30 01:56:47 Intentional shutdown recorded for server PID 22416.
+2026-10-30 02:16:09 Intentional shutdown recorded for server PID 21612.
+2026-10-30 02:31:28 Intentional shutdown recorded for server PID 18504.
+2026-10-30 02:36:22 Intentional shutdown recorded for server PID 19272.
+2026-10-30 02:42:37 Intentional shutdown recorded for server PID 21612.
+2026-10-30 02:50:26 Intentional shutdown recorded for server PID 8472.
+2026-10-30 02:53:39 Intentional shutdown recorded for server PID 8096.
+2026-10-30 03:00:18 Intentional shutdown recorded for server PID 932.
+2026-10-30 03:02:31 Intentional shutdown recorded for server PID 26344.
+2026-10-30 03:04:43 Intentional shutdown recorded for server PID 25732.
+2026-10-30 03:10:08 Intentional shutdown recorded for server PID 27048.
+2026-10-30 03:22:48 Intentional shutdown recorded for server PID 24020.
+2026-10-30 03:41:00 Intentional shutdown recorded for server PID 10880.
+2026-10-30 03:53:08 Intentional shutdown recorded for server PID 24404.
+2026-10-30 03:59:53 Intentional shutdown recorded for server PID 26244.
+2026-10-30 04:05:30 Intentional shutdown recorded for server PID 20976.
+2026-10-30 04:05:57 Intentional shutdown recorded for server PID 8868.
+2026-10-30 04:15:41 Intentional shutdown recorded for server PID 7524.
+2026-10-30 04:28:49 Intentional shutdown recorded for server PID 21212.
+2026-10-30 04:43:46 Intentional shutdown recorded for server PID 12612.
+2026-10-30 04:49:37 Intentional shutdown recorded for server PID 21576.
+2026-10-30 04:58:25 Intentional shutdown recorded for server PID 9892.
+2026-10-30 05:29:49 Intentional shutdown recorded for server PID 9472.
+2026-10-30 05:42:32 Intentional shutdown recorded for server PID 4036.
+2026-10-30 07:21:00 Intentional shutdown recorded for server PID 20024.
+2026-10-30 11:09:47 Intentional shutdown recorded for server PID 19748.
+2026-10-30 11:31:48 Intentional shutdown recorded for server PID 15876.
+2026-10-30 11:32:23 Intentional shutdown recorded for server PID 11836.
+2026-10-30 13:06:15 Intentional shutdown recorded for server PID 9856.
+2026-10-30 14:45:21 Intentional shutdown recorded for server PID 18592.
+2026-10-30 14:50:56 Intentional shutdown recorded for server PID 12068.
+2026-10-30 14:56:40 Intentional shutdown recorded for server PID 19264.
+2026-10-30 14:56:56 Intentional shutdown recorded for server PID 6412.
+2026-10-30 15:05:44 Intentional shutdown recorded for server PID 22320.
+2026-10-30 15:09:05 Intentional shutdown recorded for server PID 2512.
+2026-10-30 15:09:45 Intentional shutdown recorded for server PID 6212.
+2026-10-30 15:17:53 Intentional shutdown recorded for server PID 7812.
+2026-10-30 15:19:52 Intentional shutdown recorded for server PID 3500.
+2026-10-30 15:22:28 Intentional shutdown recorded for server PID 25956.
+2026-10-30 15:22:47 Intentional shutdown recorded for server PID 27928.
+2026-10-30 15:24:08 Intentional shutdown recorded for server PID 4316.
+2026-10-30 15:26:03 Intentional shutdown recorded for server PID 27740.
+2026-10-30 15:26:27 Intentional shutdown recorded for server PID 21196.
+2026-10-30 15:38:43 Intentional shutdown recorded for server PID 23680.
+2026-10-30 15:50:14 Intentional shutdown recorded for server PID 4812.
+2026-10-30 15:52:08 Intentional shutdown recorded for server PID 24652.
+2026-10-30 16:00:00 Intentional shutdown recorded for server PID 15700.
+2026-10-30 16:01:54 Intentional shutdown recorded for server PID 7400.
+2026-10-30 16:02:26 Intentional shutdown recorded for server PID 26120.
+2026-10-30 16:06:31 Intentional shutdown recorded for server PID 25160.
+2026-10-30 16:18:16 Intentional shutdown recorded for server PID 17272.
+2026-10-30 16:19:48 Intentional shutdown recorded for server PID 24824.
+2026-10-30 16:23:17 Intentional shutdown recorded for server PID 12732.
+2026-10-30 16:23:41 Intentional shutdown recorded for server PID 15788.
+2026-10-31 08:40:04 Intentional shutdown recorded for server PID 22388.
+2026-10-31 08:43:26 Intentional shutdown recorded for server PID 12552.
+2026-10-31 08:48:31 Intentional shutdown recorded for server PID 23676.
+2026-10-31 08:49:11 Intentional shutdown recorded for server PID 14696.
+2026-10-31 08:53:21 Intentional shutdown recorded for server PID 2140.
+2026-10-31 09:04:55 Intentional shutdown recorded for server PID 24112.
+2026-10-31 10:45:21 Intentional shutdown recorded for server PID 26056.
+2026-10-31 11:39:02 Intentional shutdown recorded for server PID 28264.
+2026-10-31 14:06:58 Intentional shutdown recorded for server PID 26244.
+2026-10-31 14:11:37 Intentional shutdown recorded for server PID 3396.
+2026-10-31 14:26:26 Intentional shutdown recorded for server PID 11884.
+2026-10-31 14:29:41 Intentional shutdown recorded for server PID 25092.
+2026-10-31 21:56:25 Intentional shutdown recorded for server PID 22272.
+2026-10-31 22:00:26 Intentional shutdown recorded for server PID 10384.
+2026-10-31 22:12:09 Intentional shutdown recorded for server PID 29292.
+2026-10-31 22:24:59 Intentional shutdown recorded for server PID 22160.
+2026-10-31 22:33:27 Intentional shutdown recorded for server PID 25020.
+2026-10-31 22:45:47 Intentional shutdown recorded for server PID 1012.
+2026-10-31 22:49:38 Intentional shutdown recorded for server PID 30132.
+2026-10-31 23:03:45 Intentional shutdown recorded for server PID 26180.
+2026-10-31 23:22:05 Intentional shutdown recorded for server PID 31616.
+2026-11-01 00:09:35 Intentional shutdown recorded for server PID 2732.
+2026-11-01 00:10:00 Intentional shutdown recorded for server PID 24844.
+2026-11-01 00:15:46 Intentional shutdown recorded for server PID 20576.
+2026-11-01 00:20:02 Intentional shutdown recorded for server PID 15420.
+2026-11-01 00:29:30 Intentional shutdown recorded for server PID 5924.
+2026-11-01 00:31:11 Intentional shutdown recorded for server PID 31156.
+2026-11-01 00:31:42 Intentional shutdown recorded for server PID 21692.
+2026-11-01 00:40:30 Intentional shutdown recorded for server PID 11040.
+2026-11-01 06:41:26 Intentional shutdown recorded for server PID 19980.
+2026-11-01 06:45:54 Intentional shutdown recorded for server PID 18248.
+2026-11-01 11:15:11 Intentional shutdown recorded for server PID 21996.
+2026-11-01 12:00:20 Intentional shutdown recorded for server PID 22680.
+2026-11-01 12:22:30 Intentional shutdown recorded for server PID 22348.
+2026-11-01 12:22:39 Intentional shutdown recorded for server PID 24544.
+2026-11-01 12:27:28 Intentional shutdown recorded for server PID 21460.
+2026-11-01 12:28:15 Intentional shutdown recorded for server PID 6048.
+2026-11-01 12:28:37 Intentional shutdown recorded for server PID 24888.
+2026-11-01 12:41:27 Intentional shutdown recorded for server PID 428.
+2026-11-01 12:43:56 Intentional shutdown recorded for server PID 13300.
+2026-11-01 12:45:20 Intentional shutdown recorded for server PID 14764.
+2026-11-01 12:49:33 Intentional shutdown recorded for server PID 2768.
+2026-11-01 12:51:21 Intentional shutdown recorded for server PID 21908.
+2026-11-01 18:50:31 Intentional shutdown recorded for server PID 17888.
+2026-11-01 18:58:55 Intentional shutdown recorded for server PID 15932.
+2026-11-01 19:00:17 Intentional shutdown recorded for server PID 20080.
+2026-11-01 19:02:53 Intentional shutdown recorded for server PID 22880.
+2026-11-01 19:14:07 Intentional shutdown recorded for server PID 10496.
+2026-11-01 19:25:45 Intentional shutdown recorded for server PID 22684.
+2026-11-01 19:29:22 Intentional shutdown recorded for server PID 22780.
+2026-11-01 19:39:52 Intentional shutdown recorded for server PID 22328.
+2026-11-02 06:57:47 Intentional shutdown recorded for server PID 6288.
+2026-11-02 07:05:33 Intentional shutdown recorded for server PID 5680.
+2026-11-02 07:12:08 Intentional shutdown recorded for server PID 24880.
+2026-11-02 07:14:44 Intentional shutdown recorded for server PID 21752.
+2026-11-02 07:15:20 Intentional shutdown recorded for server PID 18944.
+2026-11-02 07:19:48 Intentional shutdown recorded for server PID 21584.
+2026-11-02 07:24:41 Intentional shutdown recorded for server PID 3148.
+2026-11-02 07:33:32 Intentional shutdown recorded for server PID 24084.
+2026-11-02 07:36:21 Intentional shutdown recorded for server PID 24212.
+2026-11-02 07:36:33 Intentional shutdown recorded for server PID 24720.
+2026-11-02 07:54:38 Intentional shutdown recorded for server PID 6432.
+2026-11-02 08:05:39 Intentional shutdown recorded for server PID 24556.
+2026-11-02 08:06:09 Intentional shutdown recorded for server PID 12960.
+2026-11-02 08:09:06 Intentional shutdown recorded for server PID 22416.
+2026-11-02 08:09:47 Intentional shutdown recorded for server PID 25420.
+2026-11-02 08:14:43 Intentional shutdown recorded for server PID 23996.
+2026-11-02 08:18:22 Intentional shutdown recorded for server PID 15908.
+2026-11-02 08:21:51 Intentional shutdown recorded for server PID 25156.
+2026-11-02 08:22:01 Intentional shutdown recorded for server PID 24096.
+2026-11-02 08:24:34 Intentional shutdown recorded for server PID 22716.
+2026-11-02 08:25:02 Intentional shutdown recorded for server PID 17156.
+2026-11-02 08:31:35 Intentional shutdown recorded for server PID 21880.
+2026-11-02 08:34:21 Intentional shutdown recorded for server PID 13840.
+2026-11-02 08:38:46 Intentional shutdown recorded for server PID 25692.
+2026-11-02 08:41:13 Intentional shutdown recorded for server PID 9288.
+2026-11-02 09:05:06 Intentional shutdown recorded for server PID 1308.
+2026-11-02 09:19:17 Intentional shutdown recorded for server PID 26100.
+2026-11-02 09:20:03 Intentional shutdown recorded for server PID 25644.
+2026-11-02 09:21:39 Intentional shutdown recorded for server PID 22164.
+2026-11-02 09:22:14 Intentional shutdown recorded for server PID 12340.
+2026-11-02 09:23:05 Intentional shutdown recorded for server PID 18796.
+2026-11-02 09:25:23 Intentional shutdown recorded for server PID 25760.
+2026-11-02 09:30:19 Intentional shutdown recorded for server PID 26196.
+2026-11-02 09:31:55 Intentional shutdown recorded for server PID 22536.
+2026-11-02 09:33:54 Intentional shutdown recorded for server PID 25136.
+2026-11-02 09:41:00 Intentional shutdown recorded for server PID 19364.
+2026-11-02 09:41:06 Intentional shutdown recorded for server PID 26200.
+2026-11-02 09:51:08 Intentional shutdown recorded for server PID 24652.
+2026-11-02 10:10:54 Intentional shutdown recorded for server PID 24764.
+2026-11-02 10:18:44 Intentional shutdown recorded for server PID 4368.
+2026-11-02 10:20:28 Intentional shutdown recorded for server PID 26160.
+2026-11-02 10:23:36 Intentional shutdown recorded for server PID 3964.
+2026-11-02 10:24:36 Intentional shutdown recorded for server PID 12048.
+2026-11-02 11:31:20 Intentional shutdown recorded for server PID 2324.
+2026-11-02 19:21:01 Intentional shutdown recorded for server PID 22192.
+2026-11-02 19:21:46 Intentional shutdown recorded for server PID 23192.
+2026-11-02 19:28:54 Intentional shutdown recorded for server PID 4156.
+2026-11-02 19:38:25 Intentional shutdown recorded for server PID 4204.
+2026-11-02 19:40:48 Intentional shutdown recorded for server PID 23348.
+2026-11-02 19:45:21 Intentional shutdown recorded for server PID 11324.
+2026-11-02 19:48:32 Intentional shutdown recorded for server PID 23300.
+2026-11-02 19:49:28 Intentional shutdown recorded for server PID 19120.
+2026-11-02 19:50:15 Intentional shutdown recorded for server PID 18936.
+2026-11-02 19:58:06 Intentional shutdown recorded for server PID 6856.
+2026-11-02 19:58:37 Intentional shutdown recorded for server PID 4440.
+2026-11-02 19:59:53 Intentional shutdown recorded for server PID 24804.
+2026-11-02 20:03:30 Intentional shutdown recorded for server PID 25492.
+2026-11-02 20:05:21 Intentional shutdown recorded for server PID 24368.
+2026-11-02 20:07:41 Intentional shutdown recorded for server PID 25180.
+2026-11-02 20:10:39 Intentional shutdown recorded for server PID 5720.
+2026-11-02 20:12:04 Intentional shutdown recorded for server PID 26584.
+2026-11-02 20:26:58 Intentional shutdown recorded for server PID 26216.
+2026-11-02 20:27:39 Intentional shutdown recorded for server PID 7732.
+2026-11-02 20:31:27 Intentional shutdown recorded for server PID 17964.
+2026-11-02 20:33:03 Intentional shutdown recorded for server PID 2244.
+2026-11-02 20:38:43 Intentional shutdown recorded for server PID 15668.
+2026-11-02 20:47:21 Intentional shutdown recorded for server PID 21612.
+2026-11-02 20:53:32 Intentional shutdown recorded for server PID 21556.
+2026-11-02 20:54:28 Intentional shutdown recorded for server PID 26148.
+2026-11-02 21:06:42 Intentional shutdown recorded for server PID 6540.
+2026-11-02 21:07:59 Intentional shutdown recorded for server PID 25164.
+2026-11-02 21:10:04 Intentional shutdown recorded for server PID 19008.
+2026-11-02 21:10:59 Intentional shutdown recorded for server PID 3104.
+2026-11-02 21:15:56 Intentional shutdown recorded for server PID 23640.
+2026-11-02 21:17:06 Intentional shutdown recorded for server PID 10972.
+2026-11-02 21:18:53 Intentional shutdown recorded for server PID 25792.
+2026-11-02 21:25:36 Intentional shutdown recorded for server PID 5932.
+2026-11-02 21:33:53 Intentional shutdown recorded for server PID 23368.
+2026-11-02 21:37:55 Intentional shutdown recorded for server PID 18944.
+2026-11-02 21:41:14 Intentional shutdown recorded for server PID 24592.
+2026-11-02 21:44:27 Intentional shutdown recorded for server PID 14824.
+2026-11-02 21:44:41 Intentional shutdown recorded for server PID 12292.
+2026-11-02 21:46:22 Intentional shutdown recorded for server PID 23380.
+2026-11-02 21:46:49 Intentional shutdown recorded for server PID 27280.
+2026-11-02 21:47:49 Intentional shutdown recorded for server PID 25980.
+2026-11-02 21:49:05 Intentional shutdown recorded for server PID 27580.
+2026-11-02 21:53:45 Intentional shutdown recorded for server PID 24900.
+2026-11-02 22:04:27 Intentional shutdown recorded for server PID 8232.
+2026-11-02 22:07:43 Intentional shutdown recorded for server PID 25076.
+2026-11-02 22:09:25 Intentional shutdown recorded for server PID 23616.
+2026-11-02 22:11:18 Intentional shutdown recorded for server PID 5204.
+2026-11-02 22:19:45 Intentional shutdown recorded for server PID 27456.
+2026-11-02 22:22:45 Intentional shutdown recorded for server PID 14200.
+2026-11-02 22:23:22 Intentional shutdown recorded for server PID 21352.
+2026-11-02 22:25:02 Intentional shutdown recorded for server PID 2792.
+2026-11-02 22:26:46 Intentional shutdown recorded for server PID 21384.
+2026-11-02 22:32:10 Intentional shutdown recorded for server PID 4920.
+2026-11-02 22:32:20 Intentional shutdown recorded for server PID 18804.
+2026-11-02 22:33:35 Intentional shutdown recorded for server PID 15892.
+2026-11-02 22:33:41 Intentional shutdown recorded for server PID 26612.
+2026-11-02 22:38:13 Intentional shutdown recorded for server PID 26380.
+2026-11-02 22:42:59 Intentional shutdown recorded for server PID 27536.
+2026-11-02 22:46:04 Intentional shutdown recorded for server PID 12780.
+2026-11-02 22:47:46 Intentional shutdown recorded for server PID 24744.
+2026-11-02 22:49:45 Intentional shutdown recorded for server PID 16916.
+2026-11-02 22:53:18 Intentional shutdown recorded for server PID 27156.
+2026-11-02 22:53:40 Intentional shutdown recorded for server PID 20848.
+2026-11-02 22:57:30 Intentional shutdown recorded for server PID 25816.
+2026-11-02 22:59:48 Intentional shutdown recorded for server PID 7532.
+2026-11-02 23:03:35 Intentional shutdown recorded for server PID 18984.
+2026-11-02 23:23:29 Intentional shutdown recorded for server PID 4880.
+2026-11-02 23:24:25 Intentional shutdown recorded for server PID 18184.
+2026-11-02 23:38:56 Intentional shutdown recorded for server PID 25584.
+2026-11-02 23:39:32 Intentional shutdown recorded for server PID 22872.
+2026-11-02 23:41:45 Intentional shutdown recorded for server PID 10244.
+2026-11-02 23:51:06 Intentional shutdown recorded for server PID 26824.
+2026-11-02 23:59:44 Intentional shutdown recorded for server PID 24572.
+2026-11-03 00:00:06 Intentional shutdown recorded for server PID 23016.
+2026-11-03 00:06:49 Intentional shutdown recorded for server PID 26264.
+2026-11-03 00:10:09 Intentional shutdown recorded for server PID 24552.
+2026-11-03 00:14:55 Intentional shutdown recorded for server PID 3740.
+2026-11-03 00:25:05 Intentional shutdown recorded for server PID 27320.
+2026-11-03 00:33:26 Intentional shutdown recorded for server PID 23696.
+2026-11-03 00:35:48 Intentional shutdown recorded for server PID 25980.
+2026-11-03 00:36:14 Intentional shutdown recorded for server PID 17064.
+2026-11-03 00:38:37 Intentional shutdown recorded for server PID 24776.
+2026-11-03 00:46:02 Intentional shutdown recorded for server PID 10680.
+2026-11-03 00:50:36 Intentional shutdown recorded for server PID 25640.
+2026-11-03 01:08:57 Intentional shutdown recorded for server PID 26356.
+2026-11-03 01:15:44 Intentional shutdown recorded for server PID 26272.
+2026-11-03 01:20:20 Intentional shutdown recorded for server PID 27376.
+2026-11-03 01:23:15 Intentional shutdown recorded for server PID 5608.
+2026-11-03 01:30:34 Intentional shutdown recorded for server PID 436.
+2026-11-03 01:31:11 Intentional shutdown recorded for server PID 24976.
+2026-11-03 01:33:05 Intentional shutdown recorded for server PID 17844.
+2026-11-03 01:39:52 Intentional shutdown recorded for server PID 24244.
+2026-11-03 01:44:25 Intentional shutdown recorded for server PID 6468.
+2026-11-03 01:44:33 Intentional shutdown recorded for server PID 24776.
+2026-11-03 01:48:12 Intentional shutdown recorded for server PID 25720.
+2026-11-03 01:50:59 Intentional shutdown recorded for server PID 9236.
+2026-11-03 01:58:22 Intentional shutdown recorded for server PID 20716.
+2026-11-03 01:58:59 Intentional shutdown recorded for server PID 18876.
+2026-11-03 02:03:26 Intentional shutdown recorded for server PID 6324.
+2026-11-03 02:10:22 Intentional shutdown recorded for server PID 12576.
+2026-11-03 02:27:19 Intentional shutdown recorded for server PID 27004.
+2026-11-03 02:45:14 Intentional shutdown recorded for server PID 19688.
+2026-11-03 07:17:55 Intentional shutdown recorded for server PID 15600.
+2026-11-03 07:40:21 Intentional shutdown recorded for server PID 21800.
+2026-11-03 07:41:12 Intentional shutdown recorded for server PID 22712.
+2026-11-03 07:41:39 Intentional shutdown recorded for server PID 2956.
+2026-11-03 07:43:28 Intentional shutdown recorded for server PID 23524.
+2026-11-03 12:43:02 Intentional shutdown recorded for server PID 4184.
+2026-11-03 12:44:23 Intentional shutdown recorded for server PID 3852.
+2026-11-03 12:48:15 Intentional shutdown recorded for server PID 4028.
+2026-11-03 12:55:22 Intentional shutdown recorded for server PID 15264.
+2026-11-03 12:56:37 Intentional shutdown recorded for server PID 12388.
+2026-11-03 13:02:22 Intentional shutdown recorded for server PID 15988.
+2026-11-03 13:03:16 Intentional shutdown recorded for server PID 13604.
+2026-11-03 13:08:01 Intentional shutdown recorded for server PID 8716.
+2026-11-03 13:12:29 Intentional shutdown recorded for server PID 15684.
+2026-11-03 13:19:27 Intentional shutdown recorded for server PID 19104.
+2026-11-03 13:23:38 Intentional shutdown recorded for server PID 18280.
+2026-11-03 14:56:47 Intentional shutdown recorded for server PID 19044.
+2026-11-03 15:02:23 Intentional shutdown recorded for server PID 17124.
+2026-11-04 10:30:05 Intentional shutdown recorded for server PID 18220.
+2026-11-04 10:30:17 Intentional shutdown recorded for server PID 20284.
+2026-11-04 10:32:51 Intentional shutdown recorded for server PID 23156.
+2026-11-04 10:33:54 Intentional shutdown recorded for server PID 3088.
+2026-11-04 11:25:11 Intentional shutdown recorded for server PID 2140.
+2026-11-04 11:30:55 Intentional shutdown recorded for server PID 19908.
+2026-11-04 11:34:49 Intentional shutdown recorded for server PID 14260.
+2026-11-04 11:42:26 Intentional shutdown recorded for server PID 22616.
+2026-11-04 11:52:43 Intentional shutdown recorded for server PID 17984.
+2026-11-04 11:58:40 Intentional shutdown recorded for server PID 24596.
+2026-11-04 12:10:39 Intentional shutdown recorded for server PID 23412.
+2026-11-04 13:32:58 Intentional shutdown recorded for server PID 18832.
+2026-11-04 13:38:42 Intentional shutdown recorded for server PID 13908.
+2026-11-04 13:49:45 Intentional shutdown recorded for server PID 21296.
+2026-11-04 13:58:54 Intentional shutdown recorded for server PID 18256.
+2026-11-04 14:14:29 Intentional shutdown recorded for server PID 6500.
+2026-11-04 14:40:32 Intentional shutdown recorded for server PID 11276.
+2026-11-04 20:18:42 Intentional shutdown recorded for server PID 18836.
+2026-11-04 21:18:49 Intentional shutdown recorded for server PID 19924.
+2026-11-04 21:46:38 Intentional shutdown recorded for server PID 16392.
+2026-11-04 22:00:31 Intentional shutdown recorded for server PID 14320.
+2026-11-04 22:11:19 Intentional shutdown recorded for server PID 21200.
+2026-11-04 22:14:21 Intentional shutdown recorded for server PID 14368.
+2026-11-04 22:20:43 Intentional shutdown recorded for server PID 13612.
+2026-11-04 22:31:25 Intentional shutdown recorded for server PID 14420.
+2026-11-04 22:36:17 Intentional shutdown recorded for server PID 17368.
+2026-11-04 22:42:09 Intentional shutdown recorded for server PID 8600.
+2026-11-04 22:42:25 Intentional shutdown recorded for server PID 4872.
+2026-11-04 22:45:23 Intentional shutdown recorded for server PID 18028.
+2026-11-04 22:47:20 Intentional shutdown recorded for server PID 420.
+2026-11-04 22:52:58 Intentional shutdown recorded for server PID 21540.
+2026-11-04 22:54:47 Intentional shutdown recorded for server PID 9072.
+2026-11-05 05:26:59 Intentional shutdown recorded for server PID 19164.
+2026-11-05 05:29:42 Intentional shutdown recorded for server PID 20040.
+2026-11-05 05:39:29 Intentional shutdown recorded for server PID 5760.
+2026-11-05 05:44:05 Intentional shutdown recorded for server PID 13592.
+2026-11-05 05:45:27 Intentional shutdown recorded for server PID 21408.
+2026-11-05 05:50:36 Intentional shutdown recorded for server PID 11976.
+2026-11-05 05:52:01 Intentional shutdown recorded for server PID 17124.
+2026-11-05 05:52:23 Intentional shutdown recorded for server PID 20928.
+2026-11-05 05:57:04 Intentional shutdown recorded for server PID 13088.
+2026-11-05 06:06:47 Intentional shutdown recorded for server PID 17900.
+2026-11-05 06:10:01 Intentional shutdown recorded for server PID 17456.
+2026-11-05 06:10:36 Intentional shutdown recorded for server PID 12496.
+2026-11-05 06:12:48 Intentional shutdown recorded for server PID 15976.
+2026-11-05 06:13:13 Intentional shutdown recorded for server PID 9816.
+2026-11-05 06:20:32 Intentional shutdown recorded for server PID 21484.
+2026-11-05 06:27:17 Intentional shutdown recorded for server PID 19180.
+2026-11-05 06:29:41 Intentional shutdown recorded for server PID 1992.
+2026-11-05 06:30:23 Intentional shutdown recorded for server PID 16420.
+2026-11-05 10:37:26 Intentional shutdown recorded for server PID 20256.
+2026-11-05 10:43:20 Intentional shutdown recorded for server PID 8004.
+2026-11-05 10:45:53 Intentional shutdown recorded for server PID 3828.
+2026-11-05 10:50:26 Intentional shutdown recorded for server PID 16140.
+2026-11-05 10:50:50 Intentional shutdown recorded for server PID 17300.
+2026-11-05 10:52:17 Intentional shutdown recorded for server PID 10020.
+2026-11-05 10:54:52 Intentional shutdown recorded for server PID 2564.
+2026-11-05 12:07:37 Intentional shutdown recorded for server PID 7384.
+2026-11-05 12:17:01 Intentional shutdown recorded for server PID 22716.
+2026-11-05 22:55:11 Intentional shutdown recorded for server PID 10628.
+2026-11-05 23:25:09 Intentional shutdown recorded for server PID 23248.
+2026-11-05 23:33:29 Intentional shutdown recorded for server PID 16136.
+2026-11-06 00:53:57 Intentional shutdown recorded for server PID 22652.
+2026-11-06 02:15:20 Intentional shutdown recorded for server PID 24340.
+2026-11-06 20:43:49 Intentional shutdown recorded for server PID 24132.
+2026-11-06 20:45:07 Intentional shutdown recorded for server PID 22004.
+2026-11-06 21:38:15 Intentional shutdown recorded for server PID 12876.
+2026-11-06 22:07:59 Intentional shutdown recorded for server PID 25240.
+2026-11-06 22:17:46 Intentional shutdown recorded for server PID 25412.
+2026-11-06 22:32:11 Intentional shutdown recorded for server PID 16780.
+2026-11-06 22:32:21 Intentional shutdown recorded for server PID 10744.
+2026-11-07 05:44:43 Intentional shutdown recorded for server PID 19584.
+2026-11-07 05:48:19 Intentional shutdown recorded for server PID 20236.
+2026-11-10 13:00:08 Intentional shutdown recorded for server PID 10424.
+2026-11-10 13:28:52 Intentional shutdown recorded for server PID 7300.
+2026-11-10 13:37:30 Intentional shutdown recorded for server PID 3856.
+2026-11-10 14:16:50 Intentional shutdown recorded for server PID 21736.
+2026-11-10 14:17:31 Intentional shutdown recorded for server PID 13376.
+2026-11-10 14:43:44 Intentional shutdown recorded for server PID 3648.
+2026-11-10 14:44:11 Intentional shutdown recorded for server PID 4420.
+2026-11-10 14:55:24 Intentional shutdown recorded for server PID 4496.
+2026-11-10 15:39:53 Intentional shutdown recorded for server PID 19716.
+2026-11-10 15:55:29 Intentional shutdown recorded for server PID 17740.
+2026-11-10 16:30:36 Intentional shutdown recorded for server PID 11192.
+2026-11-10 16:39:20 Intentional shutdown recorded for server PID 23316.
+2026-11-10 16:43:49 Intentional shutdown recorded for server PID 23728.
+2026-11-10 16:52:31 Intentional shutdown recorded for server PID 13004.
+2026-11-10 17:14:53 Intentional shutdown recorded for server PID 22080.
+2026-11-10 17:26:50 Intentional shutdown recorded for server PID 23652.
+2026-11-10 17:29:23 Intentional shutdown recorded for server PID 2808.
+2026-11-10 17:30:50 Intentional shutdown recorded for server PID 23776.
+2026-11-10 17:39:28 Intentional shutdown recorded for server PID 9448.
+2026-11-10 17:41:40 Intentional shutdown recorded for server PID 23080.
+2026-11-10 17:42:27 Intentional shutdown recorded for server PID 15964.
+2026-11-10 17:43:44 Intentional shutdown recorded for server PID 3052.
+2026-11-10 17:49:01 Intentional shutdown recorded for server PID 2028.
+2026-11-10 17:49:37 Intentional shutdown recorded for server PID 19384.
+2026-11-10 17:50:25 Intentional shutdown recorded for server PID 17432.
+2026-11-10 17:52:26 Intentional shutdown recorded for server PID 23160.
+2026-11-10 17:57:00 Intentional shutdown recorded for server PID 4340.
+2026-11-10 18:18:58 Intentional shutdown recorded for server PID 22672.
+2026-11-10 18:22:20 Intentional shutdown recorded for server PID 5224.
+2026-11-10 18:26:51 Intentional shutdown recorded for server PID 1632.

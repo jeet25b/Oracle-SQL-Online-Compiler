@@ -13,10 +13,10 @@ test('complete block advances prompt while incomplete block and inline SQL comme
 });
 test('script result renderer gives each leading comment a prompt and attaches result only to SQL',()=>{
  const source=fs.readFileSync('online-oracle-compiler/oracle-sql-ide.js','utf8');
- const start=source.indexOf('  function appendTerminalResult('),end=source.indexOf('  async function connect(',start);
- const node=()=>({children:[],style:{},dataset:{},append(child){this.children.push(child);},replaceChildren(...children){this.children=children;}});
+ const start=source.indexOf('  function appendTerminalResult('),end=source.indexOf('  function connectionDiagnosis(',start);
+ const node=()=>{const item={children:[],style:{},dataset:{},textContent:'',append(child){this.children.push(child);},replaceChildren(...children){this.children=children;}};Object.defineProperty(item,'innerHTML',{set(value){this.textContent=value;},get(){return this.textContent;}});return item;};
  const output={children:[],insertBefore(entry){this.children.push(entry);}};
- const context={window:{CompilerWorkspace:core},document:{createElement:node},trimTerminalBuffer(){},outputStyle:'website',$:s=>s==='#terminalOutput'?output:null};
+ const context={window:{CompilerWorkspace:core},document:{createElement:node},trimTerminalBuffer(){},renderSyntaxHighlight:text=>text===' '?'':text,outputStyle:'website',$:s=>s==='#terminalOutput'?output:null};
  vm.createContext(context);vm.runInContext(source.slice(start,end),context);
  context.appendTerminalResult('-- first\n-- second\n\nINSERT INTO T VALUES (1);',{message:'1 row created.'},null);
  assert.deepEqual(output.children.map(entry=>entry.children[0].textContent),['-- first','-- second','','INSERT INTO T VALUES (1);']);

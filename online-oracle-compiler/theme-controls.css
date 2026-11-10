@@ -1,4 +1,128 @@
 /* Shared controls for every current and future single-choice dropdown. */
+/* Shared dialog actions; legacy aliases also cover already-loaded compiler scripts. */
+:root[data-theme] .oracle-ide-page :is(.help-dialog,.teacher-permission-dialog) {
+  box-sizing:border-box;
+  width:min(520px,calc(100% - 32px));
+  max-height:calc(100vh - 32px);
+  margin:auto;
+  padding:24px;
+  overflow:auto;
+  border:1px solid var(--ide-border);
+  border-radius:16px;
+  background:var(--ide-panel);
+  color:var(--ide-text);
+  font:inherit;
+  box-shadow:var(--ide-shadow);
+  scrollbar-color:var(--ide-muted) var(--ide-panel);
+}
+:root[data-theme] .oracle-ide-page :is(.help-dialog,.teacher-permission-dialog)::backdrop {
+  background:color-mix(in srgb,var(--ide-bg) 65%,transparent);
+}
+.oracle-ide-page :is(.help-dialog,.teacher-permission-dialog) h2 {margin:0;font-size:20px;line-height:1.3;color:var(--ide-text)}
+.oracle-ide-page :is(.help-dialog,.teacher-permission-dialog) .dialog-note {margin:16px 0 22px;color:var(--ide-muted);font-size:13px;line-height:1.6}
+.oracle-ide-page :is(.help-dialog,.teacher-permission-dialog) :is(.dialog-actions,.profile-form-actions) {display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+:is(.dashboard-page,.oracle-ide-page) .theme-button,
+.oracle-ide-page .help-dialog :is(.register-cancel,.submit-button) {
+  width:auto;
+  margin:0;
+  padding:10px 16px;
+  border:1px solid var(--ide-border,var(--border));
+  border-radius:9px;
+  background:var(--ide-panel-2,var(--surface-2));
+  color:var(--ide-text,var(--text));
+  font:600 13px/1.4 "DM Sans","Segoe UI",sans-serif;
+  cursor:pointer;
+  transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease;
+}
+:is(.dashboard-page,.oracle-ide-page) .theme-button-primary,
+.oracle-ide-page .help-dialog .submit-button {
+  border-color:var(--accent-strong);
+  background:var(--accent-strong);
+  color:var(--on-accent);
+}
+:is(.dashboard-page,.oracle-ide-page) .theme-button:not(:disabled):is(:hover,:focus-visible),
+.oracle-ide-page .help-dialog .register-cancel:not(:disabled):is(:hover,:focus-visible) {
+  background:color-mix(in srgb,var(--accent-strong) 8%,var(--ide-panel-2,var(--surface-2)));
+  color:var(--ide-text,var(--text));
+  border-color:var(--accent-strong);
+}
+:is(.dashboard-page,.oracle-ide-page) .theme-button-primary:not(:disabled):is(:hover,:focus-visible),
+.oracle-ide-page .help-dialog .submit-button:not(:disabled):is(:hover,:focus-visible) {
+  background:var(--accent-strong);
+  color:var(--on-accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-strong) 18%,transparent);
+}
+:is(.dashboard-page,.oracle-ide-page) .theme-button:focus-visible,
+.oracle-ide-page .help-dialog :is(.register-cancel,.submit-button):focus-visible {outline:2px solid var(--accent-strong);outline-offset:3px}
+:is(.dashboard-page,.oracle-ide-page) .theme-button:disabled,
+.oracle-ide-page .help-dialog :is(.register-cancel,.submit-button):disabled {background:var(--ide-panel-2,var(--surface-2));color:var(--ide-muted,var(--muted));border-color:var(--ide-border,var(--border));cursor:not-allowed}
+.oracle-ide-page .ide-connection .compiler-lab-context[hidden] {
+  display:none!important;
+}
+.oracle-ide-page .compiler-lab-context .theme-select {
+  width:195px;
+  max-width:195px;
+  min-width:0;
+}
+.oracle-ide-page .compiler-lab-context .theme-select-trigger {
+  background:var(--ide-panel-2);
+  color:var(--ide-text);
+  border-color:var(--ide-border);
+}
+/* Native upload buttons share the portal palette, including newly added forms. */
+.dashboard-page .daily-field:has(input[type="checkbox"]) {
+  grid-template-columns:auto 1fr;
+  align-items:center;
+  justify-items:start;
+}
+.dashboard-page .daily-field input[type="checkbox"] { margin:0; }
+.dashboard-page .daily-button:not(:disabled):is(:hover,:focus-visible) {
+  background:var(--accent-strong);
+  color:var(--on-accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-strong) 18%,transparent);
+  filter:none;
+}
+.dashboard-page input[type="file"] {
+  --upload-surface:var(--surface-2);
+  --upload-text:var(--text);
+  --upload-muted:var(--muted);
+  --upload-border:var(--border);
+  --upload-accent:var(--accent-strong);
+}
+.oracle-ide-page input[type="file"] {
+  --upload-surface:var(--ide-panel-2);
+  --upload-text:var(--ide-text);
+  --upload-muted:var(--ide-muted);
+  --upload-border:var(--ide-border);
+  --upload-accent:var(--ide-accent);
+}
+:is(.dashboard-page,.oracle-ide-page) input[type="file"]::file-selector-button {
+  margin-inline-end:12px;
+  padding:8px 12px;
+  border:1px solid var(--upload-border);
+  border-radius:8px;
+  background:var(--upload-surface);
+  color:var(--upload-text);
+  font:inherit;
+  font-weight:600;
+  cursor:pointer;
+  transition:background-color .14s ease,border-color .14s ease;
+}
+:is(.dashboard-page,.oracle-ide-page) input[type="file"]:not(:disabled):is(:hover,:focus-visible)::file-selector-button {
+  background:color-mix(in srgb,var(--upload-accent) 8%,var(--upload-surface));
+  color:var(--upload-text);
+  border-color:var(--upload-accent);
+}
+:is(.dashboard-page,.oracle-ide-page) input[type="file"]:focus-visible {
+  outline:2px solid var(--upload-accent);
+  outline-offset:2px;
+}
+:is(.dashboard-page,.oracle-ide-page) input[type="file"]:disabled::file-selector-button {
+  background:var(--upload-surface);
+  color:var(--upload-muted);
+  border-color:var(--upload-border);
+  cursor:not-allowed;
+}
 :root[data-theme="dark"]{color-scheme:dark}
 :root[data-theme="light"]{color-scheme:light}
 
@@ -191,3 +315,10 @@
   background:var(--accent-soft,var(--ide-accent,#6d28d9));
   color:var(--ide-text,var(--ink,#18263a));
 }
+
+.oracle-ide-page .terminal-execution-time{margin-top:8px;color:var(--ide-muted);font:inherit;font-size:.85em;line-height:1.5}
+
+.theme-select-menu .theme-select-search{position:sticky;top:0;z-index:1;box-sizing:border-box;width:100%;min-height:36px;margin:0 0 5px;padding:8px 10px;border:1px solid var(--ide-border,var(--line));border-radius:7px;background:var(--ide-panel-2,var(--paper));color:var(--ide-text,var(--ink));font:inherit}
+.theme-select-search::placeholder{color:var(--ide-muted,var(--muted));opacity:1}
+.theme-select-search:focus-visible{outline:2px solid var(--ide-accent,var(--accent-strong));outline-offset:-2px}
+.theme-select-menu .theme-select-option[hidden]{display:none!important}

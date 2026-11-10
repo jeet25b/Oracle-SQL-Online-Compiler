@@ -24,14 +24,8 @@
     }
   });
 
-  togglePassword.addEventListener('click', () => {
-    const reveal = password.type === 'password';
-    password.type = reveal ? 'text' : 'password';
-    togglePassword.textContent = reveal ? 'Hide' : 'Show';
-    togglePassword.setAttribute('aria-label', `${reveal ? 'Hide' : 'Show'} password`);
-    togglePassword.setAttribute('aria-pressed', String(reveal));
-    password.focus({ preventScroll: true });
-  });
+  if (togglePassword) togglePassword.hidden = true;
+  password.type = 'password';
 
   function csrfToken() {
     const cookie = document.cookie.split('; ').find((part) => part.startsWith('ora_csrf='));

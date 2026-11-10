@@ -435,8 +435,11 @@ document.addEventListener('change', event => {
   }
 })();
 
-// Manual terminal selection copies source/output, never the decorative SQL prompt.
+//   Copy terminal SQL with newlines, without prompt labels.
 document.addEventListener('copy', event => {
+  // Textarea selections live in selectionStart/End, not the document Range.
+  // Let the workspace input-copy handler preserve their actual text and colors.
+  if(document.activeElement?.matches?.('#terminalInput,#cliInput,#editor')||document.activeElement?.closest?.('.monaco-editor'))return;
   const selection=window.getSelection();
   if(!event.clipboardData||!selection||selection.isCollapsed||!selection.rangeCount)return;
   const host=[...document.querySelectorAll('#terminalOutput,#cliOutput')].find(node=>node.contains(selection.anchorNode)&&node.contains(selection.focusNode));
@@ -444,7 +447,26 @@ document.addEventListener('copy', event => {
   const fragment=selection.getRangeAt(0).cloneContents();
   fragment.querySelectorAll('.cli-command-prompt,.terminal-prompt>label,.cli-prompt>span,.cli-prompt-label').forEach(node=>node.remove());
   fragment.querySelectorAll('td,th').forEach(node=>node.append(document.createTextNode('\t')));
-  fragment.querySelectorAll('pre,p,article,tr').forEach(node=>node.append(document.createTextNode('\n')));
+  fragment.querySelectorAll('.terminal-command-line').forEach(node=>node.append(document.createTextNode('\n')));
+  fragment.querySelectorAll('pre,p,article,tr').forEach(node=>{
+    if(!node.querySelectorAll('.terminal-command-line').length)node.append(document.createTextNode('\n'));
+  });
   event.clipboardData.setData('text/plain',fragment.textContent.replace(/\n{3,}/g,'\n\n'));
+  const sqlColors={
+    'sql-keyword':'#0757c9','sql-string':'#16863d','sql-number':'#b35c00',
+    'sql-comment':'#6f7785','terminal-error':'#d11f3a','error-line':'#d11f3a'
+  };
+  fragment.querySelectorAll('*').forEach(node=>{
+    for(const [name,color] of Object.entries(sqlColors)){
+      if(node.classList?.contains(name)){
+        node.style.color=color;
+        break;
+      }
+    }
+  });
+  const htmlContainer=document.createElement('div');
+  htmlContainer.style.cssText='font-family:Consolas,monospace;white-space:pre-wrap;color:#172033';
+  htmlContainer.append(fragment);
+  event.clipboardData.setData('text/html',htmlContainer.outerHTML.replace(/\r\n?/g,'\n').replace(/\n/g,'<br>').replace(/\t/g,'&nbsp;&nbsp;&nbsp;&nbsp;'));
   event.preventDefault();event.stopImmediatePropagation();
 },true);

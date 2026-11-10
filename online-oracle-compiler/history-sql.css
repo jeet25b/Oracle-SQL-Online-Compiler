@@ -1,0 +1,7 @@
+.history-syntax{display:block;white-space:pre-wrap!important;font-family:Consolas,"Courier New",monospace;line-height:1.6;color:var(--text,var(--ink));overflow-wrap:anywhere}
+html[data-theme] .history-syntax .history-syntax-keyword{color:var(--history-keyword,#0757c9);font-weight:600}
+html[data-theme] .history-syntax .history-syntax-string{color:var(--status-success)}
+html[data-theme] .history-syntax .history-syntax-number{color:var(--status-warning)}
+html[data-theme] .history-syntax .history-syntax-comment{color:var(--muted);font-style:italic}
+html[data-theme="dark"] .history-syntax{--history-keyword:#43b5ff}
+

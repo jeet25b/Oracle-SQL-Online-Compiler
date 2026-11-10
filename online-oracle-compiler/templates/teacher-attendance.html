@@ -1,31 +1,80 @@
 {% extends "base-dashboard.html" %}
 {% block page_title %}Student attendance{% endblock %}
 {% block page_heading %}Student attendance{% endblock %}
-{% block page_intro %}Review login and logout history, time present, and attendance percentages for your classes and labs.{% endblock %}
+{% block page_intro %}Review login and logout history, time present, and attendance percentages for your classes.{% endblock %}
 {% block dashboard_content %}
 <section class="activity-toolbar content-card" aria-label="Attendance filters">
-  <label>Class<select id="attendanceClass"><option value="">{% if can_view_all_compiler_activity %}All classes{% else %}All assigned classes{% endif %}</option>{% for class_section in attendance_classes %}<option value="{{ class_section.id }}">{{ class_section.course.code }} · {{ class_section.name }} {{ class_section.section }}</option>{% endfor %}</select></label>
-  <label>Lab<select id="attendanceLab"><option value="">All labs</option></select></label>
+  <label>Class<select id="attendanceClass"><option value="">{% if can_view_all_compiler_activity %}All classes{% else %}All assigned classes{% endif %}</option>{% for class_section in attendance_classes %}<option value="{{ class_section.id }}">{{ class_section.display_label }}</option>{% endfor %}</select></label>
+  <label>Subject<select id="attendanceSubject"><option value="">All subjects</option>{% for assignment in attendance_assignments %}{% if assignment.class_subject %}<option value="{{ assignment.class_subject.subject.code }}">{{ assignment.class_subject.subject.name }}</option>{% elif assignment.subject %}<option value="{{ assignment.subject }}">{{ assignment.subject }}</option>{% endif %}{% endfor %}</select></label>
+  <label>Type<select id="attendanceTeachingType"><option value="">Select type</option><option value="lecture">Theory</option><option value="laboratory">Lab</option></select></label>
+  <label>Status<select id="attendanceStatus"><option value="">Everyone</option><option value="present">Present</option><option value="absent">Absent</option></select></label>
+  <label>From<input id="attendanceDateFrom" type="date"></label>
+  <label>To<input id="attendanceDateTo" type="date"></label>
   <label class="activity-roster-search">Search students<input id="attendanceSearch" type="search" data-search-suggestions placeholder="Search by name or ID…" autocomplete="off"></label>
+  <label>View<select id="attendanceView"><option value="summary" selected>Student-wise</option><option value="daily">Date-wise</option></select></label>
   <button class="dashboard-help-button" type="button" id="attendanceRefresh">↻ Refresh</button>
   <button class="dashboard-help-button" type="button" id="attendanceExport">↓ Export CSV</button>
 </section>
 <section class="content-card attendance-report-card">
   <h2>Student daily session allowance</h2>
-  <p class="activity-footnote">Default: 120 minutes per day, counting logged-in time. Inactive students must sign in again after 30 minutes. Select a class or lab above to manage its allowance. Lab limits override class limits while using that lab. Resets restore today's full allowance for the selected students.</p>
-  <div class="attendance-schedule">
+  <p class="activity-footnote">Default: 120 minutes per day, counting logged-in time. Inactive students must sign in again after 30 minutes. Select a class above to manage its allowance. Resets restore today's full allowance for the selected students.</p>
+  <div class="attendance-schedule session-allowance-controls">
     <label>Daily minutes<input id="sessionLimitMinutes" type="number" min="1" max="1440" value="120"></label>
     <button class="dashboard-help-button" id="saveSessionLimit" type="button">Save allowance</button>
-    <label>Reset for<select id="sessionResetScope"><option value="class">Selected class</option><option value="lab">Selected lab (class students)</option><option value="student">One student</option></select></label>
+    <label>Reset for<select id="sessionResetScope"><option value="class">Selected class</option><option value="student">One student</option></select></label>
     <label>Student<select id="sessionResetStudent"><option value="">Choose student</option></select></label>
     <button class="dashboard-help-button" id="resetSessionLimit" type="button">Reset today's usage</button>
-    <span id="sessionLimitStatus" role="status">Choose a class or lab above.</span>
+    <span id="sessionLimitStatus" role="status">Choose a class above.</span>
   </div>
   <div class="section-heading"><div><p class="section-kicker">ATTENDANCE REGISTER</p><h2>Saved attendance history</h2><p class="activity-footnote">Attendance is based on portal login days. Percentages use weekdays (Monday–Friday) in the selected period. Lab attendance requires opening the lab in the compiler.</p></div><span class="count-pill" id="attendanceCount">0 students</span></div>
-  <div class="attendance-range"><label>View<select id="attendanceView"><option value="daily">Date-wise</option><option value="summary">Summary</option></select></label><label>From<input id="attendanceDateFrom" type="date"></label><label>To<input id="attendanceDateTo" type="date"></label></div>
-  <div class="attendance-schedule"><strong>Expected start time</strong><label>Applies to<select id="scheduleScope"><option value="class">Selected class</option><option value="lab">Selected lab</option></select></label><input id="attendanceStartTime" type="time" aria-label="Expected class or lab start time"><button class="dashboard-help-button" id="saveAttendanceSchedule" type="button">Save time</button><span id="attendanceScheduleStatus" role="status">Choose a class to configure the arrival time.</span></div>
   <div class="activity-table-wrap" id="attendanceDailyWrap"><table class="activity-table"><thead><tr><th aria-sort="descending"><button class="activity-sort-button" data-attendance-daily-sort="date" data-label="Date" type="button">Date ↓</button></th><th aria-sort="none"><button class="activity-sort-button" data-attendance-daily-sort="studentName" data-label="Student" type="button">Student</button></th><th aria-sort="none"><button class="activity-sort-button" data-attendance-daily-sort="status" data-label="Status" type="button">Status</button></th><th aria-sort="none"><button class="activity-sort-button" data-attendance-daily-sort="firstLogin" data-label="First login" type="button">First login</button></th><th aria-sort="none"><button class="activity-sort-button" data-attendance-daily-sort="lastLogout" data-label="Last logout" type="button">Last logout</button></th><th aria-sort="none"><button class="activity-sort-button" data-attendance-daily-sort="arrivalStatus" data-label="Arrival" type="button">Arrival</button></th><th aria-sort="none"><button class="activity-sort-button" data-attendance-daily-sort="durationSeconds" data-label="Time present" type="button">Time present</button></th></tr></thead><tbody id="attendanceDailyTable"></tbody></table></div><div class="activity-table-wrap" id="attendanceSummaryWrap" hidden><table class="activity-table attendance-table"><thead><tr><th aria-sort="ascending"><button class="activity-sort-button" data-attendance-sort="studentName" type="button">Student</button></th><th class="attendance-days-percent-header"><button class="activity-sort-button" data-attendance-sort="presentDays" type="button">Present days</button><button class="activity-sort-button" data-attendance-sort="attendancePercent" type="button">Attendance %</button></th><th class="attendance-login-logout-header"><span>Last login</span><span>Last logout</span></th><th aria-sort="none"><button class="activity-sort-button" data-attendance-sort="arrivalStatus" type="button">Arrival</button></th><th>On time / late days</th><th aria-sort="none"><button class="activity-sort-button" data-attendance-sort="durationSeconds" type="button">Time present</button></th><th>Last present</th></tr></thead><tbody id="attendanceTable"><tr><td colspan="7" class="activity-empty">Loading attendance…</td></tr></tbody></table></div><p class="attendance-resize-hint">Drag a divider in the table header to resize a column. Widths are saved in this browser.</p>
   <p class="activity-updated" id="attendanceUpdated">Attendance records are stored from student portal sessions.</p>
 </section>
 <script src="/portal/assets/teacher-attendance.js?v=20261028-search-suggestions" defer></script>
+<style>
+  .dashboard-content>.activity-toolbar{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));align-items:end;gap:12px;margin-bottom:0}
+  .dashboard-content>.activity-toolbar> :nth-child(5){grid-column:5}
+  .dashboard-content>.activity-toolbar> :nth-child(6){grid-column:6}
+  .dashboard-content>.activity-toolbar> :nth-child(7){grid-column:1 / span 2}
+  .dashboard-content>.activity-toolbar> :nth-child(8){grid-column:3}
+  .dashboard-content>.activity-toolbar #attendanceRefresh{grid-column:5}
+  .dashboard-content>.activity-toolbar #attendanceExport{grid-column:6}
+  .dashboard-content>.activity-toolbar label{min-width:0}
+  .dashboard-content>.activity-toolbar select,.dashboard-content>.activity-toolbar input{width:100%;box-sizing:border-box}
+  .dashboard-content>.attendance-report-card{display:flex;flex-direction:column;gap:16px;padding:22px}
+  .dashboard-content>.attendance-report-card>.ui-table-controls{display:none!important}
+  .dashboard-content>.attendance-report-card>h2{order:5}
+  .dashboard-content>.attendance-report-card>h2+.activity-footnote{order:6}
+  .dashboard-content>.attendance-report-card>.session-allowance-controls{order:7}
+  .dashboard-content>.attendance-report-card>.section-heading{order:1}
+  .dashboard-content>.attendance-report-card>.attendance-range{order:2}
+  .dashboard-content>.attendance-report-card>.attendance-schedule:not(.session-allowance-controls){order:3}
+  .dashboard-content>.attendance-report-card>.activity-table-wrap{order:4}
+  .dashboard-content>.attendance-report-card>.attendance-resize-hint,.dashboard-content>.attendance-report-card>.activity-updated{order:8}
+  .attendance-report-card>h2{margin:0;color:var(--ink);font-size:20px;letter-spacing:-.3px}
+  .attendance-report-card>.activity-footnote{margin:0;max-width:900px;line-height:1.5}
+  .attendance-report-card>.section-heading{margin:4px 0 0;padding-top:6px;border-top:1px solid var(--line)}
+  .attendance-report-card>.section-heading h2{font-size:18px}
+  .attendance-schedule,.attendance-range{display:flex;flex-wrap:wrap;align-items:end;gap:10px;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2)}
+  .attendance-schedule label,.attendance-range label{display:grid;gap:6px;min-width:145px;color:var(--muted);font-size:11px;font-weight:600}
+  .attendance-schedule input,.attendance-schedule select,.attendance-range input,.attendance-range select{width:100%;box-sizing:border-box}
+  .attendance-schedule span[role="status"]{align-self:center;flex:1;min-width:180px;color:var(--muted);font-size:11px}
+  .attendance-report-card>.activity-table-wrap{max-height:calc(100dvh - 440px);min-height:220px;overflow:auto;scrollbar-gutter:stable}
+  .attendance-report-card>.activity-table-wrap{overflow:auto;scrollbar-width:thin;scrollbar-color:var(--muted) transparent}
+  #attendanceDailyWrap{overflow-x:hidden!important}
+  #attendanceDailyWrap[hidden],#attendanceDailyWrap[hidden]~.ui-table-controls,.ui-table-controls:has(+ #attendanceDailyWrap[hidden]){display:none!important}
+  .attendance-report-card>.activity-table-wrap::-webkit-scrollbar{width:8px}
+  .attendance-report-card>.activity-table-wrap::-webkit-scrollbar-thumb{border-radius:8px;background:var(--muted)}
+  .attendance-report-card .activity-table{min-width:900px}
+  .attendance-report-card .activity-table thead{position:sticky;top:0;z-index:2}
+  .attendance-report-card .activity-table th{background:var(--surface-2)}
+  .attendance-student-row{cursor:pointer}
+  .attendance-student-row:hover{background:var(--surface-2)}
+  .attendance-expanded-row td{padding:0!important;background:var(--surface-2)}
+  .attendance-expanded-detail{display:flex;flex-wrap:wrap;gap:8px 18px;padding:12px 16px;border-left:3px solid var(--accent-strong)}
+  .attendance-expanded-detail strong{width:100%;color:var(--ink);font-size:11px}
+  .attendance-expanded-detail span{color:var(--muted);font-size:10px}
+  @media(max-width:850px){.dashboard-content>.activity-toolbar{grid-template-columns:1fr 1fr}.dashboard-content>.activity-toolbar> :nth-child(n){grid-column:auto}.dashboard-content>.activity-toolbar button{width:100%}.attendance-report-card>.activity-table-wrap{max-height:none}}
+  @media(max-width:560px){.dashboard-content>.activity-toolbar{grid-template-columns:1fr}.attendance-schedule,.attendance-range{align-items:stretch}.attendance-schedule button,.attendance-range button{width:100%}}
+</style>
 {% endblock %}

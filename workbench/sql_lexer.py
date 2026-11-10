@@ -97,11 +97,44 @@ def split_statements(source, sqlplus=False, client_command=None):
 
 
 def bind_names(source):
+    return set(ordered_bind_names(source))
+
+
+def trigger_correlation_names(source):
+    """Trigger row correlation records are supplied by Oracle, not the client."""
+    parts = [token for token in tokens(source) if token['kind'] != 'comment']
+    header = ' '.join(token['text'].upper() for token in parts[:7])
+    if not re.match(r'^CREATE (?:OR REPLACE )?(?:(?:NON)?EDITIONABLE )?TRIGGER\b', header):
+        return set()
+    names = {'NEW', 'OLD', 'PARENT'}
+    for index, token in enumerate(parts):
+        if token['kind'] != 'word' or token['text'].upper() != 'REFERENCING':
+            continue
+        cursor = index + 1
+        while cursor < len(parts) and parts[cursor]['text'].upper() in {'NEW', 'OLD', 'PARENT'}:
+            cursor += 1
+            if cursor < len(parts) and parts[cursor]['text'].upper() == 'AS':
+                cursor += 1
+            if cursor >= len(parts) or parts[cursor]['kind'] not in {'word', 'identifier'}:
+                break
+            names.add(parts[cursor]['text'].strip('"').upper())
+            cursor += 1
+        break
+    return names
+
+
+def ordered_bind_names(source):
+    """Return bind names in their first textual occurrence order."""
     parts = list(tokens(source))
-    return {following["text"].upper() for index, (token, following) in enumerate(zip(parts, parts[1:]))
-            if token["kind"] == "symbol" and token["text"] == ":"
+    names, seen = [], set()
+    correlations = trigger_correlation_names(source)
+    for index, (token, following) in enumerate(zip(parts, parts[1:])):
+        name = following["text"].upper()
+        if (token["kind"] == "symbol" and token["text"] == ":"
             and following["kind"] == "word" and following["start"] == token["end"]
-            and (index == 0 or parts[index-1]["text"] != ":")}
+            and (index == 0 or parts[index-1]["text"] != ":") and name not in seen and name not in correlations):
+            names.append(name); seen.add(name)
+    return names
 
 
 def out_bind_names(source):

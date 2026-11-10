@@ -190,12 +190,13 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }
   function markInputMethod(source, method) {
     const methods = editMetrics[source].inputMethods;
-    if (method === 'file' || method === 'history_recall') methods.clear();
-    if (method === 'history_recall') editMetrics[source].hasExternalInput = true;
+    if (method === 'file' || method === 'history_recall' || method === 'daily_task') methods.clear();
+    if (method === 'history_recall' || method === 'daily_task') editMetrics[source].hasExternalInput = true;
     methods.add(method);
   }
   function currentInputMethod(source) {
     const methods = [...editMetrics[source].inputMethods];
+    if (methods.includes('daily_task')) return 'daily_task';
     if (methods.includes('history_recall')) return 'history_recall';
     if (methods.includes('internal_copy')) return 'internal_copy';
     return methods.length > 1 ? 'mixed' : methods[0] || '';
@@ -296,6 +297,8 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   });
   const connectDialog = $('#connectDialog');
   const connectForm = $('#connectForm');
+  const sessionUI = window.WorkspaceSessionUI?.create({editor, form: connectForm, onRestore: () => { markInputMethod('plsql','file'); updateLineNumbers(); updateHighlight(); updateEditorCursorPosition(); }});
+
   const historyKey = `oracle-sql-ide-history-v2:${document.body.dataset.userId || 'local'}`;
   const settingPrefix = 'oracle-sql-ide-';
   const objectTypes = [
@@ -323,7 +326,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   let historyPage = 1;
   let historyPagination = { total: 0, pages: 1 };
   let historySort = { key: 'executedAt', direction: 'desc' };
-  const historyPageSize = 1000;
+  const historyPageSize = 50;
   let terminalFontSize = 14;
   let editorFontSize = 18;
   let terminalBuffer = '';
@@ -335,7 +338,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   let legacyCredentials = null;
   const isTeacher = document.body.dataset.teacher === 'true';
   const isStudent = document.body.dataset.student === 'true';
-  let teacherEditorKind = 'plsql';
+  let teacherEditorKind = 'history';
   let sharedEditor = null;
   let shareSessionToken = sessionStorage.getItem('compiler-editor-share-session') || (crypto.randomUUID ? crypto.randomUUID().replaceAll('-', '') : `${Date.now()}${Math.random().toString(36).slice(2)}`);
   sessionStorage.setItem('compiler-editor-share-session', shareSessionToken);
@@ -361,6 +364,57 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   function compilerCsrfToken() {
     const cookie = document.cookie.split('; ').find((part) => part.startsWith('ora_csrf='));
     return cookie ? decodeURIComponent(cookie.slice('ora_csrf='.length)) : '';
+  }
+  async function compilerApiJson(response) {
+    try { return await response.json(); }
+    catch { return { error: `The server returned an unexpected response (HTTP ${response.status}).` }; }
+  }
+  function removeSubmittedDailyTask(tasks, currentIndex, taskId) {
+    const submittedIndex = tasks.findIndex((task) => String(task.id) === String(taskId));
+    if (submittedIndex < 0) return { index: currentIndex, removed: false };
+    tasks.splice(submittedIndex, 1);
+    const index = submittedIndex < currentIndex ? currentIndex - 1 : Math.min(currentIndex, Math.max(0, tasks.length - 1));
+    return { index, removed: true };
+  }
+  function announceDailyTaskSubmitted(taskId, result = {}) {
+    // Incorrect automatic evaluations remain available for an immediate revision.
+    if (result.evaluated && result.isCorrect === false) return;
+    document.dispatchEvent(new CustomEvent('daily-task-submitted', { detail: { taskId } }));
+  }
+  const dailyTaskUiStateKey = `oracle-daily-task-ui:${document.body.dataset.userId || 'local'}`;
+  function readDailyTaskUiState() {
+    try { return JSON.parse(localStorage.getItem(dailyTaskUiStateKey) || '{}') || {}; }
+    catch { return {}; }
+  }
+  function saveDailyTaskUiState(patch) {
+    const state = { ...readDailyTaskUiState(), ...patch };
+    try { localStorage.setItem(dailyTaskUiStateKey, JSON.stringify(state)); }
+    catch { /* The current page remains usable when browser storage is unavailable. */ }
+    return state;
+  }
+  function saveDailyTaskPosition(task, notify = true) {
+    const taskId = task ? String(task.id) : '';
+    const previousId = String(readDailyTaskUiState().taskId || '');
+    saveDailyTaskUiState({ taskId });
+    if (notify && taskId && taskId !== previousId) {
+      document.dispatchEvent(new CustomEvent('daily-task-position-changed', { detail: { taskId } }));
+    }
+  }
+  function restoreDailyTaskIndex(tasks) {
+    const selectedId = String(readDailyTaskUiState().taskId || '');
+    const foundIndex = tasks.findIndex((task) => String(task.id) === selectedId);
+    return foundIndex >= 0 ? foundIndex : 0;
+  }
+  function testQuestionKey(item) { return item ? `${item.testId}:${item.questionId}` : ''; }
+  function restoreTestQuestionIndex(items) {
+    const selectedKey = String(readDailyTaskUiState().testQuestionKey || '');
+    const foundIndex = items.findIndex((item) => testQuestionKey(item) === selectedKey);
+    return foundIndex >= 0 ? foundIndex : 0;
+  }
+  function saveTestQuestionPosition(item, notify = true) {
+    const key = testQuestionKey(item);
+    saveDailyTaskUiState({ testQuestionKey: key });
+    if (notify && key) document.dispatchEvent(new CustomEvent('test-question-position-changed', { detail: { key } }));
   }
   function reportCompilerClientEvent(kind, source = 'Workspace') {
     if (!isStudent) return;
@@ -405,32 +459,11 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     try {
       const response = await fetch('/api/portal/activity/heartbeat', {
         method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ page: 'compiler', visible: document.visibilityState === 'visible', active: Date.now() - (window.portalLastActivityAt || Date.now()) < 30000, labId: $('#compilerLabSelect')?.value || '' })
+        body: JSON.stringify({ page: 'compiler', visible: document.visibilityState === 'visible', active: Date.now() - (window.portalLastActivityAt || Date.now()) < 30000 })
       });
       if (response.status === 401) window.location.replace('/portal/');
     } catch { /* The next heartbeat will restore live presence. */ }
   }
-  async function loadCompilerLabs() {
-    const context = $('#compilerLabContext');
-    const select = $('#compilerLabSelect');
-    if (!context || !select || !isStudent) return;
-    try {
-      const response = await fetch('/api/compiler/labs', { credentials: 'same-origin' });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Labs are unavailable.');
-      const saved = localStorage.getItem('compiler-lab-context') || '';
-      select.replaceChildren(new Option('No lab selected', ''));
-      (data.labs || []).forEach((lab) => select.add(new Option(`${lab.className} · ${lab.name}`, String(lab.id))));
-      context.hidden = !(data.labs || []).length;
-      select.value = (data.labs || []).some((lab) => String(lab.id) === saved) ? saved : '';
-      sendCompilerHeartbeat();
-    } catch { context.hidden = true; }
-  }
-  $('#compilerLabSelect')?.addEventListener('change', () => {
-    localStorage.setItem('compiler-lab-context', $('#compilerLabSelect').value);
-    sendCompilerHeartbeat();
-  });
-  if (isStudent) loadCompilerLabs();
   // The workspace itself is available only to authenticated portal users.
   // Keep presence alive even when a multi-role account has no active role
   // resolved on this page; otherwise an open, signed-in student workspace can
@@ -443,7 +476,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     const allowedViews = ['sqlplus', 'compiler', 'history', 'settings'];
     if (isStudent) allowedViews.push('sharedCode');
     if (!allowedViews.includes(view)) return;
-    if (['sqlplus', 'compiler'].includes(view) && !sharedCompilerTabAppearance[view]?.visible) {
+    if (['sqlplus', 'compiler'].includes(view) && !(isTeacher && view === 'compiler') && !sharedCompilerTabAppearance[view]?.visible) {
       view = sharedCompilerTabAppearance.sqlplus?.visible ? 'sqlplus' : 'compiler';
     }
     currentView = view;
@@ -458,13 +491,22 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       panel.hidden = !active;
       panel.classList.toggle('active', active);
     });
-    if (view === 'history') { loadCompilerHistory(); if (isTeacher && $('#historyStudentFilter')?.value) loadTeacherEditor(); }
+    if (view === 'history') {
+      if (isTeacher) {
+        teacherEditorKind = 'history';
+        $$('[data-teacher-history-view]').forEach((button) => button.classList.toggle('active', button.dataset.teacherHistoryView === 'history'));
+        $$('.history-table-wrap, .history-pagination').forEach((element) => { element.hidden = false; });
+        if ($('#clearHistory')) $('#clearHistory').hidden = false;
+        if ($('#teacherEditorPanel')) $('#teacherEditorPanel').hidden = true;
+      }
+      loadCompilerHistory();
+    }
     if (view === 'settings' && isStudent) loadStudentEditorSharing();
     if (view === 'sharedCode' && isStudent) loadStudentSharedCode();
     if (view === 'compiler') updateHighlight();
   }
 
-  $$('.ide-nav-item, .ide-tabs [data-view]').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
+  $$('.ide-nav-item[data-view], .ide-tabs [data-view]').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
 
   function objectField(item, upper, lower) { return item?.[upper] ?? item?.[lower] ?? ''; }
   async function showObjectDetails(owner, name, view) {
@@ -698,26 +740,44 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
 
   const connectionChoiceKey = `oracle-connection-choice-${document.body.dataset.userId || 'current'}-${document.body.dataset.loginId || 'current-login'}`;
   let manualOracleDisconnect = false;
-  try { manualOracleDisconnect = sessionStorage.getItem(connectionChoiceKey) === 'manual'; } catch {}
+  // A fresh page load should always resume or recreate the Oracle session.
+  // Manual disconnect only suppresses retries until this page is refreshed.
+  try { sessionStorage.removeItem(connectionChoiceKey); } catch {}
   function requireManualConnection() {
     manualOracleDisconnect = true;
-    try { sessionStorage.setItem(connectionChoiceKey, 'manual'); } catch {}
+  }
+  function pauseReconnectUntilRefresh() {
+    manualOracleDisconnect = true;
+    try { sessionStorage.removeItem(connectionChoiceKey); } catch {}
   }
 
-  function setStatus(connected, label) {
+  function setStatus(connected, label, state) {
+    state = state || (connected ? 'connected' : 'disconnected');
     const wasConnected=$('#connectionDot').classList.contains('connected');
-    $('#connectionDot').classList.toggle('connected', connected);
+    $('#connectionDot').classList.toggle('connected', state === 'connected');
+    $('#connectionDot').classList.toggle('connecting', state === 'connecting');
+    $('#connectionDot').classList.toggle('disconnected', state === 'disconnected');
     const [status, ...serviceParts] = label.split('·');
-    $('#connectionLabel').textContent = status.trim();
+    $('#connectionLabel').textContent = state === 'connected' ? 'Connected' : status.trim();
     $('#connectionService').textContent = connected && serviceParts.length ? serviceParts.join('·').trim() : 'Oracle Database';
-    $('#navigatorStatusLed').classList.toggle('online', connected);
-    if(!connected || !wasConnected) $('#navigatorStatus').textContent = connected ? 'Objects ready' : 'Navigator offline';
-    $('#terminalLed').classList.toggle('online', connected);
-    $('#terminalStatus').textContent = connected ? 'Connected to Oracle' : 'Awaiting connection';
+    const navigatorHeading = $('.navigator-heading');
+    if (navigatorHeading && !$('#collapsedConnectionIndicator')) {
+      const indicator = document.createElement('span');
+      indicator.id = 'collapsedConnectionIndicator'; indicator.className = 'navigator-collapsed-connection';
+      indicator.setAttribute('aria-label', 'Database connection status'); indicator.innerHTML = '<i></i>';
+      navigatorHeading.insertBefore(indicator, $('#collapseNavigator'));
+    }
+    $('#collapsedConnectionIndicator')?.classList.toggle('connected', state === 'connected');
+    $('#collapsedConnectionIndicator')?.classList.toggle('connecting', state === 'connecting');
+    $('#collapsedConnectionIndicator')?.classList.toggle('disconnected', state === 'disconnected');
+    for (const led of [$('#navigatorStatusLed'), $('#terminalLed')]) { led.classList.toggle('online', state === 'connected'); led.classList.toggle('connecting', state === 'connecting'); led.classList.toggle('offline', state === 'disconnected'); }
+    if(state !== 'connected' || !wasConnected) $('#navigatorStatus').textContent = state === 'connecting' ? 'Connecting…' : state === 'connected' ? 'Objects ready' : 'Navigator offline';
+    $('#terminalStatus').textContent = state === 'connected' ? 'Connected to Oracle' : state === 'connecting' ? 'Connecting to Oracle…' : 'Awaiting connection';
     const control = $('#openConnection');
     control.textContent = connected ? 'Disconnect' : 'Connect';
     control.dataset.connected = String(connected);
     control.setAttribute('aria-label', connected ? 'Disconnect from Oracle' : 'Connect to Oracle');
+    sessionUI?.setConnection(connected,label);
     if (connected && !wasConnected && !restoreNavigatorObjects()) refreshDatabaseNavigator();
     else if(!connected) { objectRows = []; renderDatabaseObjects(); }
   }
@@ -792,7 +852,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       tbody.append(tr);
     });
     table.append(thead, tbody);
-    return table;
+    return window.WorkbenchPro?.grid ? window.WorkbenchPro.grid(table, columns, rows) : table;
   }
   function renderResult() {
     const body = $('#resultBody');
@@ -811,6 +871,25 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       body.append(message);
       return;
     }
+    const activeResultTab = $('.result-tabs [data-result].active')?.dataset.result;
+    if (activeResultTab === 'plan' && (resultData.queryDiagnostics || resultData.queryPlanTree)) {
+      renderPlanPanel(body);
+      return;
+    }
+    if (resultData.queryDiagnostics) {
+      const empty = document.createElement('div');
+      empty.className = 'result-empty';
+      empty.textContent = 'Plan diagnostics are available in the Explain Plan tab.';
+      body.append(empty);
+      return;
+    }
+    if (resultData.queryPlanTree && !resultData.columns?.length) {
+      const empty = document.createElement('div');
+      empty.className = 'result-empty';
+      empty.textContent = 'Execution plan is available in the Explain Plan tab.';
+      body.append(empty);
+      return;
+    }
     if (outputStyle === 'sqlplus') {
       const output=document.createElement('pre');output.className='result-output';
       output.textContent=window.CompilerWorkspace.outputText(resultData.sourceSql || '',resultData);body.append(output);return;
@@ -823,6 +902,93 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       body.append(output);
     }
     if (!body.childElementCount) body.textContent = 'Statement executed successfully.';
+  }
+
+  function renderPlanPanel(body = $('#resultBody')) {
+    body.replaceChildren();
+    if (!resultData) {
+      const empty = document.createElement('div');
+      empty.className = 'result-empty';
+      empty.textContent = 'Run Explain Plan to inspect the selected SQL statement.';
+      body.append(empty);
+      return;
+    }
+    if (resultData.error) {
+      const error = document.createElement('pre');
+      error.className = 'result-output error';
+      error.textContent = resultData?.error || 'Run Explain Plan to inspect the selected SQL statement.';
+      body.append(error);
+      return;
+    }
+    const panel = document.createElement('section');
+    panel.className = 'query-diagnostics';
+    const heading = document.createElement('div');
+    heading.className = 'query-diagnostics-heading';
+    const title = document.createElement('h2');
+    title.textContent = 'Execution plan';
+    const note = document.createElement('span');
+    note.textContent = 'Estimated plan';
+    heading.append(title, note);
+    panel.append(heading);
+    if (resultData.diagnostics?.length) {
+      const diagnosticList = document.createElement('ul');
+      diagnosticList.className = 'query-diagnostics-list';
+      resultData.diagnostics.forEach((item) => {
+        const li = document.createElement('li');
+        li.dataset.severity = item.severity || 'info';
+        li.textContent = item.message;
+        diagnosticList.append(li);
+      });
+      panel.append(diagnosticList);
+    }
+    const treeHeading = document.createElement('h3');
+    treeHeading.textContent = 'Plan operations';
+    panel.append(treeHeading);
+    const nodes = resultData.planTree || resultData.queryPlanTree || [];
+    if (nodes.length) {
+      const makeTree = (items) => {
+        const list = document.createElement('ul');
+        list.className = 'query-plan-tree';
+        items.forEach((item) => {
+          const li = document.createElement('li');
+          const row = document.createElement('div');
+          row.className = 'query-plan-node';
+          const op = document.createElement('strong');
+          op.textContent = item.operation || 'Operation';
+          row.append(op);
+          const estimate = [];
+          if (item.estimatedRows !== null && item.estimatedRows !== undefined) estimate.push(`Rows ${item.estimatedRows}`);
+          if (item.cost !== null && item.cost !== undefined) estimate.push(`Cost ${item.cost}`);
+          if (estimate.length) {
+            const meta = document.createElement('span');
+            meta.textContent = estimate.join(' · ');
+            row.append(meta);
+          }
+          li.append(row);
+          if (item.children?.length) li.append(makeTree(item.children));
+          list.append(li);
+        });
+        return list;
+      };
+      panel.append(makeTree(nodes));
+    } else {
+      const empty = document.createElement('p');
+      empty.className = 'muted-note';
+      empty.textContent = resultData.plan?.length ? 'Oracle did not return structured plan rows; see the plan text below.' : 'No plan is available. Run Explain Plan for a SQL statement.';
+      panel.append(empty);
+    }
+    if (resultData.plan?.length) {
+      const rawDetails = document.createElement('details');
+      rawDetails.className = 'query-plan-raw';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Oracle plan text';
+      const raw = document.createElement('pre');
+      raw.className = 'query-plan-output';
+      raw.textContent = resultData.plan.join('\n');
+      rawDetails.append(summary, raw);
+      panel.append(rawDetails);
+    }
+    body.append(panel);
   }
 
   let executionBusy = false;
@@ -880,6 +1046,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   const terminalQueueKey = `oracle-terminal-queue:${document.body.dataset.userId || 'local'}:${location.pathname}`;
   const terminalBufferKey = `${terminalQueueKey}:buffer-size`;
   const terminalTranscriptKey = `${terminalQueueKey}:transcript`;
+  const terminalCommandHistoryKey = terminalQueueKey + ':command-history';
   let defaultTerminalBufferEntries = 5000;
   let personalTerminalBufferEntries = null;
   try {
@@ -893,10 +1060,29 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     if (terminalCommandHistory.length > limit) terminalCommandHistory.splice(0, terminalCommandHistory.length-limit);
     terminalHistoryIndex = Math.min(terminalHistoryIndex, terminalCommandHistory.length);
   }
+  function persistTerminalCommandHistory() {
+    try { sessionStorage.setItem(terminalCommandHistoryKey, JSON.stringify(terminalCommandHistory)); } catch {}
+  }
+  function clearTerminalDisplay() {
+    persistTerminalCommandHistory();
+    $('#terminalOutput').replaceChildren(terminalPrompt);
+    terminalInput.value = '';
+    terminalInput.style.height = '';
+    terminalHistoryIndex = terminalCommandHistory.length;
+    terminalHistoryDraft = '';
+    updateTerminalInputHighlight();
+    try { sessionStorage.setItem(terminalTranscriptKey, '[]'); } catch {}
+    saveTerminalQueue();
+    terminalInput.focus();
+  }
   function restoreTerminalCommandHistory(entries) {
     terminalCommandHistory = (entries || [])
       .filter(item => typeof item?.sql === 'string' && item.sql.trim() && !item.data?.commentOnly)
       .map(item => item.sql);
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(terminalCommandHistoryKey) || 'null');
+      if (Array.isArray(saved)) terminalCommandHistory = saved.filter(sql => typeof sql === 'string' && sql.trim());
+    } catch {}
     const limit = personalTerminalBufferEntries || defaultTerminalBufferEntries;
     if (terminalCommandHistory.length > limit) terminalCommandHistory = terminalCommandHistory.slice(-limit);
     terminalHistoryIndex = terminalCommandHistory.length;
@@ -905,6 +1091,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   window.addEventListener('pagehide', () => {
     try {
       trimTerminalBuffer();
+      persistTerminalCommandHistory();
       const entries = [...$('#terminalOutput').querySelectorAll('.terminal-entry')]
         .map(entry => entry._outputSnapshot).filter(item => item && !item.data?.pending);
       sessionStorage.setItem(terminalTranscriptKey, JSON.stringify(entries));
@@ -1022,8 +1209,10 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       if (!sqlplus) {
         resultData = { ...data, sourceSql: statement };
         $('#resultRuntime').textContent = `${data.durationMs ?? Math.round(performance.now() - started)} ms${data.rows?.length ? ` · ${data.rows.length} rows` : ''}`;
-        renderResult();
+        if (data.queryPlanTree) setResultTab('plan');
+        else renderResult();
       }
+      sessionUI?.updateTransactions({[sqlplus ? 'sqlcl' : 'worksheet']: data.transactionPending ?? null});
       const batchFailure = data.executionErrors?.length ? data.executionErrors.map((item) => `${item.statement}: ${item.error}`).join('\n') : null;
       addHistory(statement, sqlplus ? 'SQL*Plus' : 'PL/SQL', data, batchFailure);
       if (sqlplus) {
@@ -1041,7 +1230,10 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         if (data.clearTerminal) $('#terminalOutput').replaceChildren(terminalPrompt);
         else if (Array.isArray(data.statementResults) && data.statementResults.length) {
           terminalEntry?.remove();
-          data.statementResults.forEach((item) => appendTerminalResult(item.statement, { ...data, ...item }, item.error || null));
+          data.statementResults.forEach((item) => appendTerminalResult(item.statement, {
+            ...data, ...item,
+            durationMs: item.durationMs ?? (data.statementResults.length === 1 ? data.durationMs : undefined),
+          }, item.error || null));
         } else appendTerminalResult(statement, data, null, terminalEntry);
         if (data.sqlPlusDisconnected || data.disconnected) setStatus(false, 'Not connected');
         if (typeof data.sqlPlusAutoCommit === 'boolean') {
@@ -1174,7 +1366,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       entry.append(errorBlock);
     } else if (outputStyle === 'sqlplus') {
       const text=document.createElement('pre');text.className='terminal-output-text';text.style.whiteSpace='pre';
-      text.textContent=window.CompilerWorkspace.outputText(sql,{...data,statementResults:undefined});entry.append(text);
+      text.textContent=window.CompilerWorkspace.outputText(sql,{...data,statementResults:undefined});entry.append(text);if(data?.columns?.length){const rich=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Interactive data grid';rich.append(summary,renderTable(data.columns,data.rows||[]));entry.append(rich);}
     } else if (data?.columns?.length) {
       const table = renderTable(data.columns, data.rows || []);
       if (data.sqlPlusHeading === false) $('thead', table)?.remove();
@@ -1193,6 +1385,12 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       const lines = data?.outputLines || [];
       result.textContent = [...lines, data?.message || (lines.length ? '' : 'Statement executed successfully.')].filter(Boolean).join('\n');
       entry.append(result);
+    }
+    if (!data?.pending && !data?.commentOnly && typeof data?.durationMs === 'number' && Number.isFinite(data.durationMs) && data.durationMs >= 0) {
+      const timing = document.createElement('div');
+      timing.className = 'terminal-execution-time';
+      timing.textContent = `Execution time: ${Math.round(data.durationMs)} ms`;
+      entry.append(timing);
     }
     if (!existingEntry) output.insertBefore(entry, $('.terminal-prompt', output));
     output.scrollTop = output.scrollHeight;
@@ -1249,12 +1447,19 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     if (!(response.headers.get('content-type') || '').includes('application/json')) {
       throw new Error('The connection service returned an unexpected response. Refresh the page and try again.');
     }
-    return response.json();
+    const data = await response.json();
+    sessionUI?.setDetails(data);
+    return data;
   }
 
   async function connect(payload, { save = false } = {}) {
     const error = $('#connectError');
     const button = $('.dialog-submit', connectForm);
+    if (!String(payload.user || '').trim() || !String(payload.password || '').trim() || !String(payload.connectString || '').trim()) {
+      error.textContent = 'Enter your Oracle username, password, and connect string.';
+      if (!connectDialog.open) connectDialog.showModal();
+      return false;
+    }
     error.textContent = 'Connecting…';
     button.disabled = true;
     try {
@@ -1263,6 +1468,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         body: JSON.stringify({ ...payload, saveCredentials: save })
       });
       const data = await readConnectionResponse(response);
+      sessionUI?.updateTransactions(data.transactions);
       if (!response.ok) throw new Error(data.error || 'Could not connect.');
       manualOracleDisconnect = false;
       try { sessionStorage.removeItem(connectionChoiceKey); } catch {}
@@ -1283,14 +1489,60 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     } finally { button.disabled = false; }
   }
 
+  let savedOracleConnections = [];
+  const savedSelector = $('#savedOracleConnections');
+  const saveCredentialsToggle = $('#saveCredentials');
+  if (saveCredentialsToggle && !savedSelector?.value) saveCredentialsToggle.checked = true;
+  const savedLabel = savedSelector?.closest('label');
+  const deleteSavedConnection = document.createElement('button');
+  deleteSavedConnection.type = 'button'; deleteSavedConnection.className = 'tool-button'; deleteSavedConnection.textContent = 'Delete selected saved connection'; deleteSavedConnection.disabled = true;
+  if (savedSelector?.parentElement) { const savedControls=document.createElement('div'); savedControls.className='saved-connection-controls'; savedSelector.parentElement.insertBefore(savedControls,savedSelector); savedControls.append(savedSelector,deleteSavedConnection); }
+  const connectionSettingsPanel=document.querySelector('[data-panel="settings"]');
+  if (savedLabel && connectionSettingsPanel) {
+    savedLabel.hidden = true;
+    const manageCard=document.createElement('article'); manageCard.className='settings-card saved-connections-settings'; manageCard.innerHTML='<div><strong>Saved Oracle connections</strong><small>Manage saved database profiles without cluttering the connection form.</small></div><button type="button" class="tool-button">Manage connections</button>';
+    manageCard.querySelector('button').addEventListener('click',async()=>{savedLabel.hidden=false;await loadSavedCredentialDetails();connectDialog.showModal();savedSelector.focus();});
+    const cards=connectionSettingsPanel.querySelector('.settings-cards'); (cards||connectionSettingsPanel).prepend(manageCard);
+    connectDialog.addEventListener('close',()=>{savedLabel.hidden=true;});
+  }
+  savedSelector?.addEventListener('input', () => { deleteSavedConnection.disabled = !savedSelector.value; });
+  const usernameInput = connectForm.elements.user;
+  usernameInput?.addEventListener('input', () => { if (savedSelector?.value) { savedSelector.value = ''; deleteSavedConnection.disabled = true; $('#saveCredentials').checked = true; } });
+  deleteSavedConnection.addEventListener('click', async () => {
+    const id = Number(savedSelector?.value); if (!id || !confirm('Delete this saved Oracle connection?')) return;
+    deleteSavedConnection.disabled = true;
+    try {
+      const response = await fetch('/api/connect-saved', {method:'DELETE',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({connectionId:id})});
+      const data = await readConnectionResponse(response); if (!response.ok) throw new Error(data.error || 'Unable to delete saved connection.');
+      savedOracleConnections = savedOracleConnections.filter(item => item.id !== id); savedSelector.replaceChildren(new Option('New connection','')); savedOracleConnections.forEach(item => savedSelector.append(new Option(`${item.name} · ${item.user}`, String(item.id))));
+      fillCredentials({saved:false}); showToast('Saved Oracle connection deleted.');
+    } catch (errorValue) { showToast(errorValue.message); deleteSavedConnection.disabled = false; }
+  });
+  $('#savedOracleConnections')?.addEventListener('change', () => {
+    deleteSavedConnection.disabled = !savedSelector.value;
+    const saved = savedOracleConnections.find(item => String(item.id) === $('#savedOracleConnections').value);
+    if (saved) {
+      fillCredentials({...saved, saved: true});
+      connectForm.elements.connectionName.value = saved.name;
+    } else {
+      fillCredentials({saved: false});
+      connectForm.elements.user.value = '';
+      connectForm.elements.connectString.value = '';
+      connectForm.elements.connectionName.value = '';
+      delete connectForm.dataset.savedOracleUser;
+      delete connectForm.dataset.savedOracleConnectString;
+    }
+  });
   function fillCredentials(data) {
+    const help = $('#freeSqlConnectionHelp');
+    if (help) help.open = false;
     if (data.saved && data.user) {
       connectForm.dataset.savedOracleUser = data.user;
       connectForm.dataset.savedOracleConnectString = data.connectString || '';
     }
     if (data.user) connectForm.elements.user.value = data.user;
     if (data.connectString) connectForm.elements.connectString.value = data.connectString;
-    $('#saveCredentials').checked = Boolean(data.saved);
+    $('#saveCredentials').checked = true;
     connectForm.elements.password.value = '';
     connectForm.elements.password.placeholder = data.saved ? 'Saved password stays securely on the server' : '';
     $('#savedCredentialsTitle').textContent = data.saved ? 'Use saved credentials' : 'Save credentials to my profile';
@@ -1303,9 +1555,21 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       const response = await fetch('/api/connect-saved', { credentials: 'same-origin', cache: 'no-store' });
       const data = await readConnectionResponse(response);
       if (response.ok) {
+        savedOracleConnections = data.connections || [];
+        const selector = $('#savedOracleConnections');
+        const previous = selector.value;
+        selector.replaceChildren(new Option('New connection', ''), ...savedOracleConnections.map(item => new Option(`${item.name} · ${item.user}`, String(item.id))));
+        const selected = savedOracleConnections.find(item => String(item.id) === previous)
+          || savedOracleConnections.find(item => item.user === data.user && item.connectString === data.connectString);
+        if (selected) {
+          selector.value = String(selected.id);
+          fillCredentials({...selected, saved: true});
+          connectForm.elements.connectionName.value = selected.name;
+          return;
+        }
         if (data.saved) fillCredentials(data);
         else {
-          $('#saveCredentials').checked = false;
+      $('#saveCredentials').checked = true;
           $('#savedCredentialsTitle').textContent = 'Save credentials to my profile';
           $('#savedCredentialsHelp').textContent = 'Automatically reconnect with these details after signing in.';
           connectForm.elements.password.placeholder = '';
@@ -1319,7 +1583,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     error.textContent = 'Connecting with saved credentials…';
     button.disabled = true;
     try {
-      const response = await fetch('/api/connect-saved', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const response = await fetch('/api/connect-saved', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify($('#savedOracleConnections')?.value ? {connectionId: Number($('#savedOracleConnections').value)} : {}) });
       const data = await readConnectionResponse(response);
       if (!response.ok || !data.connected) {
         if (data.saved) fillCredentials(data);
@@ -1350,7 +1614,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     if (manualOracleDisconnect) return false;
     lastReconnectAttempt = Date.now();
     reconnectPromise = (async () => {
-      setStatus(false, 'Connecting to Oracle…');
+      setStatus(false, 'Connecting to Oracle…', 'connecting');
       try {
         const response = await fetch('/api/connect-saved', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:'{}' });
         const data = await readConnectionResponse(response);
@@ -1365,9 +1629,16 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         }
         if (data.saved) {
           fillCredentials(data);
-          setStatus(false, 'Saved Oracle connection failed');
+          // Any failed automatic reconnect needs an actionable login dialog.  A
+          // connection can fail for network, TLS, service-name, or database
+          // availability reasons too; leaving the workspace in a disconnected
+          // state hides the only useful recovery path from the user.
+          pauseReconnectUntilRefresh();
+          setStatus(false, 'Saved Oracle connection failed', 'disconnected');
           $('#connectError').textContent = connectionDiagnosis(data.error);
           showConnectionProblem(data.error);
+          await loadSavedCredentialDetails();
+          if (!connectDialog.open) connectDialog.showModal();
           showToast(data.error || 'Saved Oracle connection failed. Check the credentials in your profile.');
           return false;
         }
@@ -1375,13 +1646,18 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         if (legacyCredentials) {
           fillCredentials(legacyCredentials);
         }
+        pauseReconnectUntilRefresh();
         $('#connectError').textContent='';
+        await loadSavedCredentialDetails();
+        if (!connectDialog.open) connectDialog.showModal();
         return false;
       } catch(error) {
+        pauseReconnectUntilRefresh();
         setStatus(false, 'Oracle connection unavailable');
         await loadSavedCredentialDetails();
         $('#connectError').textContent = connectionDiagnosis(error.message);
         showConnectionProblem(error.message);
+        if (!connectDialog.open) connectDialog.showModal();
         showToast(error.message || 'Could not reconnect to Oracle.');
         return false;
       }
@@ -1396,6 +1672,8 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         const response=await fetch('/api/status',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(10000)});
         if (!response.ok) { showConnectionProblem('Workbench status request failed (HTTP ' + response.status + ')', true); return null; }
         const data=await response.json();
+        sessionUI?.setDetails(data);
+        sessionUI?.updateTransactions(data.transactions);
         if (connectionProblem?.dataset.transport === 'true') clearConnectionProblem();
         if(data.connected){
           navigatorCacheId = data.navigatorCacheId || '';
@@ -1438,22 +1716,50 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     input.setSelectionRange(start, end);
   }
   function renderSyntaxHighlight(source) {
-    const tokens = window.CompilerWorkspace.scan(source).tokens;
+    const tokens = window.CompilerEditorAssist.syntaxTokens(source);
     let html = '', offset = 0;
     for (const token of tokens) {
       html += escapeHtml(source.slice(offset, token.start));
-      const type = token.kind === 'comment' ? 'comment' : token.kind === 'literal' ? 'string' : token.kind === 'number' ? 'number' : token.kind === 'word' && window.CompilerEditorAssist.keywords.includes(token.text.toUpperCase()) ? 'keyword' : '';
+      const type = token.syntax;
       html += type ? `<span class="sql-${type}">${escapeHtml(token.text)}</span>` : escapeHtml(token.text);
       offset = token.end;
     }
     return html + escapeHtml(source.slice(offset));
   }
+  function renderBracketHighlight(input) {
+    const source=input.value||' ',caret=input.selectionStart;
+    const {active,unmatched}=window.CompilerEditorAssist.bracketPairs(source,caret);
+    const tokens=window.CompilerEditorAssist.syntaxTokens(source);
+    const marks=new Map();
+    if(active){marks.set(active.start,'sql-bracket-match');marks.set(active.end,'sql-bracket-match');}
+    for(const position of unmatched)if(position===caret||position===caret-1)marks.set(position,'sql-bracket-unmatched');
+    let offset=0,html='';
+    function segment(text,start,type){
+      let result='';
+      for(let i=0;i<text.length;i++){
+        const escaped=escapeHtml(text[i]),mark=marks.get(start+i);
+        result+=mark?`<span class="${mark}">${escaped}</span>`:escaped;
+      }
+      return type?result.split('\n').map(line=>`<span class="sql-${type}">${line}</span>`).join('\n'):result;
+    }
+    for(const token of tokens){html+=segment(source.slice(offset,token.start),offset,'');html+=segment(token.text,token.start,token.syntax);offset=token.end;}
+    html+=segment(source.slice(offset),offset,'');
+    if(active){
+      const first=source.slice(0,active.start).split('\n').length-1,last=source.slice(0,active.end).split('\n').length-1;
+      if(last>first){
+        // The guide is painted in the existing overlay and adds no text width.
+        const lineStart=source.lastIndexOf('\n',active.start-1)+1,column=active.start-lineStart;
+        html=html.split('\n').map((line,index)=>`<span class="sql-bracket-guide-line"${index>first&&index<=last?` style="--bracket-column:${column}ch"`:''}>${line||'&#8203;'}</span>`).join('');
+      }
+    }
+    return html;
+  }
   function updateHighlight() {
-    $('#syntaxHighlight').innerHTML = renderSyntaxHighlight(editor.value || ' ');
+    $('#syntaxHighlight').innerHTML = renderBracketHighlight(editor);
   }
   function updateTerminalInputHighlight() {
     const highlight = $('#terminalInputHighlight');
-    if (highlight) highlight.innerHTML = renderSyntaxHighlight(terminalInput.value || ' ');
+    if (highlight) highlight.innerHTML = renderBracketHighlight(terminalInput);
   }
   plsqlCleanCode.checked = localStorage.getItem('ora-editor-clean-code') !== 'false';
   plsqlAutoCommit.checked = localStorage.getItem('ora-editor-autocommit') !== 'OFF';
@@ -1491,7 +1797,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     editor.dispatchEvent(new Event('input', { bubbles: true }));
   }));
   editor.addEventListener('input', () => { updateLineNumbers(); updateHighlight(); updateEditorCursorPosition(); scheduleEditorShareSync(); if (editor.value.trim()) plsqlStarterMenu.hidden = true; });
-  ['click', 'keyup', 'select'].forEach((eventName) => editor.addEventListener(eventName, updateEditorCursorPosition));
+  ['click', 'keyup', 'select'].forEach((eventName) => editor.addEventListener(eventName, () => {updateEditorCursorPosition();updateHighlight();}));
   editor.addEventListener('scroll', () => { $('#syntaxHighlight').scrollTop = editor.scrollTop; $('#syntaxHighlight').scrollLeft = editor.scrollLeft; $('#lineNumbers').scrollTop = editor.scrollTop; });
   updateLineNumbers();
   updateHighlight();
@@ -1569,6 +1875,39 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     return execute(selected.sql, { script, executionMode });
   }
   $('#runStatement').addEventListener('click', () => runEditor(false));
+  $('#explainPlan').addEventListener('click', async () => {
+    const selected = window.CompilerWorkspace.target(editor.value, editor.selectionStart, editor.selectionEnd, false);
+    const sql = selected.sql.trim();
+    if (!sql) { showToast('Write or select one SQL statement first.'); return; }
+    const binds = await collectBinds(sql);
+    if (binds === null) return;
+    const button = $('#explainPlan');
+    const started = performance.now();
+    button.disabled = true;
+    button.textContent = '⌕ Analyzing…';
+    $('#resultRuntime').textContent = 'Analyzing…';
+    try {
+      const response = await fetch('/api/explain', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql, binds })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not explain this query.');
+      resultData = { ...data, queryDiagnostics: true };
+      $('#resultRuntime').textContent = `Plan · ${Math.round(performance.now() - started)} ms`;
+      setResultTab('plan');
+      renderResult();
+    } catch (error) {
+      resultData = { error: error.message };
+      $('#resultRuntime').textContent = 'Plan unavailable';
+      setResultTab('plan');
+      renderResult();
+    } finally {
+      button.disabled = false;
+      button.textContent = '⌕ Explain plan';
+    }
+  });
   $('#runScript').addEventListener('click', async () => {
     const selectionStart = editor.selectionStart;
     const selectionEnd = editor.selectionEnd;
@@ -1610,30 +1949,146 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     link.click();
     URL.revokeObjectURL(link.href);
   });
-  function filterExportEntries(entries, scope) {
-    if (scope === 'last') return entries.slice(-1);
-    if (scope === 'success') return entries.filter(entry => !entry.failed);
-    if (scope === 'failed') return entries.filter(entry => entry.failed);
-    return entries;
-  }
-  function scopedEditorExport(terminal, scope) {
+  function scopedEditorExport(terminal, mode, scope = 'all') {
     if (!terminal) {
-      if (scope === 'all') return editor.value;
-      const entries = history.filter(entry => entry.source === 'PL/SQL').slice().reverse()
-        .map(entry => ({ text: entry.sql || '', failed: entry.status === 'error' }));
-      return filterExportEntries(entries, scope).map(entry => entry.text).join('\n\n');
+      const sql = editor.value || '';
+      if (mode === 'statements') return sql.replace(/;[ \t]+(?=\S)/g, ';\r\n');
+      const output = resultData ? (resultData.error || [...(resultData.outputLines || []), resultData.message || 'Statement completed.'].filter(Boolean).join('\n')) : '';
+      return output ? `${sql.trim()}\n\n-- Output / Error\n${output}` : sql;
     }
-    const entries = [...$('#terminalOutput').querySelectorAll('.terminal-entry')]
+    let entries = [...$('#terminalOutput').querySelectorAll('.terminal-entry')]
       .filter(node => node._outputSnapshot && !node._outputSnapshot.data?.pending && !node._outputSnapshot.data?.commentOnly)
-      .map(node => ({ text: node.innerText, failed: Boolean(node._outputSnapshot.error || node._outputSnapshot.data?.executionErrors?.length) }));
-    return filterExportEntries(entries, scope).map(entry => entry.text).join('\n\n');
+      .map(node => {
+        const snapshot = node._outputSnapshot;
+        const sql = snapshot.sql || '';
+        if (mode === 'statements') return sql;
+        const rendered = node.innerText || '';
+        const detail = rendered.startsWith(sql) ? rendered.slice(sql.length).replace(/^\s+/, '') : rendered;
+        return detail ? `${sql}\n\n-- Output / Error\n${detail}` : sql;
+      });
+    if (scope === 'last') entries = entries.slice(-1);
+    if (scope === 'success') entries = entries.filter(text => !/error|failed/i.test(text));
+    if (scope === 'failed') entries = entries.filter(text => /error|failed/i.test(text));
+    return entries.map(value => mode === 'statements' ? String(value).replace(/;\s+(?=(?:select|with|insert|update|delete|merge|create|alter|drop|begin|declare)\b)/gi, ';\r\n') : value).join('\r\n');
   }
   const exportScopeMenu = document.createElement('div');
   exportScopeMenu.className = 'export-scope-menu';
   exportScopeMenu.setAttribute('popover', 'auto');
   exportScopeMenu.setAttribute('aria-label', 'Choose statements to export');
   let exportScopeTrigger = null;
-  for (const [scope, label] of [['all', 'All'], ['success', 'Success'], ['failed', 'Failed'], ['last', 'Last']]) {
+  function escapeExportHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
+  }
+  function formattedExportHtml(text) {
+    const lines = String(text || '').split(/\r?\n/);
+    const outputStart = lines.findIndex(line => /^-- Output \/ Error$/.test(line));
+    const sqlLines = outputStart >= 0 ? lines.slice(0, outputStart) : lines;
+    const outputLines = outputStart >= 0 ? lines.slice(outputStart + 1) : [];
+    const sqlHtml = renderSyntaxHighlight(sqlLines.join('\n'));
+    const outputHtml = outputLines.map(line => {
+      if (/^\s*(select|with|insert|update|delete|merge|create|alter|drop|begin|declare)\b/i.test(line)) return renderSyntaxHighlight(line);
+      const kind = /^\s*(ORA-\d+|SP2-|PLS-|Help:)/i.test(line) ? 'error-line' : 'output-line';
+      return `<span class="${kind}">${escapeExportHtml(line)}</span>`;
+    }).join('\n');
+    return `<!doctype html><meta charset="utf-8"><title>SQL export</title><style>@page{margin:18mm}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font:14px ui-monospace,Consolas,monospace;background:#fff;color:#172033;padding:24px;white-space:pre-wrap}.sql{color:#172033}.sql-keyword{color:#0757c9}.sql-string{color:#16863d}.sql-number{color:#b35c00}.sql-comment{color:#6f7785}.output{color:#172033;border-top:1px solid #b9c2d0;margin-top:18px;padding-top:14px}.output-line{color:#172033}.error-line{color:#d11f3a;font-weight:700}</style><div class="sql">${sqlHtml}</div>${outputLines.length ? `<div class="output">${outputHtml}</div>` : ''}`;
+  }
+  function inlineSqlClipboardHtml(text) {
+    return `<div style="font-family:Consolas,'Courier New',monospace;font-size:11pt;white-space:pre-wrap;color:#172033">${renderSyntaxHighlight(String(text || '').replace(/\r\n?/g, '\n')).replace(/\n/g, '<br>').replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;').replace(/  /g, '&nbsp; ').replace(/class="sql-keyword"/g, 'style="color:#0757c9"').replace(/class="sql-string"/g, 'style="color:#16863d"').replace(/class="sql-number"/g, 'style="color:#b35c00"').replace(/class="sql-comment"/g, 'style="color:#6f7785"')}</div>`;
+  }
+  async function writeRichSqlClipboard(text, html) {
+    if (navigator.clipboard?.write && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+        'text/html': new Blob([html], { type: 'text/html' })
+      })]);
+      return;
+    }
+    // The LAN hostname is often an insecure browser context, where the async
+    // Clipboard API is unavailable. A trusted Copy click can still use copy.
+    const holder = document.createElement('div');
+    holder.contentEditable = 'true';
+    holder.style.cssText = 'position:fixed;left:-10000px;top:0;opacity:0';
+    holder.innerHTML = html;
+    document.body.append(holder);
+    const selection = window.getSelection();
+    const previous = selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+    const range = document.createRange();
+    range.selectNodeContents(holder);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const copied = document.execCommand('copy');
+    selection.removeAllRanges();
+    if (previous) selection.addRange(previous);
+    holder.remove();
+    if (!copied) throw new Error('Browser could not copy formatted text.');
+  }
+  document.addEventListener('copy', event => {
+    if (!event.clipboardData) return;
+    let text = '';
+    if (document.activeElement === editor) {
+      text = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+    } else if (document.activeElement === terminalInput) {
+      text = terminalInput.value.slice(terminalInput.selectionStart, terminalInput.selectionEnd);
+    } else {
+      const selection = window.getSelection();
+      if (selection?.rangeCount && terminalOutput.contains(selection.getRangeAt(0).commonAncestorContainer)) text = selection.toString();
+    }
+    if (!text) return;
+    event.clipboardData.setData('text/plain', text);
+    event.clipboardData.setData('text/html', inlineSqlClipboardHtml(text));
+    event.preventDefault();
+  });
+  terminalInput.addEventListener('copy', event => {
+    if (!event.clipboardData) return;
+    const text = terminalInput.value.slice(terminalInput.selectionStart, terminalInput.selectionEnd);
+    if (!text) return;
+    event.clipboardData.setData('text/plain', text);
+    event.clipboardData.setData('text/html', inlineSqlClipboardHtml(text));
+    rememberInternalCopy(text);
+    event.preventDefault();event.stopImmediatePropagation();
+  });
+  async function copyFormatted(text, title) {
+    text = String(text ?? '').replace(/\r?\n/g, '\r\n');
+    if (/Statements only/i.test(title)) text = text.replace(/;[ \t]+(?=\S)/g, ';\r\n');
+    await writeRichSqlClipboard(text, inlineSqlClipboardHtml(text));
+    showToast(`${title} copied with formatting.`);
+  }
+  async function saveExportFile(blob, filename) {
+    if (window.showSaveFilePicker) {
+      const handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: 'Export file', accept: { [blob.type.split(';')[0]]: [`.${filename.split('.').pop()}`] } }] });
+      const writable = await handle.createWritable(); await writable.write(blob); await writable.close();
+      return;
+    }
+    const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function chooseExportOption(title, options, anchor = exportScopeTrigger) {
+    return new Promise(resolve => {
+      const dialog = document.createElement('dialog'); dialog.className = 'export-choice-dialog';
+      dialog.innerHTML = `<form method="dialog"><h3>${title}</h3><div class="export-choice-list">${options.map(([value, label]) => `<button type="button" data-value="${value}">${label}</button>`).join('')}</div><button type="button" data-cancel>Cancel</button></form>`;
+      dialog.querySelectorAll('[data-value]').forEach(button => button.addEventListener('click', () => { dialog.close(button.dataset.value); dialog.remove(); resolve(button.dataset.value); }));
+      dialog.querySelector('[data-cancel]').addEventListener('click', () => { dialog.close(); dialog.remove(); resolve(null); });
+      dialog.addEventListener('cancel', () => { dialog.remove(); resolve(null); }, { once: true });
+      document.body.append(dialog); dialog.showModal();
+      if (anchor) {
+        const rect = anchor.getBoundingClientRect();
+        const width = dialog.getBoundingClientRect().width;
+        dialog.style.position = 'fixed';
+        dialog.style.margin = '0';
+        dialog.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - width - 8))}px`;
+        dialog.style.top = `${Math.max(8, Math.min(rect.bottom + 6, innerHeight - dialog.getBoundingClientRect().height - 8))}px`;
+      }
+    });
+  }
+  const exportDefaultFormat = (() => { try { const value = localStorage.getItem('oracle-export-default-format') || 'sql'; return ['sql','pdf','rtf','md'].includes(value) ? value : 'sql'; } catch { return 'sql'; } })();
+  const settingsPanel = document.querySelector('[data-panel="settings"]');
+  if (settingsPanel && !$('#exportDefaultFormat')) {
+    const card = document.createElement('article'); card.className = 'settings-card';
+    card.innerHTML = '<div><strong>Export default format</strong><small>Default format for Copy, Download, and Share exports.</small></div><select id="exportDefaultFormat" aria-label="Export default format"><option value="sql">SQL</option><option value="pdf">PDF</option><option value="rtf">RTF</option><option value="md">Markdown</option></select>';
+    card.querySelector('select').value = exportDefaultFormat;
+    card.querySelector('select').addEventListener('change', event => { try { localStorage.setItem('oracle-export-default-format', event.target.value); } catch {} });
+    (settingsPanel.querySelector('.settings-cards') || settingsPanel).prepend(card);
+  }
+  for (const [mode, label] of [['statements', 'Statements only'], ['full', 'Statements + output/errors']]) {
     const option = document.createElement('button');
     option.type = 'button';
     option.textContent = label;
@@ -1641,23 +2096,58 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       const trigger = exportScopeTrigger;
       exportScopeMenu.hidePopover();
       if (!trigger) return;
+      const scope = await chooseExportOption('Choose records to export', [['last','Last'],['success','Success'],['failed','Failed'],['all','All']]);
+      if (!['last','success','failed','all'].includes(scope)) return;
+      const action = trigger.dataset.terminalAction || trigger.dataset.plsqlAction || trigger.dataset.historyAction;
+      const format = action === 'download' ? await chooseExportOption('Choose file format', [['sql',`SQL${exportDefaultFormat === 'sql' ? ' · Default' : ''}`],['pdf',`PDF${exportDefaultFormat === 'pdf' ? ' · Default' : ''}`],['rtf',`RTF${exportDefaultFormat === 'rtf' ? ' · Default' : ''}`],['md',`Markdown${exportDefaultFormat === 'md' ? ' · Default' : ''}`]]) : 'sql';
+      const normalizedFormat = format === 'markdown' ? 'md' : format;
+      if (!['sql','pdf','rtf','md'].includes(normalizedFormat)) return;
       const terminal = Boolean(trigger.dataset.terminalAction);
-      const action = trigger.dataset.terminalAction || trigger.dataset.plsqlAction;
-      const text = scopedEditorExport(terminal, scope);
-      if (!text.trim()) { showToast(`No ${label.toLowerCase()} statements available.`); return; }
+      if (trigger.dataset.historyAction) {
+        let records;
+        try { records = await fetchAllCompilerHistory(); }
+        catch (error) { showToast(error.message || 'Could not load SQL history for export.'); return; }
+        if (!records.length) { showToast('There is no SQL history matching these filters.'); return; }
+        if (scope === 'last') records = records.slice(-1);
+        if (scope === 'success') records = records.filter(entry => entry.status !== 'error');
+        if (scope === 'failed') records = records.filter(entry => entry.status === 'error');
+        const headers = ['Time', 'Student', 'Source', 'Query', 'Result', 'Output / Error'];
+        const rows = [headers, ...records.map(entry => {
+          const detail = entry.error || entry.output || entry.message || (Array.isArray(entry.outputLines) ? entry.outputLines.join('\n') : '');
+          return [entry.executedAt, entry.studentName || 'You', compilerSourceLabel(entry.source), entry.sql || '', entry.status === 'error' ? 'Failed' : 'Success', detail];
+        })];
+        const text = mode === 'statements' ? records.map(entry => entry.sql || '').join('\n\n') : rows.map(row => row.join('\t')).join('\n');
+        if (!text.trim()) { showToast('Nothing available to export.'); return; }
+        try {
+          if (action === 'download') {
+            if (format === 'pdf') { const printWindow = window.open('', '_blank'); if (printWindow) { printWindow.document.write(formattedExportHtml(text)); printWindow.document.close(); printWindow.focus(); setTimeout(() => printWindow.print(), 100); } return; }
+            const csv = rows.map(row => row.map(value => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\r\n');
+            const payload = format === 'md' ? `\n\`\`\`sql\n${text}\n\`\`\`\n` : format === 'rtf' ? `{\\rtf1\\ansi ${text.replace(/[\\{}]/g, '\\$&').replace(/\r?\n/g, '\\line ')}}` : format === 'docx' ? formattedExportHtml(text) : mode === 'statements' ? text : formattedExportHtml(text);
+            const blob = new Blob([payload], { type: format === 'rtf' ? 'application/rtf' : format === 'md' ? 'text/markdown;charset=utf-8' : format === 'sql' ? 'text/sql;charset=utf-8' : 'text/html;charset=utf-8' });
+            await saveExportFile(blob, `sql-history-${mode}.${format}`);
+          } else if (action === 'share') {
+            if (navigator.share) await navigator.share({ title: 'SQL History', text });
+            else { await navigator.clipboard.writeText(text); showToast(`${label} copied for sharing.`); }
+          }
+          else { await copyFormatted(text, label); }
+        } catch (error) { if (error.name !== 'AbortError') showToast(error.message || 'Export failed.'); }
+        return;
+      }
+      const text = scopedEditorExport(terminal, mode, scope);
+      if (!text.trim()) { showToast('Nothing available to export.'); return; }
       try {
         if (action === 'download') {
-          const url = URL.createObjectURL(new Blob([text], { type: terminal ? 'text/plain;charset=utf-8' : 'text/sql;charset=utf-8' }));
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `${terminal ? 'sqlplus-session' : 'query'}-${scope}.${terminal ? 'txt' : 'sql'}`;
-          link.click();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-        } else if (action === 'share' && navigator.share) {
-          await navigator.share({ title: terminal ? 'SQLCL session' : 'SQL WorkSheet statements', text });
+          if (format === 'pdf') { const printWindow = window.open('', '_blank'); if (printWindow) { printWindow.document.write(formattedExportHtml(text)); printWindow.document.close(); printWindow.focus(); setTimeout(() => printWindow.print(), 100); } return; }
+          const formatted = mode === 'full';
+          const payload = format === 'md' ? `\
+\n\`\`\`sql\n${text}\n\`\`\`\n` : format === 'rtf' ? `{\\rtf1\\ansi\\deff0 ${text.replace(/[\\{}]/g, '\\$&').replace(/\r?\n/g, '\\line ')}}` : (formatted ? formattedExportHtml(text) : text);
+          const mime = format === 'rtf' ? 'application/rtf' : format === 'md' ? 'text/markdown;charset=utf-8' : formatted ? 'text/html;charset=utf-8' : (terminal ? 'text/plain;charset=utf-8' : 'text/sql;charset=utf-8');
+          await saveExportFile(new Blob([payload], { type: mime }), `${terminal ? 'sqlplus-session' : 'query'}-${mode}.${format}`);
+        } else if (action === 'share') {
+          if (navigator.share) await navigator.share({ title: terminal ? 'SQLCL session' : 'SQL WorkSheet statements', text });
+          else { await navigator.clipboard.writeText(text); showToast(`${label} copied for sharing.`); }
         } else {
-          await navigator.clipboard.writeText(text);
-          showToast(`${label} statements copied${action === 'share' ? ' for sharing' : ''}.`);
+          await copyFormatted(text, label);
         }
       } catch (error) { if (error.name !== 'AbortError') showToast(error.message || 'Export failed.'); }
     });
@@ -1667,13 +2157,30 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   exportScopeMenu.addEventListener('toggle', () => {
     exportScopeTrigger?.setAttribute('aria-expanded', String(exportScopeMenu.matches(':popover-open')));
   });
-  $$('[data-plsql-action], [data-terminal-action]').forEach(trigger => {
-    const action = trigger.dataset.plsqlAction || trigger.dataset.terminalAction;
+  $$('[data-plsql-action], [data-terminal-action], [data-history-action]').forEach(trigger => {
+      const action = trigger.dataset.plsqlAction || trigger.dataset.terminalAction || trigger.dataset.historyAction;
     if (!['copy', 'download', 'share'].includes(action)) return;
     trigger.setAttribute('aria-haspopup', 'true');
     trigger.setAttribute('aria-expanded', 'false');
     trigger.addEventListener('click', event => {
       event.stopImmediatePropagation();
+      if (action === 'share') {
+        event.preventDefault();
+        const title = trigger.dataset.historyAction ? 'SQL History' : trigger.dataset.terminalAction ? 'SQLCL session' : 'SQL WorkSheet statements';
+        let text = trigger.dataset.terminalAction ? $('#terminalOutput')?.innerText?.trim() : trigger.dataset.plsqlAction ? editor.value : history.map(entry => entry.sql || '').filter(Boolean).join('\n\n');
+        if (trigger.dataset.historyAction) text = historyRecords.map(entry => entry.sql || '').filter(Boolean).join('\n\n');
+        if (!text) { showToast('There is no content available to share.'); return; }
+        if (navigator.share) {
+          try {
+            const payload = { title, text };
+            if (navigator.canShare && !navigator.canShare(payload)) throw new Error('This browser cannot share this text.');
+            const pendingShare = navigator.share(payload);
+            pendingShare.catch(error => { if (error.name !== 'AbortError') showToast(error.message || 'Could not open the Share panel.'); });
+          } catch (error) { showToast(error.message || 'Could not open the Share panel.'); }
+        }
+        else navigator.clipboard.writeText(text).then(() => showToast('Content copied for sharing.')).catch(error => showToast(error.message || 'Could not copy content.'));
+        return;
+      }
       const same = exportScopeTrigger === trigger && exportScopeMenu.matches(':popover-open');
       exportScopeMenu.hidePopover();
       if (same) return;
@@ -1690,10 +2197,11 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
 
   $$('[data-plsql-action]').forEach((button) => button.addEventListener('click', async () => {
     const action = button.dataset.plsqlAction;
+    if (action === 'share') return;
     const text = editor.value;
     if (action === 'copy') {
-      await navigator.clipboard.writeText(text);
-      showToast('SQL WorkSheet editor copied.');
+      await writeRichSqlClipboard(text, inlineSqlClipboardHtml(text));
+      showToast('SQL WorkSheet editor copied with formatting.');
     }
     if (action === 'download') {
       const link = document.createElement('a');
@@ -1709,7 +2217,11 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }));
 
   function setResultTab(tab, refreshHistory = true) {
-    $$('.result-tabs [data-result]').forEach((button) => button.classList.toggle('active', button.dataset.result === tab));
+    $$('.result-tabs [data-result]').forEach((button) => {
+      const active = button.dataset.result === tab;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
     if (tab === 'history') {
       const body = $('#resultBody');
       body.replaceChildren();
@@ -1725,7 +2237,8 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       output.className = 'result-output';
       output.textContent = outputStyle === 'sqlplus' && resultData ? window.CompilerWorkspace.outputText(resultData.sourceSql || '', resultData) : resultData?.error || (resultData ? [...(resultData.outputLines || []), resultData.message || 'Statement completed.'].filter(Boolean).join('\n') : 'Run a statement to see output.');
       body.append(output);
-    } else renderResult();
+    } else if (tab === 'plan') renderPlanPanel();
+    else renderResult();
   }
   $$('.result-tabs [data-result]').forEach((button) => button.addEventListener('click', () => setResultTab(button.dataset.result)));
 
@@ -1807,7 +2320,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     params.set('studentStatus', studentStatus);
     params.set('page', String(historyPage));
     params.set('pageSize', String(historyPageSize));
-    if (selectedStudent) params.set('student', selectedStudent);
+    if (selectedStudent && selectedStudent !== 'self') params.set('student', selectedStudent);
     body.innerHTML = '<tr><td class="history-table-empty" colspan="10">Loading SQL history…</td></tr>';
     try {
       const response = await fetch(`/api/compiler/history?${params}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -1823,7 +2336,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       historyStudentScope = data.studentScope || 'assigned';
       const studentFilter = $('#historyStudentFilter');
       if (studentFilter) {
-        const validSelected = historyStudents.some((student) => String(student.id) === selectedStudent);
+        const validSelected = selectedStudent === 'self' || historyStudents.some((student) => String(student.id) === selectedStudent);
         if (selectedStudent && !validSelected) studentFilter.value = '';
         renderHistoryStudentOptions(validSelected ? selectedStudent : '');
       }
@@ -1840,6 +2353,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }
   function historyRequestParams() {
     const params = new URLSearchParams();
+    if (isTeacher && $('#historyStudentFilter')?.value === 'self') params.set('own', '1');
     const values = {
       source: $('#historySourceFilter')?.value || 'all',
       status: $('#historyStatusFilter')?.value || 'all',
@@ -1852,13 +2366,13 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   function renderHistoryStudentOptions(selectedId = $('#historyStudentFilter')?.value || '') {
     const studentFilter = $('#historyStudentFilter');
     if (!studentFilter) return;
-    const search = ($('#historyStudentSearch')?.value || '').trim().toLocaleLowerCase();
-    const matches = historyStudents.filter((student) => `${student.name} ${student.number || ''}`.toLocaleLowerCase().includes(search));
+    const matches = [...historyStudents];
     const selectedStudent = historyStudents.find((student) => String(student.id) === selectedId);
     if (selectedStudent && !matches.some((student) => student.id === selectedStudent.id)) matches.unshift(selectedStudent);
     studentFilter.replaceChildren(new Option(historyStudentScope === 'all' ? 'All students' : 'All assigned students', ''));
+    if (isTeacher) studentFilter.add(new Option('Teacher · Self history', 'self'));
     matches.forEach((student) => studentFilter.add(new Option(`${student.name}${student.number ? ` · ${student.number}` : ''}${student.isActive ? '' : ' · Inactive'}`, String(student.id))));
-    studentFilter.value = selectedStudent ? selectedId : '';
+    studentFilter.value = selectedId === 'self' || selectedStudent ? selectedId : '';
   }
   async function changeHistoryRecord(entry, patch) {
     const response = await fetch(`/api/compiler/history/${entry.id}`, {
@@ -1942,7 +2456,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       const queryText = document.createElement('span');
       queryText.className = 'history-query-text';
       const inputMethod = entry.inputMethod || (Number(entry.pastedChars) > 0 && Number(entry.typedChars) > 0 ? 'mixed' : Number(entry.pastedChars) > 0 ? 'pasted' : Number(entry.typedChars) > 0 ? 'typed' : '');
-      appendColoredHistorySql(queryText, entry.sql || '', entry.inputSourceMap, inputMethod);
+      window.HistorySql.render(queryText, entry.sql || '');
       queryText.title = entry.sql || '';
       if (inputMethod === 'mixed' && !entry.inputSourceMap?.length) {
         queryText.title = `${entry.sql || ''}\nMixed typed and pasted input; exact character positions were not recorded.`;
@@ -1982,8 +2496,8 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         if (!sqlplus) { editor.value = entry.sql; updateLineNumbers(); updateHighlight(); updateEditorCursorPosition(); }
         setView(sqlplus ? 'sqlplus' : 'compiler'); await execute(entry.sql, { sqlplus });
       });
-      makeAction('Copy query', '⧉', async () => { if (entry.source === 'SQL*Plus') rememberInternalCopy(entry.sql || ''); await navigator.clipboard.writeText(entry.sql || ''); showToast('SQL copied.'); });
-      if ($('#historyStudentFilter')) {
+      makeAction('Copy query', '⧉', async () => { if (entry.source === 'SQL*Plus') rememberInternalCopy(entry.sql || ''); const copied = await window.HistorySql.copy(entry.sql || ''); if (entry.source === 'SQL*Plus') rememberInternalCopy(copied); showToast('Formatted SQL copied.'); });
+      if ($('#historyStudentFilter') && $('#historyStudentFilter').value !== 'self') {
         makeAction(entry.isActive ? 'Deactivate for student' : 'Activate for student', entry.isActive ? '◉' : '○', () => changeHistoryRecord(entry, { isActive: !entry.isActive }));
         makeAction('Delete query', '×', () => changeHistoryRecord(entry, null));
       }
@@ -2021,9 +2535,9 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   });
   $('#historyStudentStatus')?.addEventListener('change', () => { historyPage = 1; $('#historyStudentFilter').value = ''; loadCompilerHistory(); });
   $('#historyStudentFilter')?.addEventListener('change', () => { historyPage = 1; loadCompilerHistory(); });
-  $('#historyStudentSearch')?.addEventListener('input', () => renderHistoryStudentOptions());
   $$('[data-history-action]').forEach((button) => button.addEventListener('click', async () => {
     const action = button.dataset.historyAction;
+    if (action === 'share') return;
     let records;
     try { records = await fetchAllCompilerHistory(); }
     catch (error) { showToast(error.message || 'Could not load SQL history for export.'); return; }
@@ -2034,7 +2548,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     const csv = rows.map((row) => row.map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\r\n');
     const text = rows.map((row) => row.join('\t')).join('\n');
     try {
-      if (action === 'copy') { await navigator.clipboard.writeText(text); showToast('Filtered SQL history copied.'); }
+      if (action === 'copy') { await window.HistorySql.copy(records.map(entry => entry.sql || '').join('\n\n')); showToast('Formatted SQL history copied.'); }
       else if (action === 'download') {
         const link = document.createElement('a');
         link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -2052,7 +2566,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     const base = historyRequestParams();
     base.set('studentStatus', $('#historyStudentStatus')?.value || 'all');
     const selectedStudent = $('#historyStudentFilter')?.value || '';
-    if (selectedStudent) base.set('student', selectedStudent);
+    if (selectedStudent && selectedStudent !== 'self') base.set('student', selectedStudent);
     base.set('pageSize', '1000');
     const first = await fetch(`/api/compiler/history?${new URLSearchParams(base)}`, { credentials: 'same-origin', cache: 'no-store' });
     const firstData = await readHistoryResponse(first);
@@ -2076,7 +2590,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     const studentId = $('#historyStudentFilter')?.value;
     const scope = $('#historyClearScope').value;
     const classId = $('#historyClearClass').value;
-    if (scope === 'student' && !studentId) return showToast('Choose a student from the Student filter.');
+    if (scope === 'student' && (!studentId || studentId === 'self')) return showToast('Choose a student from the Student filter.');
     if (scope === 'class' && !classId) return showToast('Choose a class before clearing history.');
     const target = scope === 'student' ? $('#historyStudentFilter').selectedOptions[0].textContent : scope === 'class' ? $('#historyClearClass').selectedOptions[0].textContent : 'all students in your activity scope';
     if (!window.confirm(`Permanently clear all SQLCL and SQL WorkSheet history for ${target}? This includes history outside the current filters.`)) return;
@@ -2103,7 +2617,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     }
     return data;
   }
-  function selectedEditorStudent() { return $('#historyStudentFilter')?.value || ''; }
+  function selectedEditorStudent() { const value = $('#historyStudentFilter')?.value || ''; return value === 'self' ? '' : value; }
   function teacherEditorCanEdit(data) {
     if (!data) return false;
     if (data.mode === 'always') return true;
@@ -2140,6 +2654,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     if (!isTeacher) return;
     const panel = $('#teacherEditorPanel');
     if (!panel) return;
+    if (teacherEditorKind === 'history') { panel.hidden = true; return; }
     panel.hidden = false;
     if (!studentId) {
       sharedEditor = null;
@@ -2306,7 +2821,8 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   function askTeacherEditorPermission(teacherName) {
     return new Promise(resolve => {
       const dialog = document.createElement('dialog');
-      dialog.className = 'help-dialog';
+      dialog.className = 'ide-dialog teacher-permission-dialog';
+      dialog.setAttribute('aria-label', 'Teacher edit request');
       const heading = document.createElement('div');
       heading.className = 'dialog-heading';
       const title = document.createElement('h2');
@@ -2316,11 +2832,11 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       message.className = 'dialog-note';
       message.textContent = `${teacherName || 'Your teacher'} is asking to edit both your SQLCL Terminal and SQL WorkSheet code for this session.`;
       const actions = document.createElement('div');
-      actions.className = 'profile-form-actions';
+      actions.className = 'dialog-actions';
       const reject = document.createElement('button');
-      reject.type = 'button'; reject.className = 'register-cancel'; reject.textContent = 'Reject';
+      reject.type = 'button'; reject.className = 'theme-button'; reject.textContent = 'Reject';
       const allow = document.createElement('button');
-      allow.type = 'button'; allow.className = 'submit-button'; allow.textContent = 'Allow for this session';
+      allow.type = 'button'; allow.className = 'theme-button theme-button-primary'; allow.textContent = 'Allow for this session';
       actions.append(reject, allow);
       dialog.append(heading, message, actions);
       document.body.append(dialog);
@@ -2343,7 +2859,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     catch (error) { showToast(error.message); await loadStudentEditorSharing(); }
   });
   function resizeTerminalInput() {
-    if (!terminalInput || !terminalInput.getClientRects().length) return;
+    if (!terminalInput || !terminalInput.getClientRects().length || terminalInput.parentElement.classList.contains('pro-editor-mounted')) return;
     // The outer terminal scrolls; the input must contain every pasted line.
     terminalInput.style.height = '0px';
     terminalInput.style.height = `${Math.max(25, terminalInput.scrollHeight)}px`;
@@ -2379,7 +2895,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   if (isStudent) {
     sharePollTimer = setInterval(pollTeacherEditorChanges, 4000);
     setInterval(syncStudentEditorSharing, 25000);
-    setInterval(pollRemoteTerminalCommand, 500);
+    setInterval(() => { if (!document.hidden) pollRemoteTerminalCommand(); }, 2000);
     loadStudentEditorSharing();
   }
 
@@ -2424,6 +2940,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }
   async function pollRemoteTerminalCommand() {
     if (!isStudent || remoteTerminalPolling || !terminalInput) return;
+    if (dataMode() === 'private') return;
     if (!pendingRemoteResult && (executionBusy || terminalQueue || $('#openConnection').dataset.connected !== 'true')) return;
     remoteTerminalPolling = true;
     try {
@@ -2439,6 +2956,9 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
           terminalInput.style.height = '';
           terminalInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
+        // Remote teacher code is programmatic input, so record it explicitly instead
+        // of relying on the browser's trusted input events.
+        markInputMethod(sqlplus ? 'sqlplus' : 'plsql', 'remote_code');
         const result = await execute(job.text, { sqlplus, script: Boolean(job.script) });
         if (!result || result.retryPending) throw new Error('The student Oracle connection was lost before a result was returned.');
         executionFinished = true;
@@ -2566,6 +3086,216 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   const sqlplusStarterToggle = $('#sqlplusStarterPopupToggle');
   const sqlplusCleanPaste = $('#sqlplusCleanPaste');
   const sqlplusAutoCommit = $('#sqlplusAutoCommit');
+  window.WorkspaceDailyTask?.attach({isStudent, editor, compilerApiJson, markInputMethod, updateLineNumbers, updateHighlight, updateEditorCursorPosition, saveDailyTaskPosition, setView, compilerCsrfToken, announceDailyTaskSubmitted});
+  const studentDailyTaskToggle = $('#studentDailyTaskToggle');
+  const studentDailyTaskPanel = $('#studentDailyTaskPanel');
+  const studentTestToggle = $('#studentTestToggle');
+  const studentTestPanel = $('#studentTestPanel');
+  if (studentDailyTaskToggle && studentDailyTaskPanel) {
+    const savedCompilerAssessment = readDailyTaskUiState();
+    studentDailyTaskToggle.checked = Boolean(savedCompilerAssessment.sqlplusVisible) && !Boolean(savedCompilerAssessment.sqlplusTestVisible);
+    studentDailyTaskPanel.hidden = !studentDailyTaskToggle.checked;
+    const previousButton = $('#studentDailyTaskPrevious');
+    const nextButton = $('#studentDailyTaskNext');
+    const submitButton = $('#studentDailyTaskSubmit');
+    const positionLabel = $('#studentDailyTaskPosition');
+    const questionNode = $('#studentDailyTaskQuestion');
+    const statusNode = $('#studentDailyTaskStatus');
+    let studentDailyTasks = [];
+    let selectedDailyTask = 0;
+    let dailyTasksRequest = null;
+    const renderDailyTask = () => {
+      const task = studentDailyTasks[selectedDailyTask];
+      const count = studentDailyTasks.length;
+      positionLabel.textContent = count ? `${selectedDailyTask + 1} / ${count}` : '0 / 0';
+      questionNode.textContent = task?.instructions || (count ? '' : 'No pending daily tasks.');
+      previousButton.disabled = !count || selectedDailyTask === 0;
+      nextButton.disabled = !count || selectedDailyTask >= count - 1;
+      submitButton.disabled = !task;
+    };
+    const loadDailyTasks = async () => {
+      dailyTasksRequest?.abort();
+      dailyTasksRequest = new AbortController();
+      statusNode.textContent = 'Loading your daily tasks…';
+      submitButton.disabled = true;
+      try {
+        const response = await fetch('/api/portal/daily-tasks/available', {
+          signal: dailyTasksRequest.signal,
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+        });
+        if (response.redirected) throw new Error('Sign in again to load your daily tasks.');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not load daily tasks.');
+        studentDailyTasks = Array.isArray(data.tasks) ? data.tasks : [];
+        selectedDailyTask = studentDailyTasks.length ? restoreDailyTaskIndex(studentDailyTasks) : 0;
+        renderDailyTask();
+        if (studentDailyTasks[selectedDailyTask]) saveDailyTaskPosition(studentDailyTasks[selectedDailyTask], false);
+        statusNode.textContent = studentDailyTasks.length
+          ? ''
+          : 'No enabled daily tasks are assigned to your enrolled classes.';
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          studentDailyTasks = [];
+          renderDailyTask();
+          statusNode.textContent = error.message || 'Could not load daily tasks.';
+        }
+      }
+    };
+    studentDailyTaskToggle.addEventListener('change', () => {
+      if (studentDailyTaskToggle.checked && studentTestToggle) {
+        studentTestToggle.checked = false;
+        if (studentTestPanel) studentTestPanel.hidden = true;
+      }
+      studentDailyTaskPanel.hidden = !studentDailyTaskToggle.checked;
+      saveDailyTaskUiState({ sqlplusVisible: studentDailyTaskToggle.checked, ...(studentDailyTaskToggle.checked ? { sqlplusTestVisible: false } : {}) });
+      if (studentDailyTaskToggle.checked) loadDailyTasks();
+      else dailyTasksRequest?.abort();
+    });
+    previousButton.addEventListener('click', () => {
+      if (selectedDailyTask > 0) { selectedDailyTask -= 1; renderDailyTask(); saveDailyTaskPosition(studentDailyTasks[selectedDailyTask]); }
+    });
+    nextButton.addEventListener('click', () => {
+      if (selectedDailyTask < studentDailyTasks.length - 1) { selectedDailyTask += 1; renderDailyTask(); saveDailyTaskPosition(studentDailyTasks[selectedDailyTask]); }
+    });
+    document.addEventListener('daily-task-position-changed', (event) => {
+      const index = studentDailyTasks.findIndex((task) => String(task.id) === String(event.detail?.taskId));
+      if (index < 0 || index === selectedDailyTask) return;
+      selectedDailyTask = index;
+      renderDailyTask();
+    });
+      document.addEventListener('daily-task-submitted', (event) => {
+        const result = removeSubmittedDailyTask(studentDailyTasks, selectedDailyTask, event.detail?.taskId);
+        if (!result.removed) return;
+        selectedDailyTask = result.index;
+        renderDailyTask();
+        saveDailyTaskPosition(studentDailyTasks[selectedDailyTask], false);
+        statusNode.textContent = studentDailyTasks.length ? 'Showing the next pending daily task.' : 'No pending daily tasks.';
+      });
+    submitButton.addEventListener('click', async () => {
+      const task = studentDailyTasks[selectedDailyTask];
+      if (!task) return;
+      submitButton.disabled = true;
+      statusNode.textContent = 'Submitting your latest successful SQLCL statement…';
+      try {
+        const response = await fetch('/api/portal/daily-tasks/submit-latest-sqlcl', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRFToken': compilerCsrfToken() },
+          body: JSON.stringify({ taskId: task.id }),
+        });
+        if (response.redirected) throw new Error('Please sign in again to submit your answer.');
+        const data = await compilerApiJson(response);
+        if (!response.ok) throw new Error(data.error || 'Could not submit the SQLCL statement.');
+        announceDailyTaskSubmitted(task.id, data);
+        statusNode.textContent = data.message || 'Your answer was submitted.';
+        showToast(data.message);
+      } catch (error) {
+        statusNode.textContent = error.message || 'Could not submit the SQLCL statement.';
+        showToast(statusNode.textContent);
+      } finally {
+        submitButton.disabled = !studentDailyTasks[selectedDailyTask];
+      }
+    });
+    if (studentDailyTaskToggle.checked) loadDailyTasks();
+  }
+  if (studentTestToggle && studentTestPanel) {
+    const savedCompilerAssessment = readDailyTaskUiState();
+    studentTestToggle.checked = Boolean(savedCompilerAssessment.sqlplusTestVisible) && !Boolean(savedCompilerAssessment.sqlplusVisible);
+    studentTestPanel.hidden = !studentTestToggle.checked;
+    const previousButton = $('#studentTestPrevious');
+    const nextButton = $('#studentTestNext');
+    const submitButton = $('#studentTestSubmit');
+    const positionLabel = $('#studentTestPosition');
+    const titleNode = $('#studentTestTitle');
+    const questionNode = $('#studentTestQuestion');
+    const statusNode = $('#studentTestStatus');
+    let items = [];
+    let selectedIndex = 0;
+    const renderTestQuestion = () => {
+      const item = items[selectedIndex];
+      positionLabel.textContent = items.length ? `${selectedIndex + 1} / ${items.length}` : '0 / 0';
+      titleNode.textContent = item ? item.testTitle : '';
+      questionNode.textContent = item ? `${item.position}. ${item.prompt}` : (items.length ? '' : 'No pending test questions.');
+      previousButton.disabled = !item || selectedIndex === 0;
+      nextButton.disabled = !item || selectedIndex >= items.length - 1;
+      submitButton.disabled = !item;
+    };
+    const loadTestQuestions = async ({ showLoading = true } = {}) => {
+      if (showLoading) statusNode.textContent = 'Loading available test questions…';
+      try {
+        const response = await fetch('/api/portal/tests/available', { credentials: 'same-origin', headers: { Accept: 'application/json' }, cache: 'no-store' });
+        const data = await compilerApiJson(response);
+        if (!response.ok) throw new Error(data.error || 'Could not load test questions.');
+        items = Array.isArray(data.items) ? data.items : [];
+        selectedIndex = items.length ? restoreTestQuestionIndex(items) : 0;
+        renderTestQuestion();
+        if (items[selectedIndex]) saveTestQuestionPosition(items[selectedIndex], false);
+        if (showLoading) statusNode.textContent = items.length ? '' : 'No available test questions.';
+      } catch (error) {
+        items = [];
+        renderTestQuestion();
+        statusNode.textContent = error.message || 'Could not load test questions.';
+      }
+    };
+    studentTestToggle.addEventListener('change', () => {
+      if (studentTestToggle.checked && studentDailyTaskToggle) {
+        studentDailyTaskToggle.checked = false;
+        if (studentDailyTaskPanel) studentDailyTaskPanel.hidden = true;
+        saveDailyTaskUiState({ sqlplusVisible: false, sqlplusTestVisible: true });
+      } else {
+        saveDailyTaskUiState({ sqlplusTestVisible: studentTestToggle.checked });
+      }
+      studentTestPanel.hidden = !studentTestToggle.checked;
+      if (studentTestToggle.checked) loadTestQuestions();
+    });
+    previousButton.addEventListener('click', () => {
+      if (selectedIndex > 0) { selectedIndex--; renderTestQuestion(); saveTestQuestionPosition(items[selectedIndex]); }
+    });
+    nextButton.addEventListener('click', () => {
+      if (selectedIndex < items.length - 1) { selectedIndex++; renderTestQuestion(); saveTestQuestionPosition(items[selectedIndex]); }
+    });
+    document.addEventListener('test-question-position-changed', (event) => {
+      const index = items.findIndex((item) => testQuestionKey(item) === String(event.detail?.key || ''));
+      if (index < 0 || index === selectedIndex) return;
+      selectedIndex = index;
+      renderTestQuestion();
+    });
+    document.addEventListener('test-question-submitted', async (event) => {
+      if (event.detail?.origin === 'sqlplus') return;
+      const wasCurrent = testQuestionKey(items[selectedIndex]) === String(event.detail?.key || '');
+      if (studentTestToggle.checked) {
+        await loadTestQuestions({ showLoading: false });
+        if (wasCurrent && items.length) selectedIndex = Math.min(selectedIndex, items.length - 1);
+        renderTestQuestion();
+      }
+    });
+    submitButton.addEventListener('click', async () => {
+      const item = items[selectedIndex];
+      if (!item) return;
+      submitButton.disabled = true;
+      statusNode.textContent = 'Submitting your latest successful SQLCL statement…';
+      try {
+        const response = await fetch('/api/portal/tests/submit-latest-sqlcl', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRFToken': compilerCsrfToken() },
+          body: JSON.stringify({ testId: item.testId, questionId: item.questionId }),
+        });
+        const data = await compilerApiJson(response);
+        if (!response.ok) throw new Error(data.error || 'Could not submit the SQLCL statement.');
+        document.dispatchEvent(new CustomEvent('test-question-submitted', { detail: { key: testQuestionKey(item), origin: 'sqlplus' } }));
+        await loadTestQuestions({ showLoading: false });
+        statusNode.textContent = `✓ Answer saved successfully. ${data.message}`;
+        showToast(statusNode.textContent);
+      } catch (error) {
+        statusNode.textContent = error.message || 'Could not submit the SQLCL statement.';
+        showToast(statusNode.textContent);
+      } finally {
+        submitButton.disabled = !items[selectedIndex];
+      }
+    });
+    if (studentTestToggle.checked) loadTestQuestions();
+  }
   sqlplusCleanPaste.checked = localStorage.getItem('ora-sqlplus-clean-paste') !== 'false';
   sqlplusAutoCommit.checked = localStorage.getItem('ora-sqlplus-autocommit') === 'ON';
   sqlplusStarterToggle.checked = localStorage.getItem('ora-show-sql-starters') === 'true';
@@ -2577,6 +3307,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     sqlplusStarterMenu.hidden = !sqlplusStarterToggle.checked || Boolean(terminalInput.value.trim());
   });
   terminalInput.addEventListener('focus', () => { sqlplusStarterMenu.hidden = !sqlplusStarterToggle.checked || Boolean(terminalInput.value.trim()); });
+  ['click','keyup','select','focus'].forEach(name=>terminalInput.addEventListener(name,updateTerminalInputHighlight));
   terminalInput.addEventListener('input', () => { updateTerminalInputHighlight(); if (terminalInput.value.trim()) sqlplusStarterMenu.hidden = true; });
   terminalInput.addEventListener('scroll', () => {
     const highlight = $('#terminalInputHighlight');
@@ -2726,9 +3457,30 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   $('#terminalRun').addEventListener('click', runTerminalCommand);
   $$('[data-terminal-action]').forEach((button) => button.addEventListener('click', async () => {
     const action = button.dataset.terminalAction;
+    if (action === 'share') return;
     const output = $('#terminalOutput');
-    if (action === 'clear') { output.replaceChildren(terminalPrompt); terminalInput.value = ''; terminalInput.style.height = ''; }
-    if (action === 'copy') { rememberInternalCopy(output.innerText); await navigator.clipboard.writeText(output.innerText); showToast('Terminal copied.'); }
+    if (action === 'clear') { clearTerminalDisplay(); return; }
+    if (action === 'copy') {
+      const text = output.innerText;
+      rememberInternalCopy(text);
+      if (navigator.clipboard?.write && window.ClipboardItem) {
+        const clone = output.cloneNode(true);
+        clone.querySelectorAll('button,input,textarea').forEach(node => node.remove());
+        clone.querySelectorAll('*').forEach((node, index) => {
+          const original = output.querySelectorAll('*')[index];
+          const computed = getComputedStyle(original);
+          node.style.color = computed.color;
+          node.style.backgroundColor = computed.backgroundColor;
+          node.style.fontFamily = computed.fontFamily;
+          node.style.fontSize = computed.fontSize;
+          node.style.fontWeight = computed.fontWeight;
+          node.style.whiteSpace = computed.whiteSpace;
+        });
+        const html = `<div style="font-family:ui-monospace,Consolas,monospace;white-space:pre-wrap">${clone.innerHTML.replace(/\r\n?/g, '\n').replace(/\n/g, '<br>').replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;')}</div>`;
+        await writeRichSqlClipboard(text, html);
+      } else await writeRichSqlClipboard(text, inlineSqlClipboardHtml(text));
+      showToast('Terminal copied with formatting.');
+    }
     if (action === 'download') {
       const link = document.createElement('a');
       link.href = URL.createObjectURL(new Blob([output.innerText], { type: 'text/plain' }));
@@ -2745,6 +3497,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }));
 
   function applyTerminalFont() {
+    shell.style.setProperty('--sqlcl-font-size', `${terminalFontSize}px`);
     $$('.terminal-output').forEach((node) => { node.style.fontSize = `${terminalFontSize}px`; });
     const prompt = $('.terminal-prompt');
     if (prompt) prompt.style.fontSize = `${terminalFontSize}px`;
@@ -2844,6 +3597,10 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     localStorage.setItem(`${settingPrefix}icon-nav`, String(collapsed));
   });
   $('#collapseNavigator').addEventListener('click', () => {
+    if (!$('#collapsedConnectionIndicator')) {
+      const indicator = document.createElement('span'); indicator.id = 'collapsedConnectionIndicator'; indicator.className = 'navigator-collapsed-connection'; indicator.setAttribute('aria-label', 'Database connection status'); indicator.innerHTML = '<i></i>';
+      $('.navigator-heading')?.insertBefore(indicator, $('#collapseNavigator'));
+    }
     const collapsed = main.classList.toggle('navigator-collapsed');
     $('#collapseNavigator').textContent = collapsed ? '»' : '«';
     $('#collapseNavigator').title = collapsed ? 'Expand navigator' : 'Collapse navigator';
@@ -2864,6 +3621,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
 
   $('#openConnection').addEventListener('click', async () => {
     if ($('#openConnection').dataset.connected === 'true') {
+      if (sessionUI && !sessionUI.confirmDisconnect()) return;
       requireManualConnection();
       // Finish any in-flight initial connection before closing its server session.
       if (reconnectPromise) await reconnectPromise;
@@ -2896,11 +3654,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       && !event.target.closest('button, a, input, select, textarea, [contenteditable="true"]')
       && terminalInput && !terminalInput.readOnly) {
       event.preventDefault();
-      const start = terminalInput.selectionStart ?? terminalInput.value.length;
-      const end = terminalInput.selectionEnd ?? start;
       terminalInput.focus({ preventScroll: true });
-      terminalInput.setRangeText(' ', start, end, 'end');
-      terminalInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ' ' }));
       return;
     }
     if (event.key === 'F11') { event.preventDefault(); toggleFullscreen(); }
@@ -2965,12 +3719,12 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   window.CompilerEditorAssist?.attach(terminalInput, { ...assistOptions, terminal:true, isComplete:terminalInputIsComplete, statusHost:$('.terminal-foot') });
   function installFontSetting(id, kind) {
     const select=$('#'+id);
-    const allowed=new Set(['','Consolas','Cascadia Code','Courier New','Lucida Console','DM Mono']);
+    const allowed=new Set(['','Hack','Consolas','Cascadia Code','Courier New','Lucida Console','DM Mono']);
     const key=`compiler-font:${document.body.dataset.userId || 'local'}:${kind}`;
     function apply() {
       const choice=allowed.has(select.value)?select.value:'';
-      const family=choice?`"${choice}", monospace`:'';
-      const nodes=kind==='plsql'?[editor,$('#syntaxHighlight'),$('#lineNumbers'),$('#sqlEditor-completions')]:[terminalOutput,terminalInput,terminalPrompt,$('#terminalInput-completions')];
+      const family=choice?`"${choice}", monospace`:'Hack, Consolas, monospace';
+      const nodes=kind==='plsql'?[editor,$('#syntaxHighlight'),$('#lineNumbers'),$('#sqlEditor-completions')]:[terminalOutput,terminalInput,terminalPrompt,$('#terminalInputHighlight'),$('#terminalInput-completions')];
       nodes.filter(Boolean).forEach(node=>{node.style.fontFamily=family;});
       if(kind==='sqlplus') {
         if(family)terminalOutput.style.setProperty('--compiler-terminal-font',family);
@@ -2978,7 +3732,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
         requestAnimationFrame(resizeTerminalInput);
       } else updateHighlight();
     }
-    try { const saved=localStorage.getItem(key)||'';select.value=allowed.has(saved)?saved:''; } catch {}
+    try { if(localStorage.getItem(key+':hack-default')!=='1'){localStorage.setItem(key,'Hack');localStorage.setItem(key+':hack-default','1');} const saved=localStorage.getItem(key)||'Hack';select.value=allowed.has(saved)?saved:'Hack'; } catch {select.value='Hack';}
     apply();
     select.addEventListener('change',()=>{apply();try{localStorage.setItem(key,select.value);}catch{}});
   }
@@ -2990,6 +3744,10 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     : availableViews.includes(workspaceResume?.view) ? workspaceResume.view : 'sqlplus';
   setView(initialView);
   syncFullscreenControl();
+  if (new URLSearchParams(location.search).get('promptOracleLogin') === '1' && !connectDialog.open) {
+    connectDialog.showModal();
+    requestAnimationFrame(() => connectForm.elements.user.focus());
+  }
   document.documentElement.classList.remove('workspace-restoring');
   loadOwnHistory();
   const bufferInput = $('#terminalBufferEntries');
@@ -3013,6 +3771,10 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     updateBufferSetting();
   });
   function applyCompilerTabAppearance() {
+    if (isTeacher) sharedCompilerTabAppearance = {
+      ...sharedCompilerTabAppearance,
+      compiler: { ...sharedCompilerTabAppearance.compiler, visible: true }
+    };
     const entries = ['sqlplus', 'compiler'].map(key => ({ key, ...sharedCompilerTabAppearance[key] }));
     for (const entry of entries) {
       const navItem = $(`.ide-nav-item[data-view=\"${entry.key}\"]`);
@@ -3058,8 +3820,7 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
   }
   function fillCompilerTabTargets(data) {
     const students = $('#compilerTabStudents');
-    const labs = $('#compilerTabLabs');
-    if (!students || !labs) return;
+    if (!students) return;
     students.replaceChildren();
     (data.students || []).forEach(student => {
       const option = document.createElement('option');
@@ -3067,18 +3828,11 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       option.textContent = `${student.name} · ${student.identifier}`;
       students.append(option);
     });
-    labs.replaceChildren();
-    (data.labs || []).forEach(lab => {
-      const option = document.createElement('option');
-      option.value = String(lab.id);
-      option.textContent = `${lab.className} · ${lab.name}`;
-      labs.append(option);
-    });
+
   }
   function updateCompilerTargetScope() {
     const scope = $('#compilerTabTargetScope')?.value;
     if ($('#compilerTabStudentsWrap')) $('#compilerTabStudentsWrap').hidden = scope !== 'students';
-    if ($('#compilerTabLabsWrap')) $('#compilerTabLabsWrap').hidden = scope !== 'labs';
   }
   $('#compilerTabTargetScope')?.addEventListener('change', updateCompilerTargetScope);
   updateCompilerTargetScope();
@@ -3095,8 +3849,37 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       fillCompilerTabAppearanceControls();
       fillCompilerTabTargets(data);
       updateBufferSetting();
+      const independentSessions = $('#independentCompilerSessions');
+      if (independentSessions) {
+        independentSessions.checked = Boolean(data.independentCompilerSessions);
+        independentSessions.closest('.settings-card')?.classList.toggle('is-disabled', !data.canManageIndependentSessions);
+        independentSessions.disabled = !data.canManageIndependentSessions;
+      }
     } catch (error) { $('#terminalBufferStatus').textContent = error.message; }
   }
+  $('#independentCompilerSessions')?.addEventListener('change', async (event) => {
+    const control = event.currentTarget;
+    const status = $('#independentCompilerSessionsStatus');
+    const requested = control.checked;
+    control.disabled = true;
+    status.textContent = 'Saving…';
+    try {
+      const response = await fetch('/api/compiler/settings', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ independentCompilerSessions: requested }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not update Oracle session access.');
+      control.checked = Boolean(data.independentCompilerSessions);
+      status.textContent = data.independentCompilerSessions
+        ? `Enabled for ${Number(data.affectedCount).toLocaleString()} students in your teaching scope.`
+        : `Disabled for ${Number(data.affectedCount).toLocaleString()} students in your teaching scope.`;
+    } catch (error) {
+      control.checked = !requested;
+      status.textContent = error.message || 'Could not update Oracle session access.';
+    } finally { control.disabled = false; }
+  });
   async function loadStudentSharedCode() {
     const list = $('#studentSharedCodeList');
     const status = $('#studentSharedCodeStatus');
@@ -3157,7 +3940,6 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
     const scope = $('#compilerTabTargetScope').value;
     const target = { scope };
     if (scope === 'students') target.studentIds = [...$('#compilerTabStudents').selectedOptions].map(option => Number(option.value));
-    if (scope === 'labs') target.labIds = [...$('#compilerTabLabs').selectedOptions].map(option => Number(option.value));
     try {
       const response = await fetch('/api/compiler/settings', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tabAppearance, target}) });
       const data = await response.json();
@@ -3199,7 +3981,12 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       transcript.slice(-(personalTerminalBufferEntries || defaultTerminalBufferEntries)).forEach(item => appendTerminalResult(item.sql, item.data, item.error));
     }
   } catch { /* Leave ordinary draft recovery available if queue storage is unreadable. */ }
-  refreshStatus().then(connected => { if (connected === false) reconnectSavedCredentials(); });
+  // A browser refresh may outlive the server's in-memory Oracle session.
+  // Reuse it when status succeeds; otherwise create a fresh Oracle session
+  // from the saved profile for this portal login.
+  refreshStatus().then(connected => {
+    if (connected !== true && !manualOracleDisconnect) reconnectSavedCredentials();
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     refreshStatus().then(connected => {
@@ -3213,4 +4000,23 @@ const compilerSourceLabel = source => ({'SQL*Plus': 'SQLCL', 'PL/SQL': 'SQL Work
       await reconnectSavedCredentials();
     }
   },15000);
+  window.PortalSqlBridge = {
+    editor, terminal: terminalInput,
+    runWorkbook: script => runEditor(script),
+    runTerminal: () => runTerminalCommand(),
+    isTerminalComplete: text => terminalInputIsComplete(text),
+    terminalHistory: direction => {
+      // Reuse the established history handler, including draft recovery,
+      // provenance tracking and end/start cursor placement.
+      terminalInput.dispatchEvent(new KeyboardEvent('keydown', {
+        key: direction < 0 ? 'ArrowUp' : 'ArrowDown', altKey: true,
+        cancelable: true, bubbles: false
+      }));
+    },
+    schema: () => currentSchema,
+    objects: () => objectRows,
+    clipboardHtml: text => inlineSqlClipboardHtml(text),
+    output: () => resultData?.columns ? [resultData.columns.map(col=>col.name||String(col)).join('\t'),...(resultData.rows||[]).map(row=>row.map(safeCell).join('\t'))].join('\n') : resultData?.error || (resultData?.outputLines||[]).join('\n'),
+  };
+  document.dispatchEvent(new Event('portal-sql-ready'));
 })();

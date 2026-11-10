@@ -28,7 +28,7 @@ class CompilerPrivacyTests(TestCase):
     def test_student_pastes_saved_but_student_cannot_read_teacher_log(self):
         response = self.post('/api/compiler/paste-events', {'source':'SQL*Plus','text':'SELECT 1 FROM DUAL;'})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(CompilerPasteEvent.objects.get().text, 'SELECT 1 FROM DUAL;')
+        self.assertEqual(CompilerPasteEvent.objects.get().text, '*' * len('SELECT 1 FROM DUAL;'))
         self.assertEqual(self.client.get('/api/compiler/paste-events').status_code, 403)
 
     def test_teacher_scoped_paste_log_and_student_content_limit(self):
@@ -111,3 +111,20 @@ class CompilerPrivacyTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(CompilerQueryHistory.objects.filter(pk=own.pk).exists())
         self.assertTrue(CompilerQueryHistory.objects.filter(pk=other.pk).exists())
+
+
+class TeacherSelfHistoryTests(TestCase):
+    def test_self_history_returns_only_signed_in_teachers_records(self):
+        teacher = PortalUser.objects.create_user(username="self-history-teacher", role="TEACHER")
+        other = PortalUser.objects.create_user(username="self-history-other", role="TEACHER")
+        student = PortalUser.objects.create_user(username="self-history-student", role="STUDENT")
+        own = CompilerQueryHistory.objects.create(student=teacher, source="PL/SQL", sql="SELECT 1 FROM DUAL", status="success")
+        CompilerQueryHistory.objects.create(student=other, source="PL/SQL", sql="SELECT 2 FROM DUAL", status="success")
+        CompilerQueryHistory.objects.create(student=student, source="PL/SQL", sql="SELECT 3 FROM DUAL", status="success")
+        self.client.force_login(teacher)
+        response = self.client.get("/api/compiler/history", {"own": "1", "student": student.pk}, HTTP_SEC_FETCH_SITE="same-origin")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row["id"] for row in response.json()["records"]], [own.pk])
+        self.assertEqual(response.json()["pagination"]["total"], 1)
+        response = self.client.get("/api/compiler/history", {"own": "1", "status": "error"}, HTTP_SEC_FETCH_SITE="same-origin")
+        self.assertEqual(response.json()["records"], [])

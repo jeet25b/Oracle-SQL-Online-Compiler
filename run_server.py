@@ -11,8 +11,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "oraplay.settings")
 import django
 django.setup()
 from django.conf import settings
-from django.core.handlers.wsgi import WSGIHandler
 from oraplay.static_delivery import with_static_files
+from oraplay.wsgi import application as django_application
 
 from oraplay.http_workers import PooledWSGIServer
 
@@ -23,7 +23,9 @@ cert_file = os.environ.get("TLS_CERT_FILE")
 tls_enabled = bool(key_file and cert_file)
 if not tls_enabled and host not in ("127.0.0.1", "localhost", "::1"):
     raise SystemExit("Refusing network access without HTTPS. Configure TLS_KEY_FILE and TLS_CERT_FILE, or use HOST=127.0.0.1.")
-application = with_static_files(WSGIHandler())
+application = with_static_files(django_application)
+from workbench.project_queue import start_scheduler
+start_scheduler()
 server = make_server(host, port, application, server_class=PooledWSGIServer, handler_class=WSGIRequestHandler)
 if tls_enabled:
     key_path, cert_path = settings.BASE_DIR / key_file, settings.BASE_DIR / cert_file

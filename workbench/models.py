@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
@@ -37,6 +38,10 @@ def default_compiler_tab_appearance():
     }
 
 class PortalUser(AbstractUser):
+    can_manage_classes = models.BooleanField(default=False, help_text="Allow this teacher to allocate lecture and practical teachers in their assigned classes.")
+    can_manage_timetable = models.BooleanField(default=False, help_text="Allow this teacher to manage timetables for their assigned classes.")
+    class_selection_required = models.BooleanField(default=False)
+    class_selected_at = models.DateTimeField(null=True, blank=True)
     unrestricted_session_time = models.BooleanField(default=False, help_text='Exempt this account from daily session allowances and the 30-minute inactivity timeout. Single-session security still applies.')
     active_student_session_token = models.CharField(max_length=64, blank=True, default='')
     active_student_session_key = models.CharField(max_length=40, blank=True, default='')
@@ -161,10 +166,12 @@ class PortalUser(AbstractUser):
             if role in valid_roles and role != self.role and (role != self.Role.ADMIN or self.is_superuser)
         ))
         if self.Role.TEACHER not in [self.role, *self.additional_roles]:
+            self.can_manage_classes = False
+            self.can_manage_timetable = False
             self.can_approve_students = False
             self.can_view_all_compiler_activity = False
             if kwargs.get("update_fields") is not None:
-                kwargs["update_fields"] = set(kwargs["update_fields"]) | {"can_approve_students", "can_view_all_compiler_activity"}
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {"can_approve_students", "can_view_all_compiler_activity", "can_manage_classes", "can_manage_timetable"}
         self.is_staff = self.role == self.Role.ADMIN or self.is_superuser
         super().save(*args, **kwargs)
     def delete(self, *args, **kwargs):
@@ -182,6 +189,12 @@ class PortalUser(AbstractUser):
     def __str__(self):
         return self.get_full_name() or self.username
 
+class StudentManagement(PortalUser):
+    class Meta:
+        proxy = True
+        verbose_name = "Student management"
+        verbose_name_plural = "Student management"
+
 class Course(models.Model):
     code = models.CharField(max_length=32, unique=True)
     name = models.CharField(max_length=160)
@@ -190,6 +203,9 @@ class Course(models.Model):
     def __str__(self): return f"{self.code} — {self.name}"
 
 class ClassSection(models.Model):
+    branch = models.CharField(max_length=80, blank=True)
+    semester = models.PositiveSmallIntegerField(null=True, blank=True)
+    group = models.CharField(max_length=32, blank=True)
     daily_session_minutes = models.PositiveIntegerField(default=120)
     course = models.ForeignKey(Course, on_delete=models.PROTECT, related_name="classes")
     name = models.CharField(max_length=80)
@@ -197,14 +213,69 @@ class ClassSection(models.Model):
     section = models.CharField(max_length=32, blank=True)
     attendance_start_time = models.TimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
-    class Meta: unique_together = [("course", "name", "academic_year", "section")]
-    def __str__(self): return f"{self.course.code} · {self.name} {self.section}".strip()
+    class Meta:
+        unique_together = [("course", "name", "academic_year", "section", "branch", "semester", "group")]
+        verbose_name_plural = "Class management"
+    @property
+    def display_label(self):
+        roman = ("", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X")
+        semester = roman[self.semester] if self.semester and self.semester <= 10 else str(self.semester or "")
+        branch = self.branch if self.branch and self.branch not in {self.name, self.course.name} else ""
+        section = self.section or self.group or ""
+        suffix = "-".join(value for value in (section, self.group if self.section else "") if value)
+        return " ".join(value for value in (self.course.name, branch, semester, suffix) if value).strip()
+    def __str__(self):
+        return " · ".join(str(value) for value in (
+            self.course.code,
+            self.name,
+            self.course.name,
+            self.branch if self.branch not in {self.name, self.course.name} else "",
+            f"Semester {self.semester}" if self.semester else "",
+            f"Section {self.section}" if self.section else "",
+            f"Group {self.group}" if self.group else "",
+            self.academic_year,
+        ) if value)
+
+
+class Subject(models.Model):
+    code = models.CharField(max_length=32, unique=True)
+    name = models.CharField(max_length=160)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self): return f"{self.code} · {self.name}"
+
+
+class ClassSubject(models.Model):
+    class_section = models.ForeignKey(ClassSection, on_delete=models.CASCADE, related_name="class_subjects")
+    subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name="class_offerings")
+    has_lecture = models.BooleanField(default=True)
+    has_laboratory = models.BooleanField(default=False)
+
+    class Meta: unique_together = [("class_section", "subject")]
+
+    def __str__(self): return str(self.subject)
 
 class TeacherAssignment(models.Model):
+    class TeachingType(models.TextChoices):
+        LECTURE = "lecture", "Lecture"
+        LABORATORY = "laboratory", "Laboratory / practical"
+    class_subject = models.ForeignKey(ClassSubject, on_delete=models.CASCADE, null=True, blank=True, related_name="teacher_allocations")
     teacher = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="teaching_assignments", limit_choices_to={"role": PortalUser.Role.TEACHER})
     class_section = models.ForeignKey(ClassSection, on_delete=models.CASCADE, related_name="teacher_assignments")
     subject = models.CharField(max_length=120, blank=True)
-    class Meta: unique_together = [("teacher", "class_section", "subject")]
+    teaching_type = models.CharField(max_length=16, choices=TeachingType.choices, default=TeachingType.LECTURE)
+    lab = models.ForeignKey("CompilerLab", on_delete=models.CASCADE, null=True, blank=True, related_name="teacher_assignments")
+    class Meta: unique_together = [("teacher", "class_section", "class_subject", "teaching_type", "lab")]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+        if self.class_subject_id:
+            if self.class_subject.class_section_id != self.class_section_id:
+                errors["class_subject"] = "Choose a subject offered in this class."
+        if self.teacher_id and self.teacher.Role.TEACHER not in self.teacher.portal_roles:
+            errors["teacher"] = "Choose a teacher account."
+        if errors: raise ValidationError(errors)
 
 
 class TeacherActivityPreference(models.Model):
@@ -213,8 +284,73 @@ class TeacherActivityPreference(models.Model):
         PortalUser, on_delete=models.CASCADE, related_name="activity_preference",
         limit_choices_to={"role": PortalUser.Role.TEACHER},
     )
+    guided_setup_enabled = models.BooleanField(default=False)
+    guided_setup_revision = models.PositiveIntegerField(default=1)
     presence_offline_timeout_seconds = models.PositiveSmallIntegerField(default=90)
+    independent_compiler_sessions_enabled = models.BooleanField(
+        default=False,
+        help_text="Allow assigned students to keep an Oracle compiler session separate from their portal login session.",
+    )
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class TimetableEntry(models.Model):
+    class Frequency(models.TextChoices):
+        DAILY = "daily", "Daily"
+        WEEKLY = "weekly", "Weekly"
+        MONTHLY = "monthly", "Monthly"
+    allocation = models.ForeignKey(TeacherAssignment, on_delete=models.PROTECT, related_name="timetable_entries")
+    frequency = models.CharField(max_length=8, choices=Frequency.choices, default=Frequency.WEEKLY)
+    start_date = models.DateField(default=timezone.localdate)
+    end_date = models.DateField(null=True, blank=True)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    weekdays = models.JSONField(default=list, blank=True)
+    month_days = models.JSONField(default=list, blank=True)
+    room = models.CharField(max_length=80, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(PortalUser, on_delete=models.PROTECT, related_name="created_timetable_entries")
+
+    class Meta:
+        ordering = ("start_time", "pk")
+        verbose_name_plural = "Timetable"
+
+    @property
+    def recurrence_label(self):
+        if self.frequency == self.Frequency.DAILY: return "Daily"
+        if self.frequency == self.Frequency.WEEKLY:
+            labels = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+            return "Weekly · " + ", ".join(labels[day] for day in self.weekdays if isinstance(day, int) and 0 <= day <= 6)
+        return "Monthly · dates " + ", ".join(str(day) for day in self.month_days)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            errors["end_time"] = "End time must be after start time on the same day."
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            errors["end_date"] = "End date cannot be before start date."
+        for field, needed, maximum in (("weekdays", self.frequency == "weekly", 6), ("month_days", self.frequency == "monthly", 31)):
+            values = getattr(self, field)
+            minimum = 0 if field == "weekdays" else 1
+            if needed and (not isinstance(values, list) or not values or any(type(day) is not int or not minimum <= day <= maximum for day in values)):
+                errors[field] = "Choose the days on which this session repeats."
+            if not needed: setattr(self, field, [])
+        if self.allocation_id:
+            allocation = self.allocation
+            if not allocation.class_subject_id:
+                errors["allocation"] = "Allocate a teacher to a class subject first."
+            elif self.is_active:
+                if not allocation.class_section.is_active or not allocation.class_subject.subject.is_active or not allocation.teacher.is_active:
+                    errors["allocation"] = "Choose an active class, subject, and teacher."
+                try:
+                    allocation.clean()
+                except ValidationError:
+                    errors["allocation"] = "The teacher allocation is no longer valid. Update it in Class management."
+        if errors: raise ValidationError(errors)
+        if self.is_active and self.allocation_id and self.start_date and self.start_time and self.end_time:
+            from .timetable import validate_conflicts
+            validate_conflicts(self)
 
 class Enrollment(models.Model):
     student = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="enrollments", limit_choices_to={"role": PortalUser.Role.STUDENT})
@@ -259,13 +395,18 @@ class CompilerLab(models.Model):
     attendance_start_time = models.TimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
-
     class Meta:
         ordering = ("class_section__name", "name")
         unique_together = (("class_section", "name"),)
+    def __str__(self): return f"{self.class_section} · {self.name}"
 
-    def __str__(self):
-        return f"{self.class_section} · {self.name}"
+
+class LabEnrollment(models.Model):
+    student = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="lab_enrollments")
+    lab = models.ForeignKey(CompilerLab, on_delete=models.CASCADE, related_name="enrollments")
+    active = models.BooleanField(default=True)
+    enrolled_at = models.DateTimeField(default=timezone.now)
+    class Meta: unique_together = (("student", "lab"),)
 
 
 class CompilerExecutionEvent(models.Model):
@@ -280,7 +421,6 @@ class CompilerExecutionEvent(models.Model):
     typed_chars = models.PositiveIntegerField(null=True, blank=True, default=None)
     pasted_chars = models.PositiveIntegerField(null=True, blank=True, default=None)
     paste_count = models.PositiveIntegerField(null=True, blank=True, default=None)
-    pasted_texts = models.JSONField(default=list, blank=True)
     edits_after_paste = models.PositiveIntegerField(null=True, blank=True, default=None)
     executed_at = models.DateTimeField(default=timezone.now, db_index=True)
 
@@ -288,13 +428,63 @@ class CompilerExecutionEvent(models.Model):
         ordering = ("-executed_at", "-id")
         indexes = [models.Index(fields=("student", "executed_at"), name="compiler_event_user_time")]
 
+class AssessmentDefinition(models.Model):
+    parent_task = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="question_drafts", editable=False)
+    """Reusable, immutable content; delivery rows hold class schedules and results."""
+    kind = models.CharField(max_length=8, choices=[("daily", "Daily task"), ("test", "Test")])
+    code = models.CharField(max_length=40, unique=True, null=True, blank=True, editable=False)
+    title = models.CharField(max_length=200)
+    created_by = models.ForeignKey(PortalUser, on_delete=models.PROTECT, related_name="assessment_library")
+    payload = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ("-created_at", "-pk")
+
+    def save(self, *args, **kwargs):
+        from django.db import transaction
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if not self.code:
+                prefix = "DT" if self.kind == "daily" else "TS"
+                self.code = f"{prefix}-{timezone.localtime(self.created_at).year}-{self.pk:06d}"
+                type(self).objects.filter(pk=self.pk).update(code=self.code)
+
+    def __str__(self):
+        return f"{self.code} · {self.title}"
+
+
 class Assignment(models.Model):
+    assessment = models.ForeignKey(AssessmentDefinition, null=True, blank=True, on_delete=models.PROTECT, related_name="daily_mappings")
+
+    lab = models.ForeignKey(CompilerLab, null=True, blank=True, on_delete=models.PROTECT, related_name="daily_tasks")
+
+    verification_sql = models.TextField(blank=True)
+
+    start_at = models.DateTimeField(null=True, blank=True)
+    lab_start_at = models.DateTimeField(null=True, blank=True)
+    lab_end_at = models.DateTimeField(null=True, blank=True)
+    late_policy = models.CharField(max_length=8, choices=[("allow", "Allow late submissions"), ("lock", "Lock at deadline")], default="allow")
+    starter_sql = models.TextField(blank=True)
+    tags = models.CharField(max_length=300, blank=True)
+    hint = models.TextField(blank=True)
+    sample_schema = models.TextField(blank=True)
+
+    class GradingMode(models.TextChoices):
+        MANUAL = "manual", "Teacher review"
+        SQL_MATCH = "sql_match", "Match SQL statement"
+        RESULT_MATCH = "result_match", "Compare query results (SELECT)"
+
+    enabled_at = models.DateTimeField(null=True, blank=True)
     class_section = models.ForeignKey(ClassSection, on_delete=models.CASCADE, related_name="assignments")
     created_by = models.ForeignKey(PortalUser, on_delete=models.PROTECT, related_name="created_assignments")
     title = models.CharField(max_length=200)
     instructions = models.TextField(blank=True)
+    general_instructions = models.TextField(blank=True)
     due_at = models.DateTimeField(null=True, blank=True)
     max_score = models.DecimalField(max_digits=7, decimal_places=2, default=100)
+    grading_mode = models.CharField(max_length=16, choices=GradingMode.choices, default=GradingMode.MANUAL)
+    expected_sql = models.TextField(blank=True)
     published = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
 
@@ -309,16 +499,23 @@ class SQLQuestion(models.Model):
     is_active = models.BooleanField(default=True)
 
 class SQLTest(models.Model):
+    assessment = models.ForeignKey(AssessmentDefinition, null=True, blank=True, on_delete=models.PROTECT, related_name="test_mappings")
+
     class ScheduleFrequency(models.TextChoices):
         ANYTIME = "anytime", "Anytime"
         DAILY = "daily", "Daily"
         WEEKLY = "weekly", "Weekly"
+    class GradingMode(models.TextChoices):
+        MANUAL = "manual", "Teacher review"
+        SQL_MATCH = "sql_match", "Match SQL statement"
+        RESULT_MATCH = "result_match", "Compare query results (SELECT)"
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="tests")
     created_by = models.ForeignKey(PortalUser, on_delete=models.PROTECT)
     class_section = models.ForeignKey(ClassSection, on_delete=models.CASCADE, related_name="sql_tests", null=True, blank=True)
     lab = models.ForeignKey(CompilerLab, on_delete=models.CASCADE, related_name="sql_tests", null=True, blank=True)
     title = models.CharField(max_length=200)
     instructions = models.TextField(blank=True)
+    sample_schema = models.TextField(blank=True)
     starts_at = models.DateTimeField(null=True, blank=True)
     ends_at = models.DateTimeField(null=True, blank=True)
     duration_minutes = models.PositiveIntegerField(default=60)
@@ -328,6 +525,9 @@ class SQLTest(models.Model):
     schedule_start_time = models.TimeField(null=True, blank=True)
     schedule_end_time = models.TimeField(null=True, blank=True)
     schedule_weekdays = models.JSONField(default=list, blank=True)
+    grading_mode = models.CharField(max_length=16, choices=GradingMode.choices, default=GradingMode.MANUAL)
+    allow_typed_answer = models.BooleanField(default=False)
+    email_results_on_submit = models.BooleanField(default=False, help_text="Automatically email result scorecard to student on submission.")
 
 class TestAttempt(models.Model):
     test = models.ForeignKey(SQLTest, on_delete=models.CASCADE, related_name="attempts")
@@ -336,13 +536,18 @@ class TestAttempt(models.Model):
     submitted_at = models.DateTimeField(null=True, blank=True)
     score = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=20, default="in_progress")
+    allow_late_access = models.BooleanField(default=False, help_text="Allow student to take/resume test after scheduled window has ended.")
+    allow_full_duration = models.BooleanField(default=False, help_text="Allow student full test duration even if logging in late.")
     class Meta: unique_together = [("test", "student")]
 
 class SQLTestQuestion(models.Model):
+    verification_sql = models.TextField(blank=True)
+
     test = models.ForeignKey(SQLTest, on_delete=models.CASCADE, related_name="questions")
     position = models.PositiveIntegerField(default=1)
     prompt = models.TextField()
     marks = models.DecimalField(max_digits=7, decimal_places=2, default=1)
+    expected_sql = models.TextField(blank=True)
 
     class Meta:
         ordering = ("position", "id")
@@ -351,12 +556,23 @@ class TestAnswer(models.Model):
     attempt = models.ForeignKey(TestAttempt, on_delete=models.CASCADE, related_name="answers")
     question = models.ForeignKey(SQLTestQuestion, on_delete=models.CASCADE, related_name="answers")
     answer = models.TextField(blank=True)
+    is_correct = models.BooleanField(null=True, blank=True)
+    score = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    feedback = models.TextField(blank=True)
     class Meta:
         unique_together = [("attempt", "question")]
 
 class Submission(models.Model):
+    is_late = models.BooleanField(default=False)
+
+    first_attempt_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    is_correct = models.BooleanField(default=False)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     class Status(models.TextChoices):
         SUBMITTED = "submitted", "Submitted"
+        AUTO_GRADED = "auto_graded", "Automatically evaluated"
+        DISPUTED = "disputed", "Disputed"
         REVIEWED = "reviewed", "Reviewed"
         LATE = "late", "Late"
     assignment = models.ForeignKey(Assignment, on_delete=models.CASCADE, related_name="submissions")
@@ -366,6 +582,24 @@ class Submission(models.Model):
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.SUBMITTED)
     score = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
     feedback = models.TextField(blank=True)
+    dispute_message = models.TextField(blank=True)
+    disputed_at = models.DateTimeField(null=True, blank=True)
+    dispute_response = models.TextField(blank=True)
+    dispute_resolved_at = models.DateTimeField(null=True, blank=True)
+    @property
+    def review_state(self):
+        if self.is_correct:
+            return "completed"
+        if self.status in {self.Status.AUTO_GRADED, self.Status.REVIEWED}:
+            return "revision"
+        return "submitted"
+
+    @property
+    def review_label(self):
+        if self.status == self.Status.DISPUTED and not self.is_correct:
+            return "Under review"
+        return {"completed": "Correct", "revision": "Needs revision", "submitted": "Awaiting review"}[self.review_state]
+
     class Meta: unique_together = [("assignment", "student")]
 
 class StudyMaterial(models.Model):
@@ -419,6 +653,41 @@ class AuditEvent(models.Model):
     target = models.CharField(max_length=200, blank=True)
     details = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+class PortalUserChangeLog(models.Model):
+    class Action(models.TextChoices):
+        CREATED = "created", "Created"
+        UPDATED = "updated", "Updated"
+        DELETED = "deleted", "Deleted"
+
+    class Origin(models.TextChoices):
+        LIVE = "live", "Recorded at event time"
+        BACKFILLED = "backfilled", "Reconstructed for existing account"
+
+    # Creation and deletion records have no subject FK so they survive deletion.
+    # Update records cascade when their subject is deleted.
+    subject = models.ForeignKey(
+        PortalUser, on_delete=models.CASCADE, null=True, blank=True,
+        related_name="change_logs",
+    )
+    subject_id_snapshot = models.BigIntegerField(db_index=True)
+    username_snapshot = models.CharField(max_length=150)
+    action = models.CharField(max_length=8, choices=Action.choices, db_index=True)
+    origin = models.CharField(max_length=12, choices=Origin.choices, default=Origin.LIVE)
+    changed_fields = models.JSONField(default=list, blank=True)
+    actor = models.ForeignKey(
+        PortalUser, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="performed_user_changes",
+    )
+    actor_name_snapshot = models.CharField(max_length=150, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+    def __str__(self):
+        return f"{self.get_action_display()}: {self.username_snapshot}"
+
 
 class PortalSetting(models.Model):
     restrict_student_session_time = models.BooleanField(default=True, help_text='Apply daily allowances and the 30-minute inactivity timeout to students. Admin accounts and the Admin group are always exempt.')
@@ -625,6 +894,7 @@ class CompilerQueryHistory(models.Model):
     typed_chars = models.PositiveIntegerField(null=True, blank=True, default=None)
     pasted_chars = models.PositiveIntegerField(null=True, blank=True, default=None)
     paste_count = models.PositiveIntegerField(null=True, blank=True, default=None)
+    pasted_texts = models.JSONField(default=list, blank=True)
     edits_after_paste = models.PositiveIntegerField(null=True, blank=True, default=None)
     input_method = models.CharField(max_length=20, blank=True, default="")
     input_source_map = models.JSONField(default=list, blank=True)
@@ -792,3 +1062,78 @@ class CompilerClientActivityEvent(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=("student", "created_at"), name="client_event_user_time")]
+
+
+class SetupGuideProgress(models.Model):
+    student = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="setup_guide_progress")
+    teacher = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="student_setup_guides")
+    completed_revision = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("student", "teacher"), name="unique_student_setup_guide")]
+
+
+class OracleConnectionProfile(models.Model):
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="oracle_connections")
+    name = models.CharField(max_length=120)
+    username = models.CharField(max_length=255)
+    connect_string = models.TextField()
+    password_encrypted = models.TextField(editable=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["owner", "name"], name="unique_oracle_connection_name")]
+
+    def get_oracle_password(self):
+        try:
+            return _portal_secret_cipher().decrypt(self.password_encrypted.encode("ascii")).decode("utf-8")
+        except Exception:
+            return ""
+
+    def set_oracle_password(self, password):
+        self.password_encrypted = _portal_secret_cipher().encrypt(str(password).encode("utf-8")).decode("ascii")
+
+
+class ProjectRunnerConfiguration(models.Model):
+    """The single DBA-provisioned sandbox shared by project-file checks."""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    max_active_checks = models.PositiveSmallIntegerField(default=30)
+    teacher_active_checks = models.PositiveSmallIntegerField(default=5)
+    student_active_checks = models.PositiveSmallIntegerField(default=25)
+    sandbox_connection = models.OneToOneField(OracleConnectionProfile, on_delete=models.PROTECT, related_name="project_runner_configuration")
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class ProjectExecution(models.Model):
+    """Resumable, statement-by-statement execution in a DBA-provided sandbox."""
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        QUEUED = 'queued', 'Queued'
+        READY = 'ready', 'Ready'
+        RUNNING = "running", "Running"
+        PAUSED = "paused", "Paused on error"
+        COMPLETED = "completed", "Completed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="project_executions")
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="student_project_executions", null=True, blank=True)
+    name = models.CharField(max_length=180)
+    original_file_name = models.CharField(max_length=255, blank=True, default='')
+    activity_kind = models.CharField(max_length=10, default='file')
+    activity_id = models.PositiveIntegerField(null=True, blank=True)
+    setup_statement_count = models.PositiveIntegerField(default=0)
+    workspace_state = models.JSONField(default=dict, blank=True)
+    sandbox_connection = models.ForeignKey(OracleConnectionProfile, on_delete=models.PROTECT, related_name="project_executions")
+    source_text = models.TextField()
+    statements = models.JSONField(default=list)
+    results = models.JSONField(default=list)
+    next_index = models.PositiveIntegerField(default=0)
+    queue_role = models.CharField(max_length=7, default='STUDENT')
+    slot_reserved = models.BooleanField(default=False, db_index=True)
+    schema_name = models.CharField(max_length=30, blank=True, default='')
+    schema_password_encrypted = models.TextField(blank=True, default='', editable=False)
+    schema_expires_at = models.DateTimeField(null=True, blank=True)
+    schema_removed_at = models.DateTimeField(null=True, blank=True)
+    schema_cleanup_error = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)

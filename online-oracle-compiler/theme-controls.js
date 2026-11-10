@@ -69,6 +69,21 @@
       if (label.htmlFor === select.id) label.htmlFor = trigger.id;
     });
 
+    const search = select.dataset.searchable === 'true' ? document.createElement('input') : null;
+    if (search) {
+      search.type = 'search';
+      search.className = 'theme-select-search';
+      search.placeholder = select.dataset.searchPlaceholder || 'Search options…';
+      search.setAttribute('aria-label', select.dataset.searchLabel || 'Search options');
+      search.autocomplete = 'off';
+      search.addEventListener('input', filterOptions);
+    }
+    function filterOptions() {
+      const query = (search?.value || '').trim().toLocaleLowerCase();
+      menu.querySelectorAll('.theme-select-option').forEach(item => {
+        item.hidden = !item.textContent.toLocaleLowerCase().includes(query);
+      });
+    }
     let repositionHandlers = null;
     let validationMessage = null;
 
@@ -78,6 +93,7 @@
       trigger.disabled = select.disabled;
       trigger.setAttribute('aria-invalid', String(Boolean(validationMessage && required && !select.value)));
       menu.replaceChildren();
+      if (search) menu.append(search);
       [...select.options].forEach((option, index) => {
         const item = document.createElement('button');
         item.type = 'button';
@@ -95,6 +111,7 @@
         });
         menu.append(item);
       });
+      filterOptions();
       if (validationMessage && select.value) {
         validationMessage.remove();
         validationMessage = null;
@@ -114,14 +131,15 @@
       } catch { /* Selection still synchronizes on change/input events. */ }
     }
 
-    function placeMenu() {
+    function placeMenu(event) {
+      // Scrolling the option list must not resize it or reset its scrollTop.
+      if (event?.type === 'scroll' && event.target === menu) return;
       const rect = trigger.getBoundingClientRect();
       const margin = 8;
       const availableBelow = window.innerHeight - rect.bottom - margin;
       const availableAbove = rect.top - margin;
       const openAbove = availableBelow < 190 && availableAbove > availableBelow;
       const available = Math.max(100, Math.min(360, openAbove ? availableAbove : availableBelow));
-      menu.style.maxHeight = '';
       const menuHeight = Math.min(360, menu.scrollHeight);
       const width = Math.min(Math.max(rect.width, 180), window.innerWidth - margin * 2);
       const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
@@ -144,6 +162,7 @@
 
     function open(focusSelected = false) {
       if (trigger.disabled) return;
+      if (search) search.value = '';
       refresh();
       menu.hidden = false;
       placeMenu();
@@ -151,7 +170,8 @@
       repositionHandlers = placeMenu;
       window.addEventListener('resize', repositionHandlers, true);
       window.addEventListener('scroll', repositionHandlers, true);
-      if (focusSelected) {
+      if (search) search.focus();
+      else if (focusSelected) {
         const selected = menu.querySelector('.theme-select-option[aria-selected="true"]');
         (selected || menu.querySelector('.theme-select-option:not(:disabled)'))?.focus();
       }
@@ -168,7 +188,8 @@
       }
     });
     menu.addEventListener('keydown', (event) => {
-      const options = [...menu.querySelectorAll('.theme-select-option:not(:disabled)')];
+      const options = [...menu.querySelectorAll('.theme-select-option:not(:disabled)')].filter(item => !item.hidden);
+      if (event.target === search && !['ArrowDown', 'ArrowUp', 'Escape', 'Tab'].includes(event.key)) return;
       const current = options.indexOf(document.activeElement);
       let next = current;
       if (event.key === 'ArrowDown') next = Math.min(options.length - 1, current + 1);
@@ -209,6 +230,33 @@
   }
 
   document.querySelectorAll('select').forEach(enhanceSelect);
+  // Class navigation must also respond when the already-selected "new class" option is clicked.
+  const classSelector = document.getElementById('class-selector');
+  if (classSelector?.form?.method.toLowerCase() === 'get') {
+    const classFormCard = document.querySelector('form input[name="action"][value="class"]')?.closest('.content-card');
+    if (classFormCard) {
+      classFormCard.id = 'class-form';
+      if (window.location.hash === '#class-form') classFormCard.scrollIntoView({ block: 'start' });
+      // Keep cached page templates usable until the server's template cache is refreshed.
+      if (!classSelector.form.querySelector('[data-add-new-class]')) {
+        const addClass = document.createElement('a');
+        addClass.className = 'academic-button';
+        addClass.href = '/portal/classes/#class-form';
+        addClass.textContent = 'Add new class';
+        addClass.dataset.addNewClass = '';
+        (classSelector.form.querySelector('.academic-row-actions') || classSelector.form).append(addClass);
+      }
+    }
+    classSelector.form.action = '/portal/classes/';
+  }
+  const allocationClass = document.querySelector('[data-allocation-class]');
+  allocationClass?.addEventListener('change', () => {
+    if (!allocationClass.value) return;
+    const destination = new URL('/portal/classes/', window.location.origin);
+    destination.searchParams.set('class', allocationClass.value);
+    destination.hash = 'allocation-form';
+    window.location.assign(destination.toString());
+  });
   new MutationObserver((records) => {
     for (const record of records) {
       if (record.type === 'childList') record.addedNodes.forEach((node) => {

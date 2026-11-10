@@ -34,10 +34,7 @@ def daily_allowance(user, attendance=None, now=None):
     reset = StudentDailyAccessReset.objects.filter(student=user, day=day).only('reset_at').first()
     if reset:
         start = max(start, reset.reset_at)
-    if attendance and attendance.lab_id:
-        lab = attendance.lab
-        minutes = lab.daily_session_minutes if lab.daily_session_minutes is not None else lab.class_section.daily_session_minutes
-    elif attendance and attendance.class_section_id:
+    if attendance and attendance.class_section_id:
         minutes = attendance.class_section.daily_session_minutes
     else:
         # With no selected class, the strictest enrolled class allowance applies.

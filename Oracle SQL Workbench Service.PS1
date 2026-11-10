@@ -50,7 +50,9 @@ $probeUrl = "${scheme}://${probeAddress}:${portNumber}/api/status"
 function Test-WorkbenchResponding {
   try {
     # Probe locally without DNS/proxy discovery or a CIM network inventory.
-    $response = & curl.exe --noproxy '*' --insecure --silent --connect-timeout 1 --max-time 2 --header "Host: ${publicHost}:${portNumber}" --output - --write-out "`n%{http_code}" $probeUrl 2>$null
+    # /api/status enforces same-origin checks, so identify this local probe as
+    # coming from the configured application origin rather than as a bare curl.
+    $response = & curl.exe --noproxy '*' --insecure --silent --connect-timeout 1 --max-time 2 --header "Host: ${publicHost}:${portNumber}" --header "Origin: ${scheme}://${publicHost}:${portNumber}" --output - --write-out "`n%{http_code}" $probeUrl 2>$null
     if ($LASTEXITCODE -ne 0) { return $false }
     $lines = ($response -join "`n") -split "`r?`n"
     if ($lines[-1] -ne '200') { return $false }
@@ -235,6 +237,9 @@ try {
     'Logs' {
       if (Test-Path -LiteralPath $stderrLog) { Get-Content -LiteralPath $stderrLog -Tail 30 }
       else { Write-Host 'No error log file yet.' -ForegroundColor Yellow }
+      Write-Host ''
+      Write-Host 'Press any key to return to the service menu...' -ForegroundColor Cyan
+      $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
     }
   }
 } catch {

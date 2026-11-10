@@ -23,7 +23,7 @@ class OracleConnectionTests(SimpleTestCase):
         terminal.cursor.return_value.__enter__.return_value.execute.side_effect = Exception("ORA-01013: operation cancelled")
         state = {"sqlplus": terminal, "editor": editor, "status": {"user":"TEST"}}
         with patch('workbench.views.current_oracle_session', return_value=state):
-            response = oracle_status(RequestFactory().get('/api/status'))
+            response = oracle_status(RequestFactory().get('/api/status', HTTP_SEC_FETCH_SITE='same-origin'))
         self.assertIn(b'"connected": true',response.content)
         terminal.close.assert_not_called()
         editor.close.assert_not_called()
@@ -33,7 +33,7 @@ class OracleConnectionTests(SimpleTestCase):
         terminal.cursor.return_value.__enter__.return_value.execute.side_effect = Exception("ORA-03114: not connected to ORACLE")
         state = {"sqlplus": terminal, "editor": editor}
         with patch('workbench.views.current_oracle_session', return_value=state):
-            response = oracle_status(RequestFactory().get('/api/status'))
+            response = oracle_status(RequestFactory().get('/api/status', HTTP_SEC_FETCH_SITE='same-origin'))
         self.assertIn(b'"connected": true',response.content)
         self.assertIsNone(state['sqlplus'])
         editor.close.assert_not_called()
@@ -43,7 +43,7 @@ class OracleConnectionTests(SimpleTestCase):
         lock = MagicMock()
         lock.acquire.return_value = False
         with patch('workbench.views.current_oracle_session', return_value={"sqlplus":terminal,"operation_lock":lock}):
-            response = oracle_status(RequestFactory().get('/api/status'))
+            response = oracle_status(RequestFactory().get('/api/status', HTTP_SEC_FETCH_SITE='same-origin'))
         terminal.cursor.assert_not_called()
         self.assertIn(b'"busy": true', response.content)
 
