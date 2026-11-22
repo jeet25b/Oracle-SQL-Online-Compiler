@@ -29,3 +29,5 @@ reports/
 *.xlsx
 *.zip
 *.bak
+*.log
+logs/
