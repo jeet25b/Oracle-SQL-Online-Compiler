@@ -13,9 +13,27 @@ from datetime import timedelta
 
 
 def _portal_secret_cipher():
-    from cryptography.fernet import Fernet
-    key = base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest())
-    return Fernet(key)
+    from cryptography.fernet import Fernet, MultiFernet
+
+    def derive(secret):
+        key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
+        return Fernet(key)
+
+    dedicated = getattr(settings, "DB_CREDENTIALS_ENCRYPTION_KEY", "")
+    legacy = derive(settings.SECRET_KEY)
+    if not dedicated:
+        return legacy
+
+    ciphers = []
+    for secret in (part.strip() for part in str(dedicated).split(",")):
+        if secret:
+            cipher = derive(secret)
+            if cipher not in ciphers:
+                ciphers.append(cipher)
+    if not ciphers:
+        return legacy
+    ciphers.append(legacy)
+    return MultiFernet(ciphers)
 
 
 def normalize_mobile_number(value):
