@@ -31,8 +31,11 @@ separate database backup managed by its database administrator.
 for newly stored Oracle, email, and temporary-schema credentials. Existing
 credentials remain readable using `DJANGO_SECRET_KEY` as a fallback. Keep the
 original Django secret until those records are re-encrypted; do not rotate it
-immediately after setting the new key. The backup archive still uses the
-Django secret independently.
+immediately after setting the new key. For safe dedicated-key rotation, configure
+`DB_CREDENTIALS_ENCRYPTION_KEY` as `new-key,old-key`; the first value encrypts
+new data and both values can decrypt existing data. Remove old values only after
+the credentials have been rewritten, with backups and a recovery rehearsal
+available. The backup archive still uses the Django secret independently.
 
 Verification checks integrity, decryption and fixture structure; it does not
 prove a full recovery. Regularly rehearse restoration into a separate, empty

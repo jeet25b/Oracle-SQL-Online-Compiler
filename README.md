@@ -23,6 +23,12 @@ The login flow rejects `SYS`, `SYSTEM`, and SYSDBA mode. Configure a dedicated O
 
 Editor statements run with autocommit off. Use the Editor's Commit and Rollback buttons to end the transaction; disconnecting or an idle session expiry closes the connection and rolls back pending DML. SQL*Plus autocommit defaults to off for new browser settings, and its `COMMIT` and `ROLLBACK` commands control its transaction. Oracle DDL can commit implicitly, so rollback cannot undo every kind of statement.
 
+## Credential and execution boundaries
+
+Set `DB_CREDENTIALS_ENCRYPTION_KEY` to a separate private random value to protect newly stored portal credentials. Existing ciphertext remains decryptable with `DJANGO_SECRET_KEY`; keep that secret until every credential has been rewritten. For key rotation, use `new-key,old-key` so the first key encrypts new values and older keys can still decrypt stored values.
+
+C/C++ execution requires Docker Desktop with Linux containers and the configured compiler image. Runs use no container network, a read-only root filesystem, dropped Linux capabilities, no privilege escalation, a non-root user, CPU/memory/PID/file-size limits, and a 64 KiB source/32 KiB input/64 KiB output ceiling. SQL*Plus project checks reject instance and connection-changing commands, run with a restricted project account and a 5-second exchange/200,000-character output limit, and use `shell=False`.
+
 ## Development and production
 
 `run_server.py` is a threaded Django WSGI runner intended for this local Windows workstation workflow. For internet-facing production, deploy Django behind a maintained production WSGI/ASGI server and HTTPS reverse proxy, set `DEBUG=False`, use a strong `DJANGO_SECRET_KEY`, configure `DJANGO_ALLOWED_HOSTS`, backups, and review Django's deployment checklist. The previous `server.js` is retained as a source snapshot but is no longer used by the normal startup path. `npm start` and the service launcher start Django.
